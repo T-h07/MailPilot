@@ -16,6 +16,9 @@ export type SyncStatusRecord = {
   accountId: string;
   email: string;
   status: "IDLE" | "RUNNING" | "ERROR";
+  processed?: number | null;
+  total?: number | null;
+  message?: string | null;
   lastSyncAt: string | null;
   lastError: string | null;
   lastRunStartedAt: string | null;

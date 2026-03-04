@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   BrowserRouter,
   Navigate,
@@ -37,14 +37,6 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
   Sheet,
   SheetContent,
   SheetHeader,
@@ -59,6 +51,7 @@ import {
 } from "@/components/ui/tooltip";
 import { ApiClientError } from "@/lib/api/client";
 import { listViews, type ViewRecord } from "@/lib/api/views";
+import { LiveEventsProvider, useLiveEvents } from "@/lib/events/live-events-context";
 
 type ThemeMode = "light" | "dark";
 
@@ -83,8 +76,17 @@ type SidebarProps = {
   views: ViewRecord[];
   viewsLoading: boolean;
   viewsError: string | null;
+  inboxBadgeCount: number;
+  viewBadgeCounts: Record<string, number>;
+  viewsTotalBadgeCount: number;
   onRetryViews: () => void;
   onNavigate?: () => void;
+};
+
+type AppToast = {
+  id: number;
+  title: string;
+  body: string;
 };
 
 const navItems: SidebarLink[] = [
@@ -154,7 +156,16 @@ function linkClassName(active: boolean): string {
   );
 }
 
-function Sidebar({ views, viewsLoading, viewsError, onRetryViews, onNavigate }: SidebarProps) {
+function Sidebar({
+  views,
+  viewsLoading,
+  viewsError,
+  inboxBadgeCount,
+  viewBadgeCounts,
+  viewsTotalBadgeCount,
+  onRetryViews,
+  onNavigate,
+}: SidebarProps) {
   const location = useLocation();
   const onViewRoute = location.pathname.startsWith("/views/");
   const [viewsOpen, setViewsOpen] = useState(onViewRoute);
@@ -192,6 +203,11 @@ function Sidebar({ views, viewsLoading, viewsError, onRetryViews, onNavigate }: 
                   >
                     <item.icon className="h-4 w-4" />
                     <span>{item.label}</span>
+                    {item.to === "/inbox" && inboxBadgeCount > 0 && (
+                      <Badge className="ml-auto rounded-full px-2 py-0 text-[10px]" variant="secondary">
+                        {inboxBadgeCount}
+                      </Badge>
+                    )}
                   </NavLink>
                 </TooltipTrigger>
                 <TooltipContent side="right">{item.label}</TooltipContent>
@@ -210,6 +226,11 @@ function Sidebar({ views, viewsLoading, viewsError, onRetryViews, onNavigate }: 
                   <span className="flex items-center gap-3">
                     <LayoutDashboard className="h-4 w-4" />
                     Views
+                    {viewsTotalBadgeCount > 0 && (
+                      <Badge className="rounded-full px-2 py-0 text-[10px]" variant="secondary">
+                        {viewsTotalBadgeCount}
+                      </Badge>
+                    )}
                   </span>
                   <ChevronDown
                     className={cn("h-4 w-4 transition-transform", viewsOpen && "rotate-180")}
@@ -256,8 +277,15 @@ function Sidebar({ views, viewsLoading, viewsError, onRetryViews, onNavigate }: 
                     to={`/views/${view.id}`}
                   >
                     <span className="truncate">{view.name}</span>
-                    <span className="rounded-full border border-border px-2 py-0.5 text-[10px]">
-                      P{view.priority}
+                    <span className="flex items-center gap-1.5">
+                      {viewBadgeCounts[view.id] > 0 && (
+                        <Badge className="rounded-full px-2 py-0 text-[10px]" variant="secondary">
+                          {viewBadgeCounts[view.id]}
+                        </Badge>
+                      )}
+                      <span className="rounded-full border border-border px-2 py-0.5 text-[10px]">
+                        P{view.priority}
+                      </span>
                     </span>
                   </NavLink>
                 ))}
@@ -298,8 +326,17 @@ function Sidebar({ views, viewsLoading, viewsError, onRetryViews, onNavigate }: 
 
 function AppShell() {
   const location = useLocation();
+  const {
+    badges,
+    latestNewMail,
+    newMailSequence,
+    sseConnected,
+    syncByAccountId,
+  } = useLiveEvents();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [themeMode, setThemeMode] = useState<ThemeMode>(getInitialThemeMode);
+  const [toasts, setToasts] = useState<AppToast[]>([]);
+  const toastTimeoutsRef = useRef<Map<number, number>>(new Map());
 
   const [views, setViews] = useState<ViewRecord[]>([]);
   const [viewsLoading, setViewsLoading] = useState(false);
@@ -326,21 +363,99 @@ function AppShell() {
     () => resolveHeaderTitle(location.pathname, views),
     [location.pathname, views],
   );
+  const syncPill = useMemo(() => {
+    const statuses = Object.values(syncByAccountId);
+    const running = statuses.find((status) => status.state === "RUNNING");
+    if (running) {
+      const progress = running.total && running.total > 0 && running.processed !== null
+        ? ` • ${running.processed}/${running.total}`
+        : "";
+      return {
+        label: `Syncing ${running.email}${progress}`,
+        variant: "default" as const,
+      };
+    }
+
+    const errored = statuses.find((status) => status.state === "ERROR");
+    if (errored) {
+      return {
+        label: `Sync error • ${errored.email}`,
+        variant: "destructive" as const,
+      };
+    }
+
+    return {
+      label: sseConnected ? "Idle" : "Idle • reconnecting",
+      variant: "secondary" as const,
+    };
+  }, [sseConnected, syncByAccountId]);
 
   useLayoutEffect(() => {
     document.documentElement.classList.toggle("dark", themeMode === "dark");
     localStorage.setItem(THEME_STORAGE_KEY, themeMode);
   }, [themeMode]);
 
+  useEffect(() => {
+    if (!latestNewMail || newMailSequence === 0) {
+      return;
+    }
+
+    const matchingView = views.find((view) => latestNewMail.viewMatches.includes(view.id));
+    const targetLabel = matchingView?.name ?? "Inbox";
+    const sender = latestNewMail.senderName?.trim() || latestNewMail.senderEmail;
+    const subject = latestNewMail.subject?.trim() || "(no subject)";
+
+    const toastId = Date.now() + Math.floor(Math.random() * 10000);
+    const nextToast: AppToast = {
+      id: toastId,
+      title: `New mail in ${targetLabel}`,
+      body: `${sender} — ${subject}`,
+    };
+
+    setToasts((previous) => {
+      const next = [...previous, nextToast];
+      while (next.length > 3) {
+        const removed = next.shift();
+        if (removed) {
+          const timeoutId = toastTimeoutsRef.current.get(removed.id);
+          if (timeoutId !== undefined) {
+            window.clearTimeout(timeoutId);
+            toastTimeoutsRef.current.delete(removed.id);
+          }
+        }
+      }
+      return next;
+    });
+
+    const timeoutId = window.setTimeout(() => {
+      setToasts((previous) => previous.filter((toast) => toast.id !== toastId));
+      toastTimeoutsRef.current.delete(toastId);
+    }, 5000);
+
+    toastTimeoutsRef.current.set(toastId, timeoutId);
+  }, [latestNewMail, newMailSequence, views]);
+
+  useEffect(() => {
+    return () => {
+      for (const timeoutId of toastTimeoutsRef.current.values()) {
+        window.clearTimeout(timeoutId);
+      }
+      toastTimeoutsRef.current.clear();
+    };
+  }, []);
+
   return (
     <div className="flex h-screen bg-background text-foreground">
       <aside className="sidebar-panel hidden w-[260px] shrink-0 border-r border-border md:block">
         <Sidebar
+          inboxBadgeCount={badges.inboxCount}
           onRetryViews={() => {
             void refreshViews();
           }}
+          viewBadgeCounts={badges.viewCounts}
           views={views}
           viewsError={viewsError}
+          viewsTotalBadgeCount={badges.viewsTotal}
           viewsLoading={viewsLoading}
         />
       </aside>
@@ -358,12 +473,15 @@ function AppShell() {
                   <SheetTitle>Navigation</SheetTitle>
                 </SheetHeader>
                 <Sidebar
+                  inboxBadgeCount={badges.inboxCount}
                   onNavigate={() => setMobileNavOpen(false)}
                   onRetryViews={() => {
                     void refreshViews();
                   }}
+                  viewBadgeCounts={badges.viewCounts}
                   views={views}
                   viewsError={viewsError}
+                  viewsTotalBadgeCount={badges.viewsTotal}
                   viewsLoading={viewsLoading}
                 />
               </SheetContent>
@@ -373,24 +491,9 @@ function AppShell() {
               <p className="pt-1 text-xs text-muted-foreground">Desktop command deck</p>
             </div>
           </div>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button className="rounded-full" size="sm" variant="outline">
-                <Badge className="rounded-full" variant="secondary">
-                  Offline • Not synced
-                </Badge>
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="end"
-              className="z-[60] border-border bg-popover text-popover-foreground shadow-md"
-            >
-              <DropdownMenuLabel>Sync status</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem disabled>Offline mode</DropdownMenuItem>
-              <DropdownMenuItem disabled>Auto-sync (coming soon)</DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <Badge className="rounded-full px-3 py-1 text-xs" variant={syncPill.variant}>
+            {syncPill.label}
+          </Badge>
         </header>
         <main className="flex-1 overflow-auto p-4 md:p-6">
           <div className="mx-auto max-w-7xl">
@@ -406,6 +509,19 @@ function AppShell() {
             />
           </div>
         </main>
+        {toasts.length > 0 && (
+          <div className="pointer-events-none fixed bottom-5 right-5 z-[80] space-y-2">
+            {toasts.map((toast) => (
+              <div
+                className="w-[320px] rounded-lg border border-border bg-card px-3 py-2 shadow-lg"
+                key={toast.id}
+              >
+                <p className="text-xs font-semibold">{toast.title}</p>
+                <p className="pt-1 text-xs text-muted-foreground">{toast.body}</p>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -413,21 +529,23 @@ function AppShell() {
 
 function App() {
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route element={<AppShell />} path="/">
-          <Route element={<Navigate replace to="/inbox" />} index />
-          <Route element={<InboxPage />} path="inbox" />
-          <Route element={<FocusPage />} path="focus" />
-          <Route element={<FocusDrillPage />} path="focus/drill/:type" />
-          <Route element={<ViewsHubPage />} path="views/manage" />
-          <Route element={<ViewPage />} path="views/:viewId" />
-          <Route element={<InsightsPage />} path="insights" />
-          <Route element={<SettingsPage />} path="settings" />
-        </Route>
-        <Route element={<Navigate replace to="/inbox" />} path="*" />
-      </Routes>
-    </BrowserRouter>
+    <LiveEventsProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route element={<AppShell />} path="/">
+            <Route element={<Navigate replace to="/inbox" />} index />
+            <Route element={<InboxPage />} path="inbox" />
+            <Route element={<FocusPage />} path="focus" />
+            <Route element={<FocusDrillPage />} path="focus/drill/:type" />
+            <Route element={<ViewsHubPage />} path="views/manage" />
+            <Route element={<ViewPage />} path="views/:viewId" />
+            <Route element={<InsightsPage />} path="insights" />
+            <Route element={<SettingsPage />} path="settings" />
+          </Route>
+          <Route element={<Navigate replace to="/inbox" />} path="*" />
+        </Routes>
+      </BrowserRouter>
+    </LiveEventsProvider>
   );
 }
 

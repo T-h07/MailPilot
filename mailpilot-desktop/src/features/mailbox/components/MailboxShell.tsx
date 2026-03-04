@@ -23,6 +23,7 @@ import {
 } from "@/lib/api/mailbox";
 import { runFollowupAction, updateFollowup, type FollowupState } from "@/lib/api/followups";
 import { emitFollowupUpdated } from "@/lib/events/followups";
+import { useLiveEvents } from "@/lib/events/live-events-context";
 import type { ViewRecord } from "@/lib/api/views";
 import { ApiClientError } from "@/lib/api/client";
 import { Badge } from "@/components/ui/badge";
@@ -304,6 +305,8 @@ export function MailboxShell({
   const hideNoticeTimeoutRef = useRef<number | null>(null);
   const listAbortRef = useRef<AbortController | null>(null);
   const detailAbortRef = useRef<AbortController | null>(null);
+  const openedMailboxKeyRef = useRef<string | null>(null);
+  const { markInboxOpened, markViewOpened } = useLiveEvents();
 
   const viewSummaryChips = useMemo(() => summarizeViewRules(view), [view]);
 
@@ -511,6 +514,25 @@ export function MailboxShell({
     activeFiltersKey,
     forcedFiltersKey,
   ]);
+
+  useEffect(() => {
+    const mailboxKey = context === "inbox" ? "INBOX" : view?.id ? `VIEW:${view.id}` : null;
+    if (!mailboxKey || isLoadingList) {
+      return;
+    }
+    if (openedMailboxKeyRef.current === mailboxKey) {
+      return;
+    }
+
+    openedMailboxKeyRef.current = mailboxKey;
+    if (context === "inbox") {
+      void markInboxOpened();
+      return;
+    }
+    if (view?.id) {
+      void markViewOpened(view.id);
+    }
+  }, [context, isLoadingList, markInboxOpened, markViewOpened, view?.id]);
 
   useEffect(() => {
     if (messages.length === 0) {

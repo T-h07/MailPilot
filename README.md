@@ -126,6 +126,40 @@ npm run tauri dev
 - `429` or `5xx` from Gmail:
   - Sync retries with exponential backoff.
 
+## Live updates (MP-PT12)
+
+MailPilot now streams live backend events over Server-Sent Events (SSE):
+
+- `GET /api/events/stream`
+- event types:
+  - `heartbeat`
+  - `badge_update`
+  - `sync_status`
+  - `new_mail`
+
+Badges are server-side truth and are based on:
+
+- `messages.created_at` (ingested into MailPilot time, not Gmail received time)
+- `mailbox_seen.last_opened_at` for keys:
+  - `INBOX`
+  - `VIEW:<viewId>`
+
+When Inbox or a View is opened, the app calls:
+
+- `POST /api/badges/inbox/opened`
+- `POST /api/badges/views/{viewId}/opened`
+
+and receives updated badge state through SSE.
+
+### MP-PT12 troubleshooting
+
+- If badges/status do not update live:
+  - verify backend is running and reachable from desktop dev origin.
+  - verify `http://127.0.0.1:8082/api/events/stream` is reachable.
+  - check browser/devtools network tab for an active `text/event-stream` request.
+- If SSE disconnects:
+  - desktop falls back to periodic polling (`/api/badges/summary`, `/api/sync/status`) until reconnect.
+
 ## Reset local DB (remove old demo rows)
 
 If you previously used seed/demo data in older milestones, reset the local DB volume:
