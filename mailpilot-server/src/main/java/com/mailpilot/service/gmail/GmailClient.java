@@ -5,13 +5,16 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
 import java.time.Duration;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -28,6 +31,7 @@ public class GmailClient {
   private static final String MESSAGE_URL = GMAIL_BASE_URL + "/messages/{messageId}";
   private static final String ATTACHMENT_URL =
     GMAIL_BASE_URL + "/messages/{messageId}/attachments/{attachmentId}";
+  private static final String SEND_MESSAGE_URL = GMAIL_BASE_URL + "/messages/send";
   private static final String PROFILE_URL = GMAIL_BASE_URL + "/profile";
   private static final String HISTORY_URL = GMAIL_BASE_URL + "/history";
 
@@ -73,9 +77,12 @@ public class GmailClient {
       .fromUriString(MESSAGE_URL)
       .queryParam("format", "metadata")
       .queryParam("metadataHeaders", "From")
+      .queryParam("metadataHeaders", "To")
+      .queryParam("metadataHeaders", "Cc")
       .queryParam("metadataHeaders", "Subject")
       .queryParam("metadataHeaders", "Date")
       .queryParam("metadataHeaders", "Message-ID")
+      .queryParam("metadataHeaders", "References")
       .buildAndExpand(messageId)
       .encode()
       .toUri();
@@ -113,6 +120,52 @@ public class GmailClient {
       GmailAttachmentResponse.class,
       ErrorSemantics.ATTACHMENT_FETCH
     );
+  }
+
+  public GmailSendResponse sendMessage(String accessToken, String rawMessage, String threadId) {
+    HttpHeaders headers = authHeaders(accessToken);
+    headers.setContentType(MediaType.APPLICATION_JSON);
+    Map<String, String> payload = new LinkedHashMap<>();
+    payload.put("raw", rawMessage);
+    if (StringUtils.hasText(threadId)) {
+      payload.put("threadId", threadId.trim());
+    }
+
+    HttpEntity<Map<String, String>> requestEntity = new HttpEntity<>(payload, headers);
+
+    for (int attempt = 0; attempt < MAX_RETRY_ATTEMPTS; attempt++) {
+      try {
+        ResponseEntity<GmailSendResponse> response = restTemplate.exchange(
+          SEND_MESSAGE_URL,
+          HttpMethod.POST,
+          requestEntity,
+          GmailSendResponse.class
+        );
+        GmailSendResponse body = response.getBody();
+        if (body == null || !StringUtils.hasText(body.id())) {
+          throw new GmailApiException("sendMessage returned an empty response body.");
+        }
+        return body;
+      } catch (HttpStatusCodeException exception) {
+        int status = exception.getStatusCode().value();
+        if (status == 401) {
+          throw new GmailUnauthorizedException("Google API returned 401 Unauthorized.");
+        }
+        if ((status == 429 || status >= 500) && attempt < MAX_RETRY_ATTEMPTS - 1) {
+          sleepBackoff(attempt);
+          continue;
+        }
+        throw new GmailApiException("sendMessage failed: " + bestErrorMessage(exception));
+      } catch (ResourceAccessException exception) {
+        if (attempt < MAX_RETRY_ATTEMPTS - 1) {
+          sleepBackoff(attempt);
+          continue;
+        }
+        throw new GmailApiException("sendMessage failed due to network timeout.");
+      }
+    }
+
+    throw new GmailApiException("sendMessage failed after retries.");
   }
 
   public HistoryListResponse historyList(String accessToken, String startHistoryId, String pageToken) {
@@ -335,6 +388,9 @@ public class GmailClient {
 
   @JsonIgnoreProperties(ignoreUnknown = true)
   public record HistoryMessageContainer(@JsonProperty("message") MessageRef message) {}
+
+  @JsonIgnoreProperties(ignoreUnknown = true)
+  public record GmailSendResponse(@JsonProperty("id") String id, @JsonProperty("threadId") String threadId) {}
 
   public static class GmailApiException extends RuntimeException {
 

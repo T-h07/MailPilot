@@ -70,6 +70,9 @@ C:\Users\taulanth\AppData\Local\MailPilot\google-oauth-client.json
 - `profile`
 - `https://www.googleapis.com/auth/gmail.readonly`
 
+MP-PT15 adds a send scope upgrade flow (separate re-consent):
+- `https://www.googleapis.com/auth/gmail.send`
+
 ### Environment variables (PowerShell)
 ```powershell
 $env:MAILPILOT_GOOGLE_OAUTH_CLIENT_JSON="C:\Users\taulanth\AppData\Local\MailPilot\google-oauth-client.json"
@@ -235,6 +238,38 @@ MailPilot now supports:
 2. Click `Download` on an attachment and save it locally.
 3. Use `Export Email to PDF`, then `Export Thread to PDF`.
 4. Confirm files open successfully.
+
+## Sending email (MP-PT15)
+
+MailPilot now supports:
+- Compose new email
+- Reply / Reply all / Forward from Preview panel
+- Sending attachments via Gmail API
+
+### Scope upgrade requirement
+- Sending requires `https://www.googleapis.com/auth/gmail.send`.
+- Accounts connected before MP-PT15 typically only have readonly scopes.
+- Use **Re-auth for sending** to run OAuth in SEND mode and grant `gmail.send`.
+
+### Flow
+1. Connect Gmail account in Settings.
+2. If account shows `Send disabled` / `REAUTH_REQUIRED`, click `Re-auth for sending`.
+3. Open Inbox/View, click `Compose` (or `Reply/Reply all/Forward` from Preview).
+4. Add recipients/body/attachments and click `Send`.
+
+### API
+- OAuth start supports mode:
+  - `POST /api/oauth/gmail/start` with `{ "mode": "READONLY" | "SEND" }`
+- Send endpoint:
+  - `POST /api/mail/send` (`multipart/form-data`)
+
+### Troubleshooting
+- `409 Re-auth required to send email`:
+  - Re-run OAuth with SEND mode.
+- Missing refresh token:
+  - Re-consent with `prompt=consent` (already used in OAuth flow).
+- Gmail API send errors:
+  - Verify account has `gmail.send` scope and valid refresh token.
 
 ## Reset local DB (remove old demo rows)
 

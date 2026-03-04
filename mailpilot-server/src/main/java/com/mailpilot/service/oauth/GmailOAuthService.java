@@ -8,6 +8,7 @@ import com.mailpilot.api.model.GmailOAuthStartResponse;
 import com.mailpilot.service.oauth.OAuthAccountService.EncryptedTokenPayload;
 import com.mailpilot.service.oauth.OAuthStateStore.OAuthFlowStatus;
 import com.mailpilot.service.oauth.OAuthStateStore.PkceState;
+import com.mailpilot.service.oauth.OAuthStateStore.PkceVerification;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URLEncoder;
@@ -42,7 +43,8 @@ public class GmailOAuthService {
     "https://gmail.googleapis.com/gmail/v1/users/me/profile";
   private static final String REDIRECT_URI = "http://127.0.0.1:8082/api/oauth/gmail/callback";
 
-  private static final List<String> OAUTH_SCOPES = List.of(
+  private static final String GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
+  private static final List<String> READONLY_SCOPES = List.of(
     "openid",
     "email",
     "profile",
@@ -71,16 +73,17 @@ public class GmailOAuthService {
     this.httpClient = HttpClient.newHttpClient();
   }
 
-  public GmailOAuthStartResponse start() {
+  public GmailOAuthStartResponse start(String requestedMode) {
+    OAuthStartMode mode = OAuthStartMode.fromInput(requestedMode);
     GoogleOAuthClientConfig config = googleOAuthClientConfigService.loadRequiredConfig();
-    PkceState pkceState = oauthStateStore.create();
+    PkceState pkceState = oauthStateStore.create(mode.name());
 
     String authUrl = UriComponentsBuilder
       .fromUriString(AUTH_ENDPOINT)
       .queryParam("response_type", "code")
       .queryParam("client_id", config.clientId())
       .queryParam("redirect_uri", REDIRECT_URI)
-      .queryParam("scope", String.join(" ", OAUTH_SCOPES))
+      .queryParam("scope", String.join(" ", mode.requestedScopes()))
       .queryParam("code_challenge", pkceState.codeChallenge())
       .queryParam("code_challenge_method", "S256")
       .queryParam("access_type", "offline")
@@ -115,17 +118,21 @@ public class GmailOAuthService {
       return failureResult(message, HttpStatus.BAD_REQUEST);
     }
 
-    String codeVerifier = oauthStateStore.consumeCodeVerifier(state).orElse(null);
-    if (!StringUtils.hasText(codeVerifier)) {
+    PkceVerification verification = oauthStateStore.consumeCodeVerifier(state).orElse(null);
+    if (verification == null || !StringUtils.hasText(verification.codeVerifier())) {
       String message = "OAuth state is invalid or expired. Please retry Connect Gmail.";
       oauthStateStore.markError(state, message);
       return failureResult(message, HttpStatus.BAD_REQUEST);
     }
 
     try {
+      OAuthStartMode mode = OAuthStartMode.fromInput(verification.mode());
       GoogleOAuthClientConfig config = googleOAuthClientConfigService.loadRequiredConfig();
-      GoogleTokenResponse tokenResponse = exchangeCodeForTokens(code, codeVerifier, config);
+      GoogleTokenResponse tokenResponse = exchangeCodeForTokens(code, verification.codeVerifier(), config);
       String confirmedEmail = confirmEmailIdentity(tokenResponse);
+      String grantedScope = StringUtils.hasText(tokenResponse.scope())
+        ? tokenResponse.scope()
+        : String.join(" ", mode.requestedScopes());
 
       String encryptedAccessToken = tokenCrypto.encrypt(tokenResponse.accessToken());
       String encryptedRefreshToken = StringUtils.hasText(tokenResponse.refreshToken())
@@ -143,7 +150,7 @@ public class GmailOAuthService {
           encryptedAccessToken,
           encryptedRefreshToken,
           expiryAt,
-          tokenResponse.scope(),
+          grantedScope,
           tokenResponse.tokenType()
         )
       );
@@ -394,6 +401,36 @@ public class GmailOAuthService {
 
     OAuthFlowException(String message) {
       super(message);
+    }
+  }
+
+  private enum OAuthStartMode {
+    READONLY,
+    SEND,
+    ;
+
+    private List<String> requestedScopes() {
+      if (this == SEND) {
+        return List.of(
+          READONLY_SCOPES.get(0),
+          READONLY_SCOPES.get(1),
+          READONLY_SCOPES.get(2),
+          READONLY_SCOPES.get(3),
+          GMAIL_SEND_SCOPE
+        );
+      }
+      return READONLY_SCOPES;
+    }
+
+    private static OAuthStartMode fromInput(String value) {
+      if (!StringUtils.hasText(value)) {
+        return READONLY;
+      }
+      String normalized = value.trim().toUpperCase(Locale.ROOT);
+      if ("SEND".equals(normalized)) {
+        return SEND;
+      }
+      return READONLY;
     }
   }
 

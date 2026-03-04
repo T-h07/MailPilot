@@ -39,7 +39,7 @@ public class GmailOAuthController {
 
   @PostMapping("/start")
   public GmailOAuthStartResponse start(@RequestBody(required = false) GmailOAuthStartRequest request) {
-    return gmailOAuthService.start();
+    return gmailOAuthService.start(request == null ? null : request.mode());
   }
 
   @GetMapping("/status")

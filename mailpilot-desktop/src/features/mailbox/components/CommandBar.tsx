@@ -12,15 +12,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
 
 type CommandBarProps = {
   accounts: MailAccount[];
@@ -34,6 +25,7 @@ type CommandBarProps = {
   onToggleFilter: (filter: QuickFilterKey) => void;
   onResetFilters: () => void;
   onSettingsShortcut: () => void;
+  onCompose: () => void;
 };
 
 export function CommandBar({
@@ -48,6 +40,7 @@ export function CommandBar({
   onToggleFilter,
   onResetFilters,
   onSettingsShortcut,
+  onCompose,
 }: CommandBarProps) {
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -86,7 +79,10 @@ export function CommandBar({
             <Loader2 className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
           )}
         </div>
-        <ComposePlaceholder />
+        <Button className="gap-2" onClick={onCompose}>
+          <MessageSquarePlus className="h-4 w-4" />
+          Compose
+        </Button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button size="icon" variant="outline">
@@ -113,29 +109,5 @@ export function CommandBar({
         onToggleFilter={onToggleFilter}
       />
     </div>
-  );
-}
-
-function ComposePlaceholder() {
-  return (
-    <Dialog>
-      <DialogTrigger asChild>
-        <Button className="gap-2">
-          <MessageSquarePlus className="h-4 w-4" />
-          Compose
-        </Button>
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Compose (MP-PT15)</DialogTitle>
-          <DialogDescription>
-            Composer workflow is intentionally deferred to a later milestone.
-          </DialogDescription>
-        </DialogHeader>
-        <DialogFooter>
-          <Button disabled>Send (not implemented)</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }

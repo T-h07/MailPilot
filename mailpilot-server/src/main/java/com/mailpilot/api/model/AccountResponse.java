@@ -8,5 +8,6 @@ public record AccountResponse(
   String email,
   String provider,
   String status,
+  boolean canSend,
   OffsetDateTime lastSyncAt
 ) {}

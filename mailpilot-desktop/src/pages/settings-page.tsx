@@ -136,6 +136,15 @@ function timeoutConnectMessage() {
   ].join("\n");
 }
 
+function timeoutReauthMessage() {
+  return [
+    "Gmail re-auth for sending timed out. Retry and verify:",
+    "1) Consent screen allows your account (Test user when in Testing mode)",
+    "2) Browser flow completed and callback page shows success",
+    "3) OAuth requested SEND mode (gmail.send scope)",
+  ].join("\n");
+}
+
 function syncStatusBadgeVariant(status: "RUNNING" | "IDLE" | "ERROR"): "default" | "secondary" | "outline" {
   if (status === "RUNNING") {
     return "default";
@@ -291,11 +300,11 @@ export function SettingsPage() {
         }
 
         const gmailConnected = latestAccounts.some((account) => {
-          if (account.provider !== "GMAIL" || account.status !== "CONNECTED") {
+          if (account.provider !== "GMAIL") {
             return false;
           }
           const baselineStatus = baselineByEmail.get(account.email.toLowerCase());
-          return baselineStatus !== "CONNECTED";
+          return baselineStatus === undefined;
         });
 
         if (gmailConnected) {
@@ -308,6 +317,42 @@ export function SettingsPage() {
       }
 
       return timeoutConnectMessage();
+    },
+    [accounts],
+  );
+
+  const pollForSendCapability = useCallback(
+    async (state: string, accountId: string) => {
+      const pollStartedAt = Date.now();
+
+      while (Date.now() - pollStartedAt <= OAUTH_POLL_TIMEOUT_MS) {
+        await sleep(OAUTH_POLL_INTERVAL_MS);
+
+        const [accountsResult, statusResult] = await Promise.allSettled([
+          listAccounts(),
+          getGmailOAuthStatus(state),
+        ]);
+
+        let latestAccounts: AccountRecord[] = accounts;
+        if (accountsResult.status === "fulfilled") {
+          latestAccounts = accountsResult.value;
+          setAccounts(latestAccounts);
+          setAccountsError(null);
+        } else {
+          setAccountsError(toErrorMessage(accountsResult.reason));
+        }
+
+        const account = latestAccounts.find((candidate) => candidate.id === accountId);
+        if (account?.canSend) {
+          return null;
+        }
+
+        if (statusResult.status === "fulfilled" && statusResult.value.status === "ERROR") {
+          return statusResult.value.message;
+        }
+      }
+
+      return timeoutReauthMessage();
     },
     [accounts],
   );
@@ -329,7 +374,10 @@ export function SettingsPage() {
         return;
       }
 
-      const startResponse = await startGmailOAuth({ returnTo: "mailpilot://oauth-done" });
+      const startResponse = await startGmailOAuth({
+        returnTo: "mailpilot://oauth-done",
+        mode: "READONLY",
+      });
 
       try {
         await openUrl(startResponse.authUrl);
@@ -349,6 +397,48 @@ export function SettingsPage() {
       await loadAccounts();
       await refreshSyncStatus();
       showNotice("Gmail account connected");
+    } catch (error) {
+      setOauthError(toErrorMessage(error));
+    } finally {
+      setIsConnectingGmail(false);
+    }
+  };
+
+  const handleReauthForSending = async (accountId: string) => {
+    setOauthError(null);
+    setIsConnectingGmail(true);
+
+    try {
+      const config = await configCheck();
+      if (!config.configured) {
+        setOauthConfigPath(config.path ?? WINDOWS_OAUTH_JSON_PATH);
+        setOauthConfigMessage(config.message);
+        setOauthConfigDialogOpen(true);
+        return;
+      }
+
+      const startResponse = await startGmailOAuth({
+        returnTo: "mailpilot://oauth-done",
+        mode: "SEND",
+      });
+
+      try {
+        await openUrl(startResponse.authUrl);
+      } catch {
+        const popup = window.open(startResponse.authUrl, "_blank", "noopener,noreferrer");
+        if (!popup) {
+          throw new ApiClientError("Unable to open the system browser for Google OAuth.");
+        }
+      }
+
+      const pollError = await pollForSendCapability(startResponse.state, accountId);
+      if (pollError) {
+        setOauthError(pollError);
+        return;
+      }
+
+      await loadAccounts();
+      showNotice("Sending scope granted");
     } catch (error) {
       setOauthError(toErrorMessage(error));
     } finally {
@@ -581,6 +671,9 @@ export function SettingsPage() {
                         <Badge variant={account.status === "CONNECTED" ? "secondary" : "outline"}>
                           {account.status}
                         </Badge>
+                        <Badge variant={account.canSend ? "secondary" : "outline"}>
+                          {account.canSend ? "Can send" : "Send disabled"}
+                        </Badge>
                         <Badge variant={syncStatusBadgeVariant(statusLabel)}>{statusLabel}</Badge>
                       </div>
                       <p className="pt-1 text-xs text-muted-foreground">
@@ -599,6 +692,16 @@ export function SettingsPage() {
                       )}
                     </div>
                     <div className="flex items-center gap-2">
+                      {!account.canSend && account.provider === "GMAIL" && (
+                        <Button
+                          disabled={isConnectingGmail}
+                          onClick={() => void handleReauthForSending(account.id)}
+                          size="sm"
+                          variant="outline"
+                        >
+                          {isConnectingGmail ? "Starting..." : "Re-auth for sending"}
+                        </Button>
+                      )}
                       <Button
                         disabled={isRunning || syncingAccountId === account.id}
                         onClick={() => void handleSyncAccount(account.id)}

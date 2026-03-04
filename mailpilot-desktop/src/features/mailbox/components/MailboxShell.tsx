@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import type {
   AccountColorToken,
   AccountScope,
@@ -12,8 +13,10 @@ import type {
 import { CommandBar } from "@/features/mailbox/components/CommandBar";
 import { MailList } from "@/features/mailbox/components/MailList";
 import { PreviewPanel } from "@/features/mailbox/components/PreviewPanel";
-import { listAccounts } from "@/lib/api/accounts";
+import { ComposeDialog, type ComposeDraft } from "@/features/mailbox/components/ComposeDialog";
+import { listAccounts, type AccountRecord } from "@/lib/api/accounts";
 import { downloadAttachmentFile, exportMessagePdf, exportThreadPdf } from "@/lib/api/exports";
+import { configCheck, getGmailOAuthStatus, startGmailOAuth } from "@/lib/api/oauth";
 import {
   getMessage,
   queryMailbox,
@@ -55,6 +58,8 @@ type NoticeState = {
 
 const ACCOUNT_COLOR_TOKENS: AccountColorToken[] = ["sky", "emerald", "violet", "amber"];
 const REQUEST_PAGE_SIZE = 50;
+const OAUTH_POLL_INTERVAL_MS = 2000;
+const OAUTH_POLL_TIMEOUT_MS = 45000;
 
 function nameFromEmail(email: string): string {
   return email.split("@")[0].replace(/[._]/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
@@ -311,6 +316,70 @@ function ensurePdfFilename(value: string | null | undefined, fallback: string): 
   return base.toLowerCase().endsWith(".pdf") ? base : `${base}.pdf`;
 }
 
+function sleep(durationMs: number) {
+  return new Promise<void>((resolve) => {
+    window.setTimeout(resolve, durationMs);
+  });
+}
+
+function withSubjectPrefix(prefix: "Re" | "Fwd", subject: string): string {
+  const normalized = subject.trim();
+  if (normalized.length === 0) {
+    return `${prefix}: (no subject)`;
+  }
+  const lowercase = normalized.toLowerCase();
+  if (prefix === "Re" && lowercase.startsWith("re:")) {
+    return normalized;
+  }
+  if (prefix === "Fwd" && (lowercase.startsWith("fwd:") || lowercase.startsWith("fw:"))) {
+    return normalized;
+  }
+  return `${prefix}: ${normalized}`;
+}
+
+function buildQuotedSnippet(message: MailMessage): string {
+  const senderLine = `${message.senderName} <${message.senderEmail}>`;
+  const dateLine = new Date(message.receivedAt).toLocaleString();
+  const quoteSource = message.bodyCache?.trim() || message.snippet.trim();
+  const quoteLines = quoteSource
+    .split(/\r?\n/)
+    .filter((line) => line.trim().length > 0)
+    .map((line) => `> ${line}`);
+
+  const header = [
+    "",
+    "",
+    "----- Original message -----",
+    `From: ${senderLine}`,
+    `Date: ${dateLine}`,
+    `Subject: ${message.subject}`,
+    "",
+  ];
+  return [...header, ...quoteLines].join("\n");
+}
+
+function resolvePreferredAccountId(
+  accountRecords: AccountRecord[],
+  accounts: MailAccount[],
+  preferredAccountId?: string | null,
+): string {
+  if (preferredAccountId && accountRecords.some((account) => account.id === preferredAccountId)) {
+    return preferredAccountId;
+  }
+  const sendEnabled = accountRecords.find((account) => account.provider === "GMAIL" && account.canSend);
+  if (sendEnabled) {
+    return sendEnabled.id;
+  }
+  const firstGmail = accountRecords.find((account) => account.provider === "GMAIL");
+  if (firstGmail) {
+    return firstGmail.id;
+  }
+  if (accounts.length > 0) {
+    return accounts[0].id;
+  }
+  return "";
+}
+
 export function MailboxShell({
   context,
   view,
@@ -337,6 +406,7 @@ export function MailboxShell({
   const [notice, setNotice] = useState<NoticeState | null>(null);
 
   const [accounts, setAccounts] = useState<MailAccount[]>([]);
+  const [accountRecords, setAccountRecords] = useState<AccountRecord[]>([]);
   const [messages, setMessages] = useState<MailMessage[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [isLoadingList, setIsLoadingList] = useState(false);
@@ -349,6 +419,17 @@ export function MailboxShell({
   const [isUpdatingFollowup, setIsUpdatingFollowup] = useState(false);
   const [activeAttachmentDownloadId, setActiveAttachmentDownloadId] = useState<string | null>(null);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const [composeOpen, setComposeOpen] = useState(false);
+  const [composeDraft, setComposeDraft] = useState<ComposeDraft>({
+    mode: "NEW",
+    accountId: "",
+    to: "",
+    cc: "",
+    bcc: "",
+    subject: "",
+    bodyText: "",
+    replyToMessageDbId: null,
+  });
 
   const accountLookup = useMemo(() => {
     return new Map(accounts.map((account) => [account.id, account]));
@@ -387,20 +468,6 @@ export function MailboxShell({
   }, [forcedFiltersKey, forcedFilters]);
 
   useEffect(() => {
-    const controller = new AbortController();
-    listAccounts(controller.signal)
-      .then((apiAccounts) => {
-        const mappedAccounts = apiAccounts.map((account) => toMailAccount(account.id, account.email));
-        setAccounts(mappedAccounts);
-      })
-      .catch(() => {
-        // Accounts can still be discovered from mailbox query responses.
-      });
-
-    return () => controller.abort();
-  }, []);
-
-  useEffect(() => {
     return () => {
       listAbortRef.current?.abort();
       detailAbortRef.current?.abort();
@@ -422,6 +489,22 @@ export function MailboxShell({
       setNotice(null);
     }, 2400);
   }, []);
+
+  const loadAccountRecords = useCallback(async (signal?: AbortSignal) => {
+    const apiAccounts = await listAccounts(signal);
+    setAccountRecords(apiAccounts);
+    const mappedAccounts = apiAccounts.map((account) => toMailAccount(account.id, account.email));
+    setAccounts((previous) => mergeAccounts(previous, mappedAccounts));
+    return apiAccounts;
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void loadAccountRecords(controller.signal).catch(() => {
+      // Accounts can still be discovered from mailbox query responses.
+    });
+    return () => controller.abort();
+  }, [loadAccountRecords]);
 
   const fetchMailbox = useCallback(
     async (append: boolean, cursor: string | null) => {
@@ -952,6 +1035,136 @@ export function MailboxShell({
     [messages, showNotice],
   );
 
+  const openComposeNew = useCallback(() => {
+    const accountId = resolvePreferredAccountId(accountRecords, accounts);
+    setComposeDraft({
+      mode: "NEW",
+      accountId,
+      to: "",
+      cc: "",
+      bcc: "",
+      subject: "",
+      bodyText: "",
+      replyToMessageDbId: null,
+    });
+    setComposeOpen(true);
+  }, [accountRecords, accounts]);
+
+  const openComposeFromPreview = useCallback(
+    (action: "reply" | "reply-all" | "forward") => {
+      if (!selectedMessage) {
+        return;
+      }
+
+      const accountId = resolvePreferredAccountId(
+        accountRecords,
+        accounts,
+        selectedMessage.accountId,
+      );
+      const quotedBody = buildQuotedSnippet(selectedMessage);
+
+      if (action === "reply") {
+        setComposeDraft({
+          mode: "REPLY",
+          accountId,
+          to: selectedMessage.senderEmail,
+          cc: "",
+          bcc: "",
+          subject: withSubjectPrefix("Re", selectedMessage.subject),
+          bodyText: quotedBody,
+          replyToMessageDbId: selectedMessage.id,
+        });
+      } else if (action === "reply-all") {
+        setComposeDraft({
+          mode: "REPLY_ALL",
+          accountId,
+          to: selectedMessage.senderEmail,
+          cc: "",
+          bcc: "",
+          subject: withSubjectPrefix("Re", selectedMessage.subject),
+          bodyText: quotedBody,
+          replyToMessageDbId: selectedMessage.id,
+        });
+      } else {
+        setComposeDraft({
+          mode: "FORWARD",
+          accountId,
+          to: "",
+          cc: "",
+          bcc: "",
+          subject: withSubjectPrefix("Fwd", selectedMessage.subject),
+          bodyText: quotedBody,
+          replyToMessageDbId: selectedMessage.id,
+        });
+      }
+
+      setComposeOpen(true);
+    },
+    [accountRecords, accounts, selectedMessage],
+  );
+
+  const handleComposeSendSuccess = useCallback(() => {
+    showNotice("Sent");
+    void fetchMailbox(false, null);
+  }, [fetchMailbox, showNotice]);
+
+  const handleRequestSendReauth = useCallback(
+    async (accountId: string) => {
+      try {
+        const config = await configCheck();
+        if (!config.configured) {
+          showNotice(config.message || "Google OAuth configuration is missing.");
+          return false;
+        }
+
+        const startResponse = await startGmailOAuth({
+          mode: "SEND",
+          returnTo: "mailpilot://oauth-done",
+        });
+
+        try {
+          await openUrl(startResponse.authUrl);
+        } catch {
+          const popup = window.open(startResponse.authUrl, "_blank", "noopener,noreferrer");
+          if (!popup) {
+            throw new ApiClientError("Unable to open the system browser for Google OAuth.");
+          }
+        }
+
+        const pollStartedAt = Date.now();
+        while (Date.now() - pollStartedAt <= OAUTH_POLL_TIMEOUT_MS) {
+          await sleep(OAUTH_POLL_INTERVAL_MS);
+
+          const [accountsResult, statusResult] = await Promise.allSettled([
+            loadAccountRecords(),
+            getGmailOAuthStatus(startResponse.state),
+          ]);
+
+          if (accountsResult.status === "fulfilled") {
+            const refreshed = accountsResult.value;
+            const target = refreshed.find((account) => account.id === accountId);
+            if (target?.canSend) {
+              showNotice("Sending scope granted.");
+              return true;
+            }
+          }
+
+          if (statusResult.status === "fulfilled" && statusResult.value.status === "ERROR") {
+            showNotice(statusResult.value.message);
+            return false;
+          }
+        }
+
+        showNotice("Re-auth timed out. Retry and complete consent in the browser tab.");
+        return false;
+      } catch (error) {
+        showNotice(toErrorMessage(error) || "Failed to start Gmail re-auth.");
+        return false;
+      }
+    },
+    [loadAccountRecords, showNotice],
+  );
+
   const toggleQuickFilter = useCallback((filterKey: QuickFilterKey) => {
     setActiveFilters((previous) => {
       const next = new Set(previous);
@@ -1035,6 +1248,7 @@ export function MailboxShell({
         isSearchLoading={isSearchLoading}
         onSettingsShortcut={() => navigate("/settings")}
         onToggleFilter={toggleQuickFilter}
+        onCompose={openComposeNew}
         searchQuery={searchQuery}
       />
 
@@ -1100,6 +1314,7 @@ export function MailboxShell({
         <PreviewPanel
           isLoading={isLoadingDetail}
           onActionPlaceholder={showNotice}
+          onComposeAction={openComposeFromPreview}
           onClearDueDate={handleClearDueDate}
           onClearSnooze={handleClearSnooze}
           onSelectThreadMessage={handleSelectThreadMessage}
@@ -1136,6 +1351,15 @@ export function MailboxShell({
           isFollowupUpdating={isUpdatingFollowup}
         />
       </div>
+
+      <ComposeDialog
+        open={composeOpen}
+        accounts={accountRecords}
+        initialDraft={composeDraft}
+        onOpenChange={setComposeOpen}
+        onSendSuccess={handleComposeSendSuccess}
+        onRequestReauth={handleRequestSendReauth}
+      />
 
       {notice && (
         <div className="mailbox-toast fixed bottom-5 right-5 z-[60] rounded-lg border border-border bg-card px-3 py-2 text-xs shadow-lg">

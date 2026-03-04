@@ -8,6 +8,7 @@ export type GmailOAuthConfigCheckResponse = {
 
 export type GmailOAuthStartRequest = {
   returnTo?: string;
+  mode?: "READONLY" | "SEND";
 };
 
 export type GmailOAuthStartResponse = {

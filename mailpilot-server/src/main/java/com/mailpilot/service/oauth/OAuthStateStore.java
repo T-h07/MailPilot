@@ -24,17 +24,22 @@ public class OAuthStateStore {
   private final Map<String, OAuthFlowStatus> finalStatuses = new ConcurrentHashMap<>();
 
   public PkceState create() {
+    return create("READONLY");
+  }
+
+  public PkceState create(String mode) {
     cleanup();
 
     String state = randomBase64Url(32);
     String codeVerifier = randomBase64Url(64);
     String codeChallenge = sha256Base64Url(codeVerifier);
+    String resolvedMode = StringUtils.hasText(mode) ? mode.trim().toUpperCase() : "READONLY";
 
-    pendingStates.put(state, new PendingState(codeVerifier, Instant.now().plus(PENDING_TTL)));
+    pendingStates.put(state, new PendingState(codeVerifier, resolvedMode, Instant.now().plus(PENDING_TTL)));
     return new PkceState(state, codeVerifier, codeChallenge);
   }
 
-  public Optional<String> consumeCodeVerifier(String state) {
+  public Optional<PkceVerification> consumeCodeVerifier(String state) {
     cleanup();
     if (!StringUtils.hasText(state)) {
       return Optional.empty();
@@ -49,7 +54,7 @@ public class OAuthStateStore {
       return Optional.empty();
     }
 
-    return Optional.of(pendingState.codeVerifier());
+    return Optional.of(new PkceVerification(pendingState.codeVerifier(), pendingState.mode()));
   }
 
   public void markSuccess(String state, String message) {
@@ -110,9 +115,11 @@ public class OAuthStateStore {
     }
   }
 
-  private record PendingState(String codeVerifier, Instant expiresAt) {}
+  private record PendingState(String codeVerifier, String mode, Instant expiresAt) {}
 
   public record PkceState(String state, String codeVerifier, String codeChallenge) {}
+
+  public record PkceVerification(String codeVerifier, String mode) {}
 
   public record OAuthFlowStatus(String status, String message, Instant expiresAt) {
     public OAuthFlowStatus(String status, String message) {

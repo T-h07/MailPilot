@@ -17,6 +17,7 @@ type PreviewPanelProps = {
   onSelectThreadMessage: (messageId: string) => void;
   onToggleRead: () => void;
   onActionPlaceholder: (label: string) => void;
+  onComposeAction: (action: "reply" | "reply-all" | "forward") => void;
   isLoading?: boolean;
   statusMessage?: string | null;
   isFollowupUpdating?: boolean;
@@ -55,6 +56,7 @@ export const PreviewPanel = forwardRef<HTMLDivElement, PreviewPanelProps>(
       onSelectThreadMessage,
       onToggleRead,
       onActionPlaceholder,
+      onComposeAction,
       isLoading = false,
       statusMessage = null,
       isFollowupUpdating = false,
@@ -214,7 +216,7 @@ export const PreviewPanel = forwardRef<HTMLDivElement, PreviewPanelProps>(
               </div>
               <MailActions
                 isUnread={selectedMessage.isUnread}
-                onPrimaryAction={(action) => onActionPlaceholder(`${action} is not implemented yet`)}
+                onPrimaryAction={onComposeAction}
                 onExportMessagePdf={onExportMessagePdf}
                 onExportThreadPdf={onExportThreadPdf}
                 canExportThread={Boolean(selectedMessage.threadId)}

@@ -5,6 +5,7 @@ export type AccountRecord = {
   email: string;
   provider: string;
   status: string;
+  canSend: boolean;
   lastSyncAt: string | null;
 };
 
