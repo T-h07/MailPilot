@@ -5,8 +5,8 @@ import type { AppOutletContext } from "@/App";
 import { cn } from "@/lib/utils";
 import { listAccounts, type AccountRecord } from "@/lib/api/accounts";
 import { ApiClientError, getApiHealth, resolveApiBase } from "@/lib/api/client";
-import { seedDev } from "@/lib/api/mailbox";
 import { configCheck, getGmailOAuthStatus, startGmailOAuth } from "@/lib/api/oauth";
+import { getSyncStatus, runAccountSync, runAllAccountsSync, type SyncStatusRecord } from "@/lib/api/sync";
 import {
   createSenderRule,
   deleteSenderRule,
@@ -57,6 +57,8 @@ const EMPTY_RULE_FORM: RuleForm = {
 const WINDOWS_OAUTH_JSON_PATH = "C:\\Users\\taulanth\\AppData\\Local\\MailPilot\\google-oauth-client.json";
 const OAUTH_POLL_INTERVAL_MS = 2000;
 const OAUTH_POLL_TIMEOUT_MS = 45000;
+const SYNC_POLL_INTERVAL_MS = 2000;
+const DEFAULT_SYNC_MAX_MESSAGES = 500;
 
 function toErrorMessage(error: unknown): string {
   if (error instanceof ApiClientError) {
@@ -134,6 +136,16 @@ function timeoutConnectMessage() {
   ].join("\n");
 }
 
+function syncStatusBadgeVariant(status: SyncStatusRecord["status"] | "IDLE"): "default" | "secondary" | "outline" {
+  if (status === "RUNNING") {
+    return "default";
+  }
+  if (status === "ERROR") {
+    return "outline";
+  }
+  return "secondary";
+}
+
 export function SettingsPage() {
   const { themeMode, setThemeMode } = useOutletContext<AppOutletContext>();
   const nextTheme = themeMode === "dark" ? "light" : "dark";
@@ -142,11 +154,11 @@ export function SettingsPage() {
   const apiBase = useMemo(() => resolveApiBase(), []);
 
   const noticeTimeoutRef = useRef<number | null>(null);
+  const syncPollIntervalRef = useRef<number | null>(null);
+  const syncCompletionPendingRef = useRef(false);
 
   const [healthStatus, setHealthStatus] = useState<string>("Unknown");
   const [isCheckingHealth, setIsCheckingHealth] = useState(false);
-  const [seedStatus, setSeedStatus] = useState<string>("Not run");
-  const [isSeeding, setIsSeeding] = useState(false);
 
   const [accounts, setAccounts] = useState<AccountRecord[]>([]);
   const [isLoadingAccounts, setIsLoadingAccounts] = useState(false);
@@ -157,6 +169,11 @@ export function SettingsPage() {
   const [oauthConfigPath, setOauthConfigPath] = useState<string>(WINDOWS_OAUTH_JSON_PATH);
   const [oauthConfigMessage, setOauthConfigMessage] = useState("Google OAuth configuration is missing.");
   const [notice, setNotice] = useState<NoticeState | null>(null);
+  const [syncStatusByAccountId, setSyncStatusByAccountId] = useState<Record<string, SyncStatusRecord>>({});
+  const [isPollingSyncStatus, setIsPollingSyncStatus] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [isSyncingAll, setIsSyncingAll] = useState(false);
+  const [syncingAccountId, setSyncingAccountId] = useState<string | null>(null);
 
   const [senderRules, setSenderRules] = useState<SenderRuleRecord[]>([]);
   const [isLoadingRules, setIsLoadingRules] = useState(false);
@@ -216,21 +233,70 @@ export function SettingsPage() {
     }
   }, []);
 
+  const stopSyncPolling = useCallback(() => {
+    if (syncPollIntervalRef.current !== null) {
+      window.clearInterval(syncPollIntervalRef.current);
+      syncPollIntervalRef.current = null;
+    }
+    setIsPollingSyncStatus(false);
+  }, []);
+
+  const pollSyncStatusOnce = useCallback(async () => {
+    try {
+      const statuses = await getSyncStatus();
+      const nextByAccountId: Record<string, SyncStatusRecord> = {};
+      for (const status of statuses) {
+        nextByAccountId[status.accountId] = status;
+      }
+      setSyncStatusByAccountId(nextByAccountId);
+
+      const hasRunning = statuses.some((status) => status.status === "RUNNING");
+      if (!hasRunning) {
+        stopSyncPolling();
+        if (syncCompletionPendingRef.current) {
+          syncCompletionPendingRef.current = false;
+          const firstError = statuses.find((status) => status.status === "ERROR");
+          if (firstError) {
+            setSyncError(firstError.lastError ?? "Sync completed with errors.");
+            showNotice("Sync completed with errors");
+          } else {
+            setSyncError(null);
+            showNotice("Sync completed");
+          }
+          await loadAccounts();
+        }
+      }
+    } catch (error) {
+      stopSyncPolling();
+      syncCompletionPendingRef.current = false;
+      setSyncError(toErrorMessage(error));
+    }
+  }, [loadAccounts, showNotice, stopSyncPolling]);
+
+  const startSyncPolling = useCallback(() => {
+    if (syncPollIntervalRef.current !== null) {
+      return;
+    }
+
+    setIsPollingSyncStatus(true);
+    void pollSyncStatusOnce();
+    syncPollIntervalRef.current = window.setInterval(() => {
+      void pollSyncStatusOnce();
+    }, SYNC_POLL_INTERVAL_MS);
+  }, [pollSyncStatusOnce]);
+
   useEffect(() => {
     void loadAccounts();
-  }, [loadAccounts]);
-
-  useEffect(() => {
     void loadSenderRules();
-  }, [loadSenderRules]);
+    void pollSyncStatusOnce();
 
-  useEffect(() => {
     return () => {
       if (noticeTimeoutRef.current !== null) {
         window.clearTimeout(noticeTimeoutRef.current);
       }
+      stopSyncPolling();
     };
-  }, []);
+  }, [loadAccounts, loadSenderRules, pollSyncStatusOnce, stopSyncPolling]);
 
   const handleTestConnection = async () => {
     setIsCheckingHealth(true);
@@ -241,18 +307,6 @@ export function SettingsPage() {
       setHealthStatus(`Error · ${toErrorMessage(error)}`);
     } finally {
       setIsCheckingHealth(false);
-    }
-  };
-
-  const handleSeedDev = async () => {
-    setIsSeeding(true);
-    try {
-      const response = await seedDev();
-      setSeedStatus(response.message ?? "Seed endpoint completed");
-    } catch (error) {
-      setSeedStatus(`Error · ${toErrorMessage(error)}`);
-    } finally {
-      setIsSeeding(false);
     }
   };
 
@@ -338,11 +392,42 @@ export function SettingsPage() {
       }
 
       await loadAccounts();
+      await pollSyncStatusOnce();
       showNotice("Gmail account connected");
     } catch (error) {
       setOauthError(toErrorMessage(error));
     } finally {
       setIsConnectingGmail(false);
+    }
+  };
+
+  const handleSyncAllAccounts = async () => {
+    setSyncError(null);
+    setIsSyncingAll(true);
+    try {
+      const response = await runAllAccountsSync(DEFAULT_SYNC_MAX_MESSAGES);
+      syncCompletionPendingRef.current = true;
+      showNotice(`Sync started for ${response.accountsQueued} account(s)`);
+      startSyncPolling();
+    } catch (error) {
+      setSyncError(toErrorMessage(error));
+    } finally {
+      setIsSyncingAll(false);
+    }
+  };
+
+  const handleSyncAccount = async (accountId: string) => {
+    setSyncError(null);
+    setSyncingAccountId(accountId);
+    try {
+      await runAccountSync(accountId, DEFAULT_SYNC_MAX_MESSAGES);
+      syncCompletionPendingRef.current = true;
+      showNotice("Account sync started");
+      startSyncPolling();
+    } catch (error) {
+      setSyncError(toErrorMessage(error));
+    } finally {
+      setSyncingAccountId(null);
     }
   };
 
@@ -435,11 +520,11 @@ export function SettingsPage() {
       <Card>
         <CardHeader>
           <CardTitle>System</CardTitle>
-          <CardDescription>Connection and seed controls for local development.</CardDescription>
+          <CardDescription>Connection checks for local development.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3 text-sm text-muted-foreground">
           <p>Backend endpoint: {apiBase}</p>
-          <p>Sync scheduler: Disabled</p>
+          <p>Sync scheduler: Manual</p>
           <div className="flex flex-wrap items-center gap-3">
             <Button
               disabled={isCheckingHealth}
@@ -451,12 +536,6 @@ export function SettingsPage() {
             </Button>
             <Badge variant="secondary">{healthStatus}</Badge>
           </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <Button disabled={isSeeding} onClick={handleSeedDev} size="sm" variant="outline">
-              {isSeeding ? "Seeding..." : "Seed dev data"}
-            </Button>
-            <Badge variant="secondary">{seedStatus}</Badge>
-          </div>
         </CardContent>
       </Card>
 
@@ -466,12 +545,20 @@ export function SettingsPage() {
             <div>
               <CardTitle>Connected Accounts</CardTitle>
               <CardDescription>
-                Connect Gmail using Google OAuth. Tokens are stored encrypted by the backend.
+                Connect Gmail, then run sync to ingest real email metadata into MailPilot.
               </CardDescription>
             </div>
             <div className="flex items-center gap-2">
               <Button disabled={isLoadingAccounts} onClick={() => void loadAccounts()} size="sm" variant="outline">
                 Refresh
+              </Button>
+              <Button
+                disabled={isPollingSyncStatus || isSyncingAll}
+                onClick={() => void handleSyncAllAccounts()}
+                size="sm"
+                variant="outline"
+              >
+                {isSyncingAll ? "Starting sync..." : "Sync all accounts"}
               </Button>
               <Button disabled={isConnectingGmail} onClick={() => void handleConnectGmail()} size="sm">
                 {isConnectingGmail ? "Connecting..." : "Connect Gmail"}
@@ -484,6 +571,15 @@ export function SettingsPage() {
             <div className="rounded-md border border-border bg-card p-3 text-sm text-muted-foreground">
               <p className="whitespace-pre-line">{oauthError}</p>
               <Button className="mt-3" onClick={() => void handleConnectGmail()} size="sm" variant="outline">
+                Retry
+              </Button>
+            </div>
+          )}
+
+          {syncError && (
+            <div className="rounded-md border border-border bg-card p-3 text-sm text-muted-foreground">
+              <p>{syncError}</p>
+              <Button className="mt-3" onClick={() => void pollSyncStatusOnce()} size="sm" variant="outline">
                 Retry
               </Button>
             </div>
@@ -514,26 +610,51 @@ export function SettingsPage() {
 
           {!isLoadingAccounts && !accountsError && accounts.length > 0 && (
             <div className="space-y-2">
-              {accounts.map((account) => (
-                <div
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card p-3"
-                  key={account.id}
-                >
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge variant="outline">{account.provider}</Badge>
-                      <p className="truncate text-sm font-medium">{account.email}</p>
-                      <Badge variant={account.status === "CONNECTED" ? "secondary" : "outline"}>
-                        {account.status}
-                      </Badge>
+              {accounts.map((account) => {
+                const syncStatus = syncStatusByAccountId[account.id];
+                const statusLabel = syncStatus?.status ?? "IDLE";
+                const effectiveLastSyncAt = syncStatus?.lastSyncAt ?? account.lastSyncAt;
+                const isRunning = statusLabel === "RUNNING";
+
+                return (
+                  <div
+                    className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card p-3"
+                    key={account.id}
+                  >
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant="outline">{account.provider}</Badge>
+                        <p className="truncate text-sm font-medium">{account.email}</p>
+                        <Badge variant={account.status === "CONNECTED" ? "secondary" : "outline"}>
+                          {account.status}
+                        </Badge>
+                        <Badge variant={syncStatusBadgeVariant(statusLabel)}>{statusLabel}</Badge>
+                      </div>
+                      <p className="pt-1 text-xs text-muted-foreground">
+                        Last sync: {formatLastSync(effectiveLastSyncAt)}
+                      </p>
+                      {syncStatus?.lastError && (
+                        <p className="pt-1 text-xs text-destructive">{syncStatus.lastError}</p>
+                      )}
                     </div>
-                    <p className="pt-1 text-xs text-muted-foreground">
-                      Last sync: {formatLastSync(account.lastSyncAt)}
-                    </p>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        disabled={isRunning || syncingAccountId === account.id}
+                        onClick={() => void handleSyncAccount(account.id)}
+                        size="sm"
+                        variant="outline"
+                      >
+                        {syncingAccountId === account.id ? "Starting..." : "Sync"}
+                      </Button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
+          )}
+
+          {isPollingSyncStatus && (
+            <p className="text-xs text-muted-foreground">Sync in progress. Polling status every 2 seconds.</p>
           )}
         </CardContent>
       </Card>

@@ -104,12 +104,6 @@ export type MessageDetailResponse = {
   } | null;
 };
 
-export type SeedDevResponse = {
-  status: string;
-  message?: string;
-  messages?: number;
-};
-
 export function queryMailbox(payload: MailboxQueryRequest, signal?: AbortSignal) {
   return fetchJson<MailboxQueryResponse>("/api/mailbox/query", {
     method: "POST",
@@ -134,13 +128,6 @@ export function setRead(id: string, isUnread: boolean, signal?: AbortSignal) {
   return fetchJson<{ status: string }>(`/api/messages/${id}/read`, {
     method: "POST",
     body: { isUnread },
-    signal,
-  });
-}
-
-export function seedDev(signal?: AbortSignal) {
-  return fetchJson<SeedDevResponse>("/api/dev/seed", {
-    method: "POST",
     signal,
   });
 }

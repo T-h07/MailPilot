@@ -30,19 +30,6 @@ Optional actuator:
 irm http://127.0.0.1:8082/actuator/health
 ```
 
-## Database schema
-
-Flyway migrations are versioned in `mailpilot-server/src/main/resources/db/migration`:
-- `V1__baseline.sql`
-- `V2__core_schema.sql` (accounts/messages/views/followups/tags + indexes)
-
-If you need to fully reset local DB and re-apply migrations:
-```powershell
-docker compose down
-docker volume rm mailpilot_mailpilot_pg
-docker compose up -d
-```
-
 ## Desktop (Tauri)
 
 ### Prerequisites
@@ -58,80 +45,7 @@ npm install
 npm run tauri dev
 ```
 
-The desktop now queries the backend API directly (`http://127.0.0.1:8082` by default; override with `VITE_API_BASE`).
-
-## Run full stack (dev)
-
-1. Start Postgres
-```powershell
-docker compose up -d
-```
-
-2. Start backend (dev profile)
-```powershell
-cd mailpilot-server
-.\mvnw.cmd "-Dspring-boot.run.profiles=dev" spring-boot:run
-```
-
-3. Seed dev data
-```powershell
-irm -Method Post http://127.0.0.1:8082/api/dev/seed
-```
-
-4. Start desktop
-```powershell
-cd ..\mailpilot-desktop
-npm install
-npm run tauri dev
-```
-
-Quick checks:
-```powershell
-irm http://127.0.0.1:8082/api/health
-irm -Method Post http://127.0.0.1:8082/api/dev/seed
-```
-
-## Followups + Focus API
-
-Key endpoints:
-- `GET /api/followups/{messageId}`
-- `PUT /api/followups/{messageId}`
-- `POST /api/followups/{messageId}/actions`
-- `GET /api/focus/summary`
-- `GET /api/focus/queue?type=NEEDS_REPLY|OVERDUE|DUE_TODAY|SNOOZED|ALL_OPEN&pageSize=50&cursor=...`
-
-Quick test flow:
-```powershell
-# seed once
-irm -Method Post http://127.0.0.1:8082/api/dev/seed
-
-# get a message id
-$q = @{
-  sort = "RECEIVED_DESC"
-  pageSize = 10
-  cursor = $null
-} | ConvertTo-Json
-$item = irm -Method Post -Uri http://127.0.0.1:8082/api/mailbox/query -ContentType "application/json" -Body $q
-$messageId = $item.items[0].id
-
-# inspect + update followup
-irm http://127.0.0.1:8082/api/followups/$messageId
-irm -Method Put -Uri http://127.0.0.1:8082/api/followups/$messageId -ContentType "application/json" -Body (@{
-  status = "OPEN"
-  needsReply = $true
-  dueAt = (Get-Date).AddHours(6).ToString("o")
-  snoozedUntil = $null
-} | ConvertTo-Json)
-
-# check focus summary + queue
-irm http://127.0.0.1:8082/api/focus/summary
-irm "http://127.0.0.1:8082/api/focus/queue?type=NEEDS_REPLY&pageSize=20"
-```
-
-Desktop verification:
-- Open `/focus` in the desktop app.
-- Validate KPI counts and queue tabs.
-- Use row actions or PreviewPanel followup controls and confirm KPI/queue refresh.
+The desktop queries the backend API directly (`http://127.0.0.1:8082` by default; override with `VITE_API_BASE`).
 
 ## MP-PT10: Gmail OAuth Setup
 
@@ -150,7 +64,7 @@ C:\Users\taulanth\AppData\Local\MailPilot\google-oauth-client.json
 6. Download JSON and place it at:
    `C:\Users\taulanth\AppData\Local\MailPilot\google-oauth-client.json`
 
-### Required scopes for MP-PT10
+### Required scopes for MP-PT10/MP-PT11
 - `openid`
 - `email`
 - `profile`
@@ -166,12 +80,24 @@ If `MAILPILOT_TOKEN_KEY_B64` is missing in `dev`, the server generates a key fil
 `C:\Users\taulanth\AppData\Local\MailPilot\token_key.b64`
 and logs an instruction to set the env var from that file value.
 
-### Run (dev)
+### OAuth pitfalls
+- Consent screen in `Testing` mode requires adding Gmail accounts as Test users.
+- Redirect URI must match exactly:
+  `http://127.0.0.1:8082/api/oauth/gmail/callback`
+- OAuth requests include `prompt=consent` in dev to improve refresh token issuance.
+
+## MP-PT11: Gmail Sync
+
+### Prerequisites
+- MP-PT10 OAuth setup complete.
+- At least one Gmail account connected in Settings.
+
+### Run flow (dev)
 1. Start Postgres:
 ```powershell
 docker compose up -d
 ```
-2. Start server in dev profile:
+2. Start backend in dev profile:
 ```powershell
 cd mailpilot-server
 .\mvnw.cmd "-Dspring-boot.run.profiles=dev" spring-boot:run
@@ -182,10 +108,32 @@ cd ..\mailpilot-desktop
 npm install
 npm run tauri dev
 ```
-4. In Settings, click `Connect Gmail`.
+4. Open Settings and click `Connect Gmail` (if not connected yet).
+5. Click `Sync all accounts` or `Sync` on a specific account.
+6. Open Inbox/Views; mailbox now renders real Gmail metadata from the database.
 
-### Common pitfalls
-- Consent screen in `Testing` mode requires adding Gmail accounts as Test users.
-- Redirect URI must match exactly:
-  `http://127.0.0.1:8082/api/oauth/gmail/callback`
-- In dev, OAuth requests use `prompt=consent` to increase refresh token issuance reliability.
+### Sync endpoints
+- `POST /api/sync/gmail/{accountId}/run?maxMessages=500`
+- `POST /api/sync/gmail/run?maxMessages=500`
+- `GET /api/sync/status`
+
+### Troubleshooting
+- `401` from Gmail API:
+  - Token refresh is attempted automatically.
+  - If refresh fails, reconnect Gmail to obtain a fresh refresh token.
+- `historyId` too old/invalid:
+  - Sync falls back to bounded bootstrap (metadata-first).
+- `429` or `5xx` from Gmail:
+  - Sync retries with exponential backoff.
+
+## Reset local DB (remove old demo rows)
+
+If you previously used seed/demo data in older milestones, reset the local DB volume:
+
+```powershell
+docker compose down
+docker volume rm mailpilot_mailpilot_pg
+docker compose up -d
+```
+
+Then rerun server + desktop and sync Gmail again.

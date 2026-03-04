@@ -47,4 +47,40 @@ public class TokenCrypto {
       throw new IllegalStateException("Failed to encrypt OAuth token", exception);
     }
   }
+
+  public String decrypt(String encryptedPayload) {
+    if (!StringUtils.hasText(encryptedPayload)) {
+      throw new IllegalArgumentException("Encrypted token payload is required");
+    }
+
+    String[] parts = encryptedPayload.split(":", 2);
+    if (parts.length != 2 || !ENCRYPTION_VERSION.equals(parts[0])) {
+      throw new IllegalStateException("Unsupported token encryption version");
+    }
+
+    byte[] payload;
+    try {
+      payload = Base64.getDecoder().decode(parts[1]);
+    } catch (IllegalArgumentException exception) {
+      throw new IllegalStateException("Token payload is not valid base64", exception);
+    }
+
+    if (payload.length <= IV_SIZE_BYTES) {
+      throw new IllegalStateException("Token payload is too short");
+    }
+
+    byte[] iv = new byte[IV_SIZE_BYTES];
+    byte[] encryptedBytes = new byte[payload.length - IV_SIZE_BYTES];
+    System.arraycopy(payload, 0, iv, 0, IV_SIZE_BYTES);
+    System.arraycopy(payload, IV_SIZE_BYTES, encryptedBytes, 0, encryptedBytes.length);
+
+    try {
+      Cipher cipher = Cipher.getInstance(CIPHER_ALGORITHM);
+      cipher.init(Cipher.DECRYPT_MODE, secretKey, new GCMParameterSpec(TAG_SIZE_BITS, iv));
+      byte[] plaintextBytes = cipher.doFinal(encryptedBytes);
+      return new String(plaintextBytes, StandardCharsets.UTF_8);
+    } catch (GeneralSecurityException exception) {
+      throw new IllegalStateException("Failed to decrypt OAuth token", exception);
+    }
+  }
 }
