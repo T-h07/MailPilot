@@ -43,3 +43,20 @@ docker compose down
 docker volume rm mailpilot_mailpilot_pg
 docker compose up -d
 ```
+
+## Desktop (Tauri)
+
+### Prerequisites
+- Node.js LTS
+- Rust toolchain (`rustup`)
+- Windows WebView2 runtime (usually already installed)
+- Microsoft Visual C++ Build Tools (MSVC) for Tauri native builds
+
+### Run (development)
+```powershell
+cd mailpilot-desktop
+npm install
+npm run tauri dev
+```
+
+This starts the MailPilot desktop shell with mock mailbox data (virtualized list + preview panel) and no backend API calls.

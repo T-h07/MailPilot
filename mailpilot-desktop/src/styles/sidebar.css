@@ -1,0 +1,9 @@
+.sidebar-panel {
+  background-color: hsl(var(--card));
+}
+
+.sidebar-section-label {
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 0.68rem;
+}
