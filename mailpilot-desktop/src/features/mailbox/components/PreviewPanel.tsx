@@ -1,6 +1,7 @@
 import { forwardRef } from "react";
 import { accountPillClasses, formatLongDate } from "@/features/mailbox/utils/format";
 import type { MailMessage } from "@/features/mailbox/model/types";
+import { getAccentClasses } from "@/features/mailbox/utils/accent";
 import { MailActions } from "@/features/mailbox/components/MailActions";
 import { AttachmentList } from "@/features/mailbox/components/AttachmentList";
 import { ThreadList } from "@/features/mailbox/components/ThreadList";
@@ -47,15 +48,24 @@ export const PreviewPanel = forwardRef<HTMLDivElement, PreviewPanelProps>(
       );
     }
 
+    const highlightAccent = selectedMessage.highlight
+      ? getAccentClasses(selectedMessage.highlight.accent)
+      : null;
+
     return (
       <ScrollArea className="mailbox-panel h-full" ref={ref}>
         <div className="space-y-4 p-4">
-          <Card className="border-border bg-card shadow-none">
+          <Card
+            className={cn(
+              "border-border bg-card shadow-none",
+              selectedMessage.highlight && highlightAccent?.border,
+            )}
+          >
             <CardHeader className="space-y-3">
               <div className="space-y-2">
                 <CardTitle className="text-lg leading-tight">{selectedMessage.subject}</CardTitle>
                 <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                  <span>
+                  <span className={cn(selectedMessage.highlight && highlightAccent?.text)}>
                     From {selectedMessage.senderName} &lt;{selectedMessage.senderEmail}&gt;
                   </span>
                   <span>•</span>
@@ -70,6 +80,14 @@ export const PreviewPanel = forwardRef<HTMLDivElement, PreviewPanelProps>(
                 >
                   {selectedMessage.accountLabel}
                 </Badge>
+                {selectedMessage.highlight && (
+                  <Badge
+                    className={cn("w-fit border text-[10px] uppercase", highlightAccent?.badge)}
+                    variant="outline"
+                  >
+                    {selectedMessage.highlight.label}
+                  </Badge>
+                )}
               </div>
               <MailActions
                 isUnread={selectedMessage.isUnread}

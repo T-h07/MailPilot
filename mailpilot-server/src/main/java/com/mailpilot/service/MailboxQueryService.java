@@ -30,9 +30,11 @@ public class MailboxQueryService {
   private static final int MAX_TAGS_PER_MESSAGE = 10;
 
   private final JdbcTemplate jdbcTemplate;
+  private final SenderHighlightResolver senderHighlightResolver;
 
-  public MailboxQueryService(JdbcTemplate jdbcTemplate) {
+  public MailboxQueryService(JdbcTemplate jdbcTemplate, SenderHighlightResolver senderHighlightResolver) {
     this.jdbcTemplate = jdbcTemplate;
+    this.senderHighlightResolver = senderHighlightResolver;
   }
 
   public MailboxQueryResponse query(MailboxQueryRequest request) {
@@ -57,16 +59,10 @@ public class MailboxQueryService {
         f.status AS followup_status,
         f.needs_reply,
         f.due_at,
-        f.snoozed_until,
-        COALESCE(sr_email.label, sr_domain.label) AS highlight_label,
-        COALESCE(sr_email.accent, sr_domain.accent) AS highlight_accent
+        f.snoozed_until
       FROM messages m
       JOIN accounts a ON a.id = m.account_id
       LEFT JOIN followups f ON f.message_id = m.id
-      LEFT JOIN sender_rules sr_email
-        ON sr_email.match_type = 'EMAIL' AND sr_email.match_value = m.sender_email
-      LEFT JOIN sender_rules sr_domain
-        ON sr_domain.match_type = 'DOMAIN' AND sr_domain.match_value = m.sender_domain
       WHERE 1=1
       """
     );
@@ -173,6 +169,22 @@ public class MailboxQueryService {
 
     List<UUID> messageIds = rows.stream().map(MailboxRow::id).toList();
     Map<UUID, List<String>> tagsByMessage = loadTagsByMessage(messageIds);
+    Set<String> senderEmailsForLookup = new LinkedHashSet<>();
+    Set<String> senderDomainsForLookup = new LinkedHashSet<>();
+    for (MailboxRow row : rows) {
+      String senderEmail = normalize(row.senderEmail());
+      if (!senderEmail.isBlank()) {
+        senderEmailsForLookup.add(senderEmail);
+      }
+      String senderDomain = normalize(row.senderDomain());
+      if (!senderDomain.isBlank()) {
+        senderDomainsForLookup.add(senderDomain);
+      }
+    }
+    SenderHighlightResolver.RuleSet highlightRuleSet = senderHighlightResolver.loadRuleSet(
+      senderEmailsForLookup,
+      senderDomainsForLookup
+    );
 
     OffsetDateTime nowUtc = OffsetDateTime.now(ZoneOffset.UTC);
     LocalDate todayUtc = nowUtc.toLocalDate();
@@ -180,9 +192,14 @@ public class MailboxQueryService {
     for (MailboxRow row : rows) {
       List<String> chips = buildChips(row, nowUtc, todayUtc);
       List<String> tags = tagsByMessage.getOrDefault(row.id(), List.of());
-      MailboxQueryResponse.Highlight highlight = row.highlightLabel() == null
+      SenderHighlightResolver.Highlight resolvedHighlight = senderHighlightResolver.resolve(
+        row.senderEmail(),
+        row.senderDomain(),
+        highlightRuleSet
+      );
+      MailboxQueryResponse.Highlight highlight = resolvedHighlight == null
         ? null
-        : new MailboxQueryResponse.Highlight(row.highlightLabel(), row.highlightAccent());
+        : new MailboxQueryResponse.Highlight(resolvedHighlight.label(), resolvedHighlight.accent());
       items.add(
         new MailboxQueryResponse.Item(
           row.id(),
@@ -285,9 +302,7 @@ public class MailboxQueryService {
       resultSet.getString("followup_status"),
       (Boolean) resultSet.getObject("needs_reply"),
       resultSet.getObject("due_at", OffsetDateTime.class),
-      resultSet.getObject("snoozed_until", OffsetDateTime.class),
-      resultSet.getString("highlight_label"),
-      resultSet.getString("highlight_accent")
+      resultSet.getObject("snoozed_until", OffsetDateTime.class)
     );
   }
 
@@ -380,8 +395,6 @@ public class MailboxQueryService {
     String followupStatus,
     Boolean needsReply,
     OffsetDateTime dueAt,
-    OffsetDateTime snoozedUntil,
-    String highlightLabel,
-    String highlightAccent
+    OffsetDateTime snoozedUntil
   ) {}
 }

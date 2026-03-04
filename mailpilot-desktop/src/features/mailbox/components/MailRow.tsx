@@ -3,6 +3,7 @@ import { Paperclip } from "lucide-react";
 import type { MailMessage } from "@/features/mailbox/model/types";
 import { accountPillClasses, formatRelativeTime } from "@/features/mailbox/utils/format";
 import { highlightText } from "@/features/mailbox/utils/highlight";
+import { getAccentClasses } from "@/features/mailbox/utils/accent";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 
@@ -23,6 +24,7 @@ function MailRowComponent({ message, isSelected, onSelect, searchQuery }: MailRo
     [message.snippet, searchQuery],
   );
   const timeLabel = useMemo(() => formatRelativeTime(message.receivedAt), [message.receivedAt]);
+  const highlightAccent = message.highlight ? getAccentClasses(message.highlight.accent) : null;
 
   const visibleTags = message.tags.slice(0, 2);
   const overflowTagCount = Math.max(message.tags.length - visibleTags.length, 0);
@@ -30,14 +32,20 @@ function MailRowComponent({ message, isSelected, onSelect, searchQuery }: MailRo
   return (
     <button
       className={cn(
-        "w-full rounded-lg border p-3 text-left transition-colors",
+        "relative w-full overflow-hidden rounded-lg border bg-background p-3 text-left transition-colors",
         isSelected
           ? "border-primary/50 bg-accent ring-1 ring-primary/20 shadow-sm"
-          : "border-border bg-background hover:bg-accent",
+          : "border-border hover:bg-accent",
+        message.highlight && !isSelected && highlightAccent?.border,
       )}
       onClick={() => onSelect(message.id)}
       type="button"
     >
+      {message.highlight && (
+        <span
+          className={cn("absolute bottom-2 left-1 top-2 w-1 rounded-full", highlightAccent?.stripe)}
+        />
+      )}
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -51,6 +59,7 @@ function MailRowComponent({ message, isSelected, onSelect, searchQuery }: MailRo
               className={cn(
                 "truncate text-sm",
                 message.isUnread ? "font-semibold text-foreground" : "font-medium text-foreground/90",
+                message.highlight && highlightAccent?.text,
               )}
             >
               {message.senderName}
@@ -86,6 +95,11 @@ function MailRowComponent({ message, isSelected, onSelect, searchQuery }: MailRo
         <Badge className={cn("border text-[10px]", accountPillClasses(message.accountColorToken))}>
           {message.accountLabel}
         </Badge>
+        {message.highlight && (
+          <Badge className={cn("border text-[10px] uppercase", highlightAccent?.badge)} variant="outline">
+            {message.highlight.label}
+          </Badge>
+        )}
         {message.flags.needsReply && (
           <Badge className="text-[10px]" variant="secondary">
             NeedsReply

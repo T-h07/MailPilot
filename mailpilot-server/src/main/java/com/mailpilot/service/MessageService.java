@@ -5,8 +5,6 @@ import com.mailpilot.api.model.MessageDetailResponse;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.OffsetDateTime;
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -16,9 +14,11 @@ import org.springframework.stereotype.Service;
 public class MessageService {
 
   private final JdbcTemplate jdbcTemplate;
+  private final SenderHighlightResolver senderHighlightResolver;
 
-  public MessageService(JdbcTemplate jdbcTemplate) {
+  public MessageService(JdbcTemplate jdbcTemplate, SenderHighlightResolver senderHighlightResolver) {
     this.jdbcTemplate = jdbcTemplate;
+    this.senderHighlightResolver = senderHighlightResolver;
   }
 
   public MessageDetailResponse getMessageDetail(UUID messageId) {
@@ -31,6 +31,7 @@ public class MessageService {
         m.thread_id,
         COALESCE(m.sender_name, split_part(m.sender_email, '@', 1)) AS sender_name,
         m.sender_email,
+        m.sender_domain,
         COALESCE(m.subject, '(no subject)') AS subject,
         COALESCE(m.snippet, '') AS snippet,
         m.received_at,
@@ -40,16 +41,10 @@ public class MessageService {
         f.status AS followup_status,
         f.needs_reply,
         f.due_at,
-        f.snoozed_until,
-        COALESCE(sr_email.label, sr_domain.label) AS highlight_label,
-        COALESCE(sr_email.accent, sr_domain.accent) AS highlight_accent
+        f.snoozed_until
       FROM messages m
       JOIN accounts a ON a.id = m.account_id
       LEFT JOIN followups f ON f.message_id = m.id
-      LEFT JOIN sender_rules sr_email
-        ON sr_email.match_type = 'EMAIL' AND sr_email.match_value = m.sender_email
-      LEFT JOIN sender_rules sr_domain
-        ON sr_domain.match_type = 'DOMAIN' AND sr_domain.match_value = m.sender_domain
       WHERE m.id = ?
       """;
 
@@ -127,9 +122,13 @@ public class MessageService {
       messageRow.snoozedUntil()
     );
 
-    MessageDetailResponse.Highlight highlight = messageRow.highlightLabel() == null
+    SenderHighlightResolver.Highlight resolvedHighlight = senderHighlightResolver.resolveSingle(
+      messageRow.senderEmail(),
+      messageRow.senderDomain()
+    );
+    MessageDetailResponse.Highlight highlight = resolvedHighlight == null
       ? null
-      : new MessageDetailResponse.Highlight(messageRow.highlightLabel(), messageRow.highlightAccent());
+      : new MessageDetailResponse.Highlight(resolvedHighlight.label(), resolvedHighlight.accent());
 
     return new MessageDetailResponse(
       messageRow.id(),
@@ -165,6 +164,7 @@ public class MessageService {
       resultSet.getObject("thread_id", UUID.class),
       resultSet.getString("sender_name"),
       resultSet.getString("sender_email"),
+      resultSet.getString("sender_domain"),
       resultSet.getString("subject"),
       resultSet.getString("snippet"),
       resultSet.getObject("received_at", OffsetDateTime.class),
@@ -174,9 +174,7 @@ public class MessageService {
       resultSet.getString("followup_status"),
       (Boolean) resultSet.getObject("needs_reply"),
       resultSet.getObject("due_at", OffsetDateTime.class),
-      resultSet.getObject("snoozed_until", OffsetDateTime.class),
-      resultSet.getString("highlight_label"),
-      resultSet.getString("highlight_accent")
+      resultSet.getObject("snoozed_until", OffsetDateTime.class)
     );
   }
 
@@ -197,6 +195,7 @@ public class MessageService {
     UUID threadId,
     String senderName,
     String senderEmail,
+    String senderDomain,
     String subject,
     String snippet,
     OffsetDateTime receivedAt,
@@ -206,8 +205,6 @@ public class MessageService {
     String followupStatus,
     Boolean needsReply,
     OffsetDateTime dueAt,
-    OffsetDateTime snoozedUntil,
-    String highlightLabel,
-    String highlightAccent
+    OffsetDateTime snoozedUntil
   ) {}
 }
