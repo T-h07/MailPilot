@@ -38,6 +38,7 @@ public class ViewExecutionService {
       overrides != null && Boolean.TRUE.equals(overrides.overdue()),
       overrides != null && Boolean.TRUE.equals(overrides.dueToday()),
       overrides != null && Boolean.TRUE.equals(overrides.snoozed()),
+      overrides != null && Boolean.TRUE.equals(overrides.allOpen()),
       view.senderDomains(),
       view.senderEmails(),
       view.keywords()

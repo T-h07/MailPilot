@@ -90,3 +90,45 @@ Quick checks:
 irm http://127.0.0.1:8082/api/health
 irm -Method Post http://127.0.0.1:8082/api/dev/seed
 ```
+
+## Followups + Focus API
+
+Key endpoints:
+- `GET /api/followups/{messageId}`
+- `PUT /api/followups/{messageId}`
+- `POST /api/followups/{messageId}/actions`
+- `GET /api/focus/summary`
+- `GET /api/focus/queue?type=NEEDS_REPLY|OVERDUE|DUE_TODAY|SNOOZED|ALL_OPEN&pageSize=50&cursor=...`
+
+Quick test flow:
+```powershell
+# seed once
+irm -Method Post http://127.0.0.1:8082/api/dev/seed
+
+# get a message id
+$q = @{
+  sort = "RECEIVED_DESC"
+  pageSize = 10
+  cursor = $null
+} | ConvertTo-Json
+$item = irm -Method Post -Uri http://127.0.0.1:8082/api/mailbox/query -ContentType "application/json" -Body $q
+$messageId = $item.items[0].id
+
+# inspect + update followup
+irm http://127.0.0.1:8082/api/followups/$messageId
+irm -Method Put -Uri http://127.0.0.1:8082/api/followups/$messageId -ContentType "application/json" -Body (@{
+  status = "OPEN"
+  needsReply = $true
+  dueAt = (Get-Date).AddHours(6).ToString("o")
+  snoozedUntil = $null
+} | ConvertTo-Json)
+
+# check focus summary + queue
+irm http://127.0.0.1:8082/api/focus/summary
+irm "http://127.0.0.1:8082/api/focus/queue?type=NEEDS_REPLY&pageSize=20"
+```
+
+Desktop verification:
+- Open `/focus` in the desktop app.
+- Validate KPI counts and queue tabs.
+- Use row actions or PreviewPanel followup controls and confirm KPI/queue refresh.

@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { InboxPage } from "@/pages/inbox-page";
 import { FocusPage } from "@/pages/focus-page";
+import { FocusDrillPage } from "@/pages/focus-drill-page";
 import { ViewPage } from "@/pages/view-page";
 import { InsightsPage } from "@/pages/insights-page";
 import { SettingsPage } from "@/pages/settings-page";
@@ -119,6 +120,10 @@ function toApiErrorMessage(error: unknown): string {
 function resolveHeaderTitle(pathname: string, views: ViewRecord[]): string {
   if (pathname === "/views/manage") {
     return "Views Hub";
+  }
+
+  if (pathname.startsWith("/focus/drill/")) {
+    return "Focus Drilldown";
   }
 
   if (pathname.startsWith("/views/")) {
@@ -414,6 +419,7 @@ function App() {
           <Route element={<Navigate replace to="/inbox" />} index />
           <Route element={<InboxPage />} path="inbox" />
           <Route element={<FocusPage />} path="focus" />
+          <Route element={<FocusDrillPage />} path="focus/drill/:type" />
           <Route element={<ViewsHubPage />} path="views/manage" />
           <Route element={<ViewPage />} path="views/:viewId" />
           <Route element={<InsightsPage />} path="insights" />

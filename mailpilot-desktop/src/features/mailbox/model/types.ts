@@ -25,6 +25,13 @@ export type MailFlags = {
   snoozed: boolean;
 };
 
+export type MessageFollowup = {
+  status: "OPEN" | "DONE";
+  needsReply: boolean;
+  dueAt: string | null;
+  snoozedUntil: string | null;
+};
+
 export type MailAccount = {
   id: string;
   accountEmail: string;
@@ -52,6 +59,7 @@ export type MailMessage = {
   attachments: MailAttachment[];
   threadId: string;
   threadMessages: ThreadMessageSummary[];
+  followup: MessageFollowup;
   highlight?: {
     label: string;
     accent: string;

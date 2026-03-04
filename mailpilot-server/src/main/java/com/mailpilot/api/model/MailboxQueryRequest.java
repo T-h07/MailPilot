@@ -24,6 +24,7 @@ public record MailboxQueryRequest(
     Boolean overdue,
     Boolean dueToday,
     Boolean snoozed,
+    Boolean allOpen,
     List<String> senderDomains,
     List<String> senderEmails,
     List<String> keywords

@@ -11,6 +11,7 @@ export type MailboxQueryRequest = {
     overdue?: boolean;
     dueToday?: boolean;
     snoozed?: boolean;
+    allOpen?: boolean;
     senderDomains?: string[];
     senderEmails?: string[];
     keywords?: string[];
@@ -29,6 +30,7 @@ export type ViewMailboxQueryRequest = {
     overdue?: boolean;
     dueToday?: boolean;
     snoozed?: boolean;
+    allOpen?: boolean;
   };
   pageSize: number;
   cursor: string | null;

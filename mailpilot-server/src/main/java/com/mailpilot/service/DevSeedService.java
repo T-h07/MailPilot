@@ -499,33 +499,34 @@ public class DevSeedService {
 
   private void insertFollowups(Random random, OffsetDateTime now, List<SeedMessage> messages) {
     List<SeedFollowup> followups = new ArrayList<>();
+    OffsetDateTime todayStart = now.withHour(0).withMinute(0).withSecond(0).withNano(0);
+
     for (SeedMessage message : messages) {
-      if (random.nextDouble() >= 0.18) {
+      boolean needsReplyOpen = random.nextDouble() < 0.05;
+      boolean overdueOpen = random.nextDouble() < 0.02;
+      boolean dueTodayOpen = random.nextDouble() < 0.03;
+      boolean snoozedOpen = random.nextDouble() < 0.04;
+
+      boolean hasOpenSignals = needsReplyOpen || overdueOpen || dueTodayOpen || snoozedOpen;
+      boolean doneOnly = !hasOpenSignals && random.nextDouble() < 0.05;
+      if (!hasOpenSignals && !doneOnly) {
         continue;
       }
 
-      boolean open = random.nextDouble() < 0.82;
-      String status = open ? "OPEN" : "DONE";
-      boolean needsReply = open && random.nextDouble() < 0.45;
+      String status = hasOpenSignals ? "OPEN" : "DONE";
+      boolean needsReply = hasOpenSignals && needsReplyOpen;
 
       OffsetDateTime dueAt = null;
-      if (open && random.nextDouble() < 0.58) {
-        double bucket = random.nextDouble();
-        if (bucket < 0.33) {
-          dueAt = now.minusHours(1 + random.nextInt(48));
-        } else if (bucket < 0.66) {
-          dueAt = now
-            .withHour(9 + random.nextInt(8))
-            .withMinute(random.nextInt(60))
-            .withSecond(0)
-            .withNano(0);
-        } else {
-          dueAt = now.plusHours(6 + random.nextInt(96));
-        }
+      if (hasOpenSignals && overdueOpen) {
+        dueAt = now.minusHours(2 + random.nextInt(72));
+      } else if (hasOpenSignals && dueTodayOpen) {
+        dueAt = todayStart.plusHours(9 + random.nextInt(10)).plusMinutes(random.nextInt(60));
+      } else if (doneOnly && random.nextDouble() < 0.4) {
+        dueAt = now.minusDays(1 + random.nextInt(4));
       }
 
-      OffsetDateTime snoozedUntil = open && random.nextDouble() < 0.12
-        ? now.plusHours(2 + random.nextInt(72))
+      OffsetDateTime snoozedUntil = hasOpenSignals && snoozedOpen
+        ? now.plusHours(6 + random.nextInt(96))
         : null;
 
       followups.add(new SeedFollowup(message.id(), status, needsReply, dueAt, snoozedUntil));

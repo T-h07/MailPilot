@@ -98,6 +98,7 @@ public class MailboxQueryService {
     boolean overdue = filters != null && Boolean.TRUE.equals(filters.overdue());
     boolean dueToday = filters != null && Boolean.TRUE.equals(filters.dueToday());
     boolean snoozed = filters != null && Boolean.TRUE.equals(filters.snoozed());
+    boolean allOpen = filters != null && Boolean.TRUE.equals(filters.allOpen());
 
     if (unreadOnly) {
       sql.append(" AND m.is_read = false");
@@ -117,6 +118,11 @@ public class MailboxQueryService {
     }
     if (snoozed) {
       sql.append(" AND f.status = 'OPEN' AND f.snoozed_until > now()");
+    }
+    if (allOpen) {
+      sql.append(
+        " AND f.status = 'OPEN' AND (f.needs_reply = true OR f.due_at IS NOT NULL OR f.snoozed_until IS NOT NULL)"
+      );
     }
 
     List<String> senderDomains = normalizeList(filters == null ? null : filters.senderDomains());

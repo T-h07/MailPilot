@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import type { MessageFollowup } from "@/features/mailbox/model/types";
 
 type PreviewPanelProps = {
   selectedMessage: MailMessage | null;
@@ -18,7 +19,29 @@ type PreviewPanelProps = {
   onActionPlaceholder: (label: string) => void;
   isLoading?: boolean;
   statusMessage?: string | null;
+  isFollowupUpdating?: boolean;
+  onToggleNeedsReply: () => void;
+  onSetDueToday: () => void;
+  onSetDueTomorrow: () => void;
+  onClearDueDate: () => void;
+  onSnoozeDays: (days: 1 | 3 | 7) => void;
+  onClearSnooze: () => void;
+  onToggleFollowupStatus: () => void;
 };
+
+function formatFollowupLine(followup: MessageFollowup): string {
+  const parts: string[] = [followup.status === "DONE" ? "Done" : "Open"];
+  if (followup.needsReply) {
+    parts.push("Needs reply");
+  }
+  if (followup.dueAt) {
+    parts.push(`Due ${formatLongDate(followup.dueAt)}`);
+  }
+  if (followup.snoozedUntil) {
+    parts.push(`Snoozed until ${formatLongDate(followup.snoozedUntil)}`);
+  }
+  return parts.join(" • ");
+}
 
 export const PreviewPanel = forwardRef<HTMLDivElement, PreviewPanelProps>(
   function PreviewPanel(
@@ -29,6 +52,14 @@ export const PreviewPanel = forwardRef<HTMLDivElement, PreviewPanelProps>(
       onActionPlaceholder,
       isLoading = false,
       statusMessage = null,
+      isFollowupUpdating = false,
+      onToggleNeedsReply,
+      onSetDueToday,
+      onSetDueTomorrow,
+      onClearDueDate,
+      onSnoozeDays,
+      onClearSnooze,
+      onToggleFollowupStatus,
     },
     ref,
   ) {
@@ -88,6 +119,88 @@ export const PreviewPanel = forwardRef<HTMLDivElement, PreviewPanelProps>(
                     {selectedMessage.highlight.label}
                   </Badge>
                 )}
+                <div className="rounded-lg border border-border bg-background p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Followup
+                  </p>
+                  <p className="pt-1 text-xs text-muted-foreground">
+                    {formatFollowupLine(selectedMessage.followup)}
+                  </p>
+                  <div className="flex flex-wrap gap-2 pt-2">
+                    <Button
+                      disabled={isFollowupUpdating}
+                      onClick={onToggleNeedsReply}
+                      size="sm"
+                      variant="outline"
+                    >
+                      {selectedMessage.followup.needsReply ? "Unset needs reply" : "Mark needs reply"}
+                    </Button>
+                    <Button
+                      disabled={isFollowupUpdating}
+                      onClick={onSetDueToday}
+                      size="sm"
+                      variant="outline"
+                    >
+                      Due today 18:00
+                    </Button>
+                    <Button
+                      disabled={isFollowupUpdating}
+                      onClick={onSetDueTomorrow}
+                      size="sm"
+                      variant="outline"
+                    >
+                      Due tomorrow 18:00
+                    </Button>
+                    <Button
+                      disabled={isFollowupUpdating}
+                      onClick={onClearDueDate}
+                      size="sm"
+                      variant="outline"
+                    >
+                      Clear due
+                    </Button>
+                    <Button
+                      disabled={isFollowupUpdating}
+                      onClick={() => onSnoozeDays(1)}
+                      size="sm"
+                      variant="outline"
+                    >
+                      Snooze 1d
+                    </Button>
+                    <Button
+                      disabled={isFollowupUpdating}
+                      onClick={() => onSnoozeDays(3)}
+                      size="sm"
+                      variant="outline"
+                    >
+                      Snooze 3d
+                    </Button>
+                    <Button
+                      disabled={isFollowupUpdating}
+                      onClick={() => onSnoozeDays(7)}
+                      size="sm"
+                      variant="outline"
+                    >
+                      Snooze 7d
+                    </Button>
+                    <Button
+                      disabled={isFollowupUpdating}
+                      onClick={onClearSnooze}
+                      size="sm"
+                      variant="outline"
+                    >
+                      Clear snooze
+                    </Button>
+                    <Button
+                      disabled={isFollowupUpdating}
+                      onClick={onToggleFollowupStatus}
+                      size="sm"
+                      variant="outline"
+                    >
+                      {selectedMessage.followup.status === "DONE" ? "Reopen" : "Mark done"}
+                    </Button>
+                  </div>
+                </div>
               </div>
               <MailActions
                 isUnread={selectedMessage.isUnread}

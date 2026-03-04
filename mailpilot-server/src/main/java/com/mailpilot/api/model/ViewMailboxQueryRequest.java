@@ -15,6 +15,7 @@ public record ViewMailboxQueryRequest(
     Boolean needsReply,
     Boolean overdue,
     Boolean dueToday,
-    Boolean snoozed
+    Boolean snoozed,
+    Boolean allOpen
   ) {}
 }

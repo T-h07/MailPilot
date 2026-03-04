@@ -299,6 +299,12 @@ export function generateMockMailboxData(
       attachments,
       threadId: threadSeed.id,
       threadMessages: [],
+      followup: {
+        status: "OPEN",
+        needsReply,
+        dueAt: null,
+        snoozedUntil: null,
+      },
     });
   }
 

@@ -4,6 +4,7 @@ import type {
   AccountColorToken,
   AccountScope,
   MailAccount,
+  MessageFollowup,
   MailMessage,
   QuickFilterKey,
   ThreadMessageSummary,
@@ -20,14 +21,28 @@ import {
   type MailboxListItem,
   type MessageDetailResponse,
 } from "@/lib/api/mailbox";
+import { runFollowupAction, updateFollowup, type FollowupState } from "@/lib/api/followups";
+import { emitFollowupUpdated } from "@/lib/events/followups";
 import type { ViewRecord } from "@/lib/api/views";
 import { ApiClientError } from "@/lib/api/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
+type ForcedMailboxFilters = {
+  needsReply?: boolean;
+  overdue?: boolean;
+  dueToday?: boolean;
+  snoozed?: boolean;
+  allOpen?: boolean;
+};
+
 type MailboxShellProps = {
   context: "inbox" | "view";
   view: ViewRecord | null;
+  titleOverride?: string;
+  subtitleOverride?: string;
+  hideAccountScope?: boolean;
+  forcedFilters?: ForcedMailboxFilters;
 };
 
 type NoticeState = {
@@ -92,8 +107,27 @@ function followupToFlags(followup: MessageDetailResponse["followup"]) {
   };
 }
 
+function defaultFollowupState(): MessageFollowup {
+  return {
+    status: "OPEN",
+    needsReply: false,
+    dueAt: null,
+    snoozedUntil: null,
+  };
+}
+
+function toMessageFollowup(followup: MessageDetailResponse["followup"] | FollowupState): MessageFollowup {
+  return {
+    status: followup.status,
+    needsReply: followup.needsReply,
+    dueAt: followup.dueAt,
+    snoozedUntil: followup.snoozedUntil,
+  };
+}
+
 function toSummaryMessage(item: MailboxListItem): MailMessage {
   const account = toMailAccount(item.accountId, item.accountEmail);
+  const inferredFlags = chipsToFlags(item.chips);
   return {
     id: item.id,
     accountId: item.accountId,
@@ -108,12 +142,18 @@ function toSummaryMessage(item: MailboxListItem): MailMessage {
     bodyCache: null,
     receivedAt: item.receivedAt,
     isUnread: item.isUnread,
-    flags: chipsToFlags(item.chips),
+    flags: inferredFlags,
     tags: item.tags,
     hasAttachments: item.hasAttachments,
     attachments: [],
     threadId: item.id,
     threadMessages: [],
+    followup: {
+      status: "OPEN",
+      needsReply: inferredFlags.needsReply,
+      dueAt: null,
+      snoozedUntil: null,
+    },
     highlight: item.highlight,
   };
 }
@@ -194,6 +234,7 @@ function buildPreviewMessage(
     threadMessages: detail.thread.messages.map((threadMessage) => toThreadSummary(threadMessage)),
     tags: detail.tags,
     flags: followupToFlags(detail.followup),
+    followup: toMessageFollowup(detail.followup),
     highlight: detail.highlight,
   };
 }
@@ -250,7 +291,14 @@ function summarizeViewRules(view: ViewRecord | null): string[] {
   return chips;
 }
 
-export function MailboxShell({ context, view }: MailboxShellProps) {
+export function MailboxShell({
+  context,
+  view,
+  titleOverride,
+  subtitleOverride,
+  hideAccountScope = false,
+  forcedFilters,
+}: MailboxShellProps) {
   const navigate = useNavigate();
   const previewRef = useRef<HTMLDivElement>(null);
   const hideNoticeTimeoutRef = useRef<number | null>(null);
@@ -276,6 +324,7 @@ export function MailboxShell({ context, view }: MailboxShellProps) {
   const [detailsById, setDetailsById] = useState<Map<string, MessageDetailResponse>>(new Map());
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
+  const [isUpdatingFollowup, setIsUpdatingFollowup] = useState(false);
 
   const accountLookup = useMemo(() => {
     return new Map(accounts.map((account) => [account.id, account]));
@@ -283,6 +332,11 @@ export function MailboxShell({ context, view }: MailboxShellProps) {
 
   const activeFiltersKey = useMemo(() => Array.from(activeFilters).sort().join("|"), [activeFilters]);
   const scopeDependency = context === "inbox" ? accountScope : "VIEW_SCOPE";
+  const forcedFiltersKey = useMemo(
+    () => JSON.stringify(forcedFilters ?? {}),
+    [forcedFilters],
+  );
+  const hideScope = hideAccountScope || context === "view";
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -290,6 +344,23 @@ export function MailboxShell({ context, view }: MailboxShellProps) {
     }, 250);
     return () => window.clearTimeout(handle);
   }, [searchQuery]);
+
+  useEffect(() => {
+    const next = new Set<QuickFilterKey>();
+    if (forcedFilters?.needsReply) {
+      next.add("NEEDS_REPLY");
+    }
+    if (forcedFilters?.overdue) {
+      next.add("OVERDUE");
+    }
+    if (forcedFilters?.dueToday) {
+      next.add("DUE_TODAY");
+    }
+    if (forcedFilters?.snoozed) {
+      next.add("SNOOZED");
+    }
+    setActiveFilters(next);
+  }, [forcedFiltersKey, forcedFilters]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -353,6 +424,12 @@ export function MailboxShell({ context, view }: MailboxShellProps) {
       }
 
       try {
+        const resolvedNeedsReply = forcedFilters?.needsReply ?? activeFilters.has("NEEDS_REPLY");
+        const resolvedOverdue = forcedFilters?.overdue ?? activeFilters.has("OVERDUE");
+        const resolvedDueToday = forcedFilters?.dueToday ?? activeFilters.has("DUE_TODAY");
+        const resolvedSnoozed = forcedFilters?.snoozed ?? activeFilters.has("SNOOZED");
+        const resolvedAllOpen = forcedFilters?.allOpen ?? false;
+
         const response =
           context === "view" && view
             ? await queryMailboxView(
@@ -361,10 +438,11 @@ export function MailboxShell({ context, view }: MailboxShellProps) {
                   q: debouncedSearchQuery.length > 0 ? debouncedSearchQuery : null,
                   filtersOverride: {
                     unreadOnly: activeFilters.has("UNREAD"),
-                    needsReply: activeFilters.has("NEEDS_REPLY"),
-                    overdue: activeFilters.has("OVERDUE"),
-                    dueToday: activeFilters.has("DUE_TODAY"),
-                    snoozed: activeFilters.has("SNOOZED"),
+                    needsReply: resolvedNeedsReply,
+                    overdue: resolvedOverdue,
+                    dueToday: resolvedDueToday,
+                    snoozed: resolvedSnoozed,
+                    allOpen: resolvedAllOpen,
                   },
                   pageSize: REQUEST_PAGE_SIZE,
                   cursor,
@@ -377,10 +455,11 @@ export function MailboxShell({ context, view }: MailboxShellProps) {
                   q: debouncedSearchQuery.length > 0 ? debouncedSearchQuery : null,
                   filters: {
                     unreadOnly: activeFilters.has("UNREAD"),
-                    needsReply: activeFilters.has("NEEDS_REPLY"),
-                    overdue: activeFilters.has("OVERDUE"),
-                    dueToday: activeFilters.has("DUE_TODAY"),
-                    snoozed: activeFilters.has("SNOOZED"),
+                    needsReply: resolvedNeedsReply,
+                    overdue: resolvedOverdue,
+                    dueToday: resolvedDueToday,
+                    snoozed: resolvedSnoozed,
+                    allOpen: resolvedAllOpen,
                     senderDomains: [],
                     senderEmails: [],
                     keywords: [],
@@ -416,14 +495,22 @@ export function MailboxShell({ context, view }: MailboxShellProps) {
         }
       }
     },
-    [context, view, debouncedSearchQuery, activeFilters, accountScope],
+    [context, view, debouncedSearchQuery, activeFilters, accountScope, forcedFiltersKey],
   );
 
   useEffect(() => {
     setSelectedMessageId(null);
     setDetailsById(new Map());
     fetchMailbox(false, null);
-  }, [fetchMailbox, context, view?.id, scopeDependency, debouncedSearchQuery, activeFiltersKey]);
+  }, [
+    fetchMailbox,
+    context,
+    view?.id,
+    scopeDependency,
+    debouncedSearchQuery,
+    activeFiltersKey,
+    forcedFiltersKey,
+  ]);
 
   useEffect(() => {
     if (messages.length === 0) {
@@ -533,6 +620,98 @@ export function MailboxShell({ context, view }: MailboxShellProps) {
     });
   }, []);
 
+  const applyFollowupState = useCallback((messageId: string, followup: MessageFollowup) => {
+    const nextFlags = followupToFlags(followup);
+
+    setMessages((previous) =>
+      previous.map((message) =>
+        message.id === messageId
+          ? {
+              ...message,
+              followup,
+              flags: nextFlags,
+            }
+          : message,
+      ),
+    );
+
+    setDetailsById((previous) => {
+      const detail = previous.get(messageId);
+      if (!detail) {
+        return previous;
+      }
+      const next = new Map(previous);
+      next.set(messageId, {
+        ...detail,
+        followup: {
+          status: followup.status,
+          needsReply: followup.needsReply,
+          dueAt: followup.dueAt,
+          snoozedUntil: followup.snoozedUntil,
+        },
+      });
+      return next;
+    });
+  }, []);
+
+  const getCurrentFollowup = useCallback(
+    (messageId: string): MessageFollowup => {
+      const message = messages.find((candidate) => candidate.id === messageId);
+      return message?.followup ?? defaultFollowupState();
+    },
+    [messages],
+  );
+
+  const persistFollowup = useCallback(
+    async (messageId: string, nextFollowup: MessageFollowup, successMessage: string) => {
+      const previousFollowup = getCurrentFollowup(messageId);
+      applyFollowupState(messageId, nextFollowup);
+      setIsUpdatingFollowup(true);
+
+      try {
+        const response = await updateFollowup(messageId, {
+          status: nextFollowup.status,
+          needsReply: nextFollowup.needsReply,
+          dueAt: nextFollowup.dueAt,
+          snoozedUntil: nextFollowup.snoozedUntil,
+        });
+        applyFollowupState(messageId, toMessageFollowup(response.followup));
+        emitFollowupUpdated();
+        showNotice(successMessage);
+      } catch (error) {
+        applyFollowupState(messageId, previousFollowup);
+        showNotice(toErrorMessage(error) || "Failed to update followup");
+      } finally {
+        setIsUpdatingFollowup(false);
+      }
+    },
+    [applyFollowupState, getCurrentFollowup, showNotice],
+  );
+
+  const applyFollowupAction = useCallback(
+    async (
+      messageId: string,
+      action: "MARK_DONE" | "MARK_OPEN" | "SNOOZE",
+      days?: 1 | 3 | 7,
+    ) => {
+      setIsUpdatingFollowup(true);
+      try {
+        const response = await runFollowupAction(
+          messageId,
+          days ? { action, days } : { action },
+        );
+        applyFollowupState(messageId, toMessageFollowup(response.followup));
+        emitFollowupUpdated();
+        showNotice("Followup updated");
+      } catch (error) {
+        showNotice(toErrorMessage(error) || "Failed to update followup");
+      } finally {
+        setIsUpdatingFollowup(false);
+      }
+    },
+    [applyFollowupState, showNotice],
+  );
+
   const handleToggleRead = useCallback(async () => {
     if (!selectedMessage) {
       return;
@@ -549,6 +728,94 @@ export function MailboxShell({ context, view }: MailboxShellProps) {
       showNotice(toErrorMessage(error) || "Failed to update read state");
     }
   }, [applyUnreadState, selectedMessage, showNotice]);
+
+  const handleToggleNeedsReply = useCallback(async () => {
+    if (!selectedMessage) {
+      return;
+    }
+    const nextFollowup: MessageFollowup = {
+      ...selectedMessage.followup,
+      status: "OPEN",
+      needsReply: !selectedMessage.followup.needsReply,
+    };
+    await persistFollowup(
+      selectedMessage.id,
+      nextFollowup,
+      nextFollowup.needsReply ? "Marked as needs reply" : "Cleared needs reply",
+    );
+  }, [persistFollowup, selectedMessage]);
+
+  const handleSetDuePreset = useCallback(
+    async (preset: "TODAY" | "TOMORROW") => {
+      if (!selectedMessage) {
+        return;
+      }
+      const dueLocal = new Date();
+      dueLocal.setHours(18, 0, 0, 0);
+      if (preset === "TOMORROW") {
+        dueLocal.setDate(dueLocal.getDate() + 1);
+      }
+      await persistFollowup(
+        selectedMessage.id,
+        {
+          ...selectedMessage.followup,
+          status: "OPEN",
+          dueAt: dueLocal.toISOString(),
+        },
+        `Due date set for ${preset === "TODAY" ? "today" : "tomorrow"}`,
+      );
+    },
+    [persistFollowup, selectedMessage],
+  );
+
+  const handleClearDueDate = useCallback(async () => {
+    if (!selectedMessage) {
+      return;
+    }
+    await persistFollowup(
+      selectedMessage.id,
+      {
+        ...selectedMessage.followup,
+        dueAt: null,
+      },
+      "Due date cleared",
+    );
+  }, [persistFollowup, selectedMessage]);
+
+  const handleSnoozeDays = useCallback(
+    async (days: 1 | 3 | 7) => {
+      if (!selectedMessage) {
+        return;
+      }
+      await applyFollowupAction(selectedMessage.id, "SNOOZE", days);
+    },
+    [applyFollowupAction, selectedMessage],
+  );
+
+  const handleClearSnooze = useCallback(async () => {
+    if (!selectedMessage) {
+      return;
+    }
+    await persistFollowup(
+      selectedMessage.id,
+      {
+        ...selectedMessage.followup,
+        snoozedUntil: null,
+      },
+      "Snooze cleared",
+    );
+  }, [persistFollowup, selectedMessage]);
+
+  const handleToggleFollowupStatus = useCallback(async () => {
+    if (!selectedMessage) {
+      return;
+    }
+    if (selectedMessage.followup.status === "DONE") {
+      await applyFollowupAction(selectedMessage.id, "MARK_OPEN");
+      return;
+    }
+    await applyFollowupAction(selectedMessage.id, "MARK_DONE");
+  }, [applyFollowupAction, selectedMessage]);
 
   const handleSelectThreadMessage = useCallback(
     (messageId: string) => {
@@ -575,19 +842,33 @@ export function MailboxShell({ context, view }: MailboxShellProps) {
   }, []);
 
   const resetFilters = useCallback(() => {
-    setActiveFilters(new Set());
+    const next = new Set<QuickFilterKey>();
+    if (forcedFilters?.needsReply) {
+      next.add("NEEDS_REPLY");
+    }
+    if (forcedFilters?.overdue) {
+      next.add("OVERDUE");
+    }
+    if (forcedFilters?.dueToday) {
+      next.add("DUE_TODAY");
+    }
+    if (forcedFilters?.snoozed) {
+      next.add("SNOOZED");
+    }
+    setActiveFilters(next);
     setSearchQuery("");
     setDebouncedSearchQuery("");
-    if (context === "inbox") {
+    if (context === "inbox" && !hideScope) {
       setAccountScope("ALL");
     }
-  }, [context]);
+  }, [context, forcedFilters, hideScope]);
 
-  const heading = context === "view" ? `View: ${view?.name ?? "Missing"}` : "Inbox";
+  const heading = titleOverride ?? (context === "view" ? `View: ${view?.name ?? "Missing"}` : "Inbox");
   const subtitle =
-    context === "view"
+    subtitleOverride ??
+    (context === "view"
       ? describeView(view)
-      : "Everything is a mailbox: unified queue across accounts and contexts.";
+      : "Everything is a mailbox: unified queue across accounts and contexts.");
 
   return (
     <section className="space-y-4">
@@ -618,7 +899,7 @@ export function MailboxShell({ context, view }: MailboxShellProps) {
         accountScope={accountScope}
         accounts={accounts}
         activeFilters={activeFilters}
-        hideAccountScope={context === "view"}
+        hideAccountScope={hideScope}
         onAccountScopeChange={setAccountScope}
         onResetFilters={resetFilters}
         onSearchQueryChange={setSearchQuery}
@@ -689,11 +970,29 @@ export function MailboxShell({ context, view }: MailboxShellProps) {
         <PreviewPanel
           isLoading={isLoadingDetail}
           onActionPlaceholder={showNotice}
+          onClearDueDate={handleClearDueDate}
+          onClearSnooze={handleClearSnooze}
           onSelectThreadMessage={handleSelectThreadMessage}
+          onSetDueToday={() => {
+            void handleSetDuePreset("TODAY");
+          }}
+          onSetDueTomorrow={() => {
+            void handleSetDuePreset("TOMORROW");
+          }}
+          onSnoozeDays={(days) => {
+            void handleSnoozeDays(days);
+          }}
+          onToggleFollowupStatus={() => {
+            void handleToggleFollowupStatus();
+          }}
+          onToggleNeedsReply={() => {
+            void handleToggleNeedsReply();
+          }}
           onToggleRead={handleToggleRead}
           ref={previewRef}
           selectedMessage={selectedMessage}
           statusMessage={detailError}
+          isFollowupUpdating={isUpdatingFollowup}
         />
       </div>
 
