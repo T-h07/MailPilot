@@ -12,14 +12,22 @@ type MailActionsProps = {
   isUnread: boolean;
   onPrimaryAction: (action: "reply" | "reply-all" | "forward") => void;
   onToggleRead: () => void;
-  onSecondaryAction: (action: "export-pdf" | "download-attachments" | "open-gmail") => void;
+  onExportMessagePdf: () => void;
+  onExportThreadPdf: () => void;
+  canExportThread: boolean;
+  isExportingPdf?: boolean;
+  onOpenGmailPlaceholder: () => void;
 };
 
 export function MailActions({
   isUnread,
   onPrimaryAction,
   onToggleRead,
-  onSecondaryAction,
+  onExportMessagePdf,
+  onExportThreadPdf,
+  canExportThread,
+  isExportingPdf = false,
+  onOpenGmailPlaceholder,
 }: MailActionsProps) {
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -55,13 +63,13 @@ export function MailActions({
             {isUnread ? "Mark as read" : "Mark as unread"}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={() => onSecondaryAction("export-pdf")}>
-            Export PDF (placeholder)
+          <DropdownMenuItem disabled={isExportingPdf} onClick={onExportMessagePdf}>
+            {isExportingPdf ? "Exporting..." : "Export Email to PDF"}
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => onSecondaryAction("download-attachments")}>
-            Download attachments (placeholder)
+          <DropdownMenuItem disabled={!canExportThread || isExportingPdf} onClick={onExportThreadPdf}>
+            Export Thread to PDF
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => onSecondaryAction("open-gmail")}>
+          <DropdownMenuItem onClick={onOpenGmailPlaceholder}>
             Open in Gmail (placeholder)
           </DropdownMenuItem>
         </DropdownMenuContent>

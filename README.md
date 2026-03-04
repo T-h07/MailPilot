@@ -206,6 +206,36 @@ docker exec -it mailpilot-db psql -U mailpilot -d mailpilot -c "EXPLAIN ANALYZE 
 - If parsing errors occur with unusual query text:
   - backend automatically falls back from `websearch_to_tsquery` to `plainto_tsquery`, then to ILIKE as a last resort.
 
+## Exports & attachments (MP-PT14)
+
+MailPilot now supports:
+
+- Attachment download by internal attachment ID:
+  - `GET /api/attachments/{attachmentId}/download`
+- Export single email to PDF:
+  - `GET /api/messages/{messageId}/export/pdf`
+- Export whole thread to PDF:
+  - `GET /api/threads/{threadId}/export/pdf`
+
+### Behavior
+- Attachments are fetched from Gmail on demand using the stored OAuth tokens.
+- Backend returns binary bytes with `Content-Disposition` filename.
+- Desktop Preview panel provides:
+  - `Download` button per attachment row.
+  - `Export Email to PDF` and `Export Thread to PDF` in the overflow menu.
+
+### Attachment cache
+- Downloaded attachment bytes are cached server-side under:
+  - `%LOCALAPPDATA%\\MailPilot\\cache\\attachments`
+- Override root cache dir with:
+  - `mailpilot.cacheDir`
+
+### Quick test flow
+1. Open a synced message with attachment metadata in Preview.
+2. Click `Download` on an attachment and save it locally.
+3. Use `Export Email to PDF`, then `Export Thread to PDF`.
+4. Confirm files open successfully.
+
 ## Reset local DB (remove old demo rows)
 
 If you previously used seed/demo data in older milestones, reset the local DB volume:

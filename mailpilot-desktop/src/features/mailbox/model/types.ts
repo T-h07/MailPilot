@@ -57,7 +57,7 @@ export type MailMessage = {
   tags: string[];
   hasAttachments: boolean;
   attachments: MailAttachment[];
-  threadId: string;
+  threadId: string | null;
   threadMessages: ThreadMessageSummary[];
   followup: MessageFollowup;
   highlight?: {

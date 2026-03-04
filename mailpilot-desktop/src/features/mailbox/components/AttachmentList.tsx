@@ -1,13 +1,16 @@
-import { Paperclip } from "lucide-react";
+import { Download, Paperclip } from "lucide-react";
 import type { MailAttachment } from "@/features/mailbox/model/types";
 import { formatBytes } from "@/features/mailbox/utils/format";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 type AttachmentListProps = {
   attachments: MailAttachment[];
+  onDownloadAttachment: (attachmentId: string, filename: string) => void;
+  activeDownloadId?: string | null;
 };
 
-export function AttachmentList({ attachments }: AttachmentListProps) {
+export function AttachmentList({ attachments, onDownloadAttachment, activeDownloadId = null }: AttachmentListProps) {
   if (attachments.length === 0) {
     return null;
   }
@@ -31,6 +34,16 @@ export function AttachmentList({ attachments }: AttachmentListProps) {
               <Paperclip className="h-3.5 w-3.5" />
               <span>{formatBytes(attachment.sizeBytes)}</span>
             </div>
+            <Button
+              className="ml-3"
+              disabled={activeDownloadId === attachment.id}
+              onClick={() => onDownloadAttachment(attachment.id, attachment.filename)}
+              size="sm"
+              variant="outline"
+            >
+              <Download className="h-3.5 w-3.5" />
+              {activeDownloadId === attachment.id ? "Downloading..." : "Download"}
+            </Button>
           </div>
         ))}
       </CardContent>

@@ -12,3 +12,4 @@ spring:
 mailpilot:
   startup:
     log-db-url: true
+  cacheDir: ${LOCALAPPDATA:${user.home}/AppData/Local}/MailPilot/cache

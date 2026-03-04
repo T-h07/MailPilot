@@ -13,6 +13,7 @@ import { CommandBar } from "@/features/mailbox/components/CommandBar";
 import { MailList } from "@/features/mailbox/components/MailList";
 import { PreviewPanel } from "@/features/mailbox/components/PreviewPanel";
 import { listAccounts } from "@/lib/api/accounts";
+import { downloadAttachmentFile, exportMessagePdf, exportThreadPdf } from "@/lib/api/exports";
 import {
   getMessage,
   queryMailbox,
@@ -26,6 +27,7 @@ import { emitFollowupUpdated } from "@/lib/events/followups";
 import { useLiveEvents } from "@/lib/events/live-events-context";
 import type { ViewRecord } from "@/lib/api/views";
 import { ApiClientError } from "@/lib/api/client";
+import { saveBinaryWithDialog } from "@/lib/files/save-binary";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
@@ -147,7 +149,7 @@ function toSummaryMessage(item: MailboxListItem): MailMessage {
     tags: item.tags,
     hasAttachments: item.hasAttachments,
     attachments: [],
-    threadId: item.id,
+    threadId: null,
     threadMessages: [],
     followup: {
       status: "OPEN",
@@ -292,6 +294,23 @@ function summarizeViewRules(view: ViewRecord | null): string[] {
   return chips;
 }
 
+function sanitizeFilename(value: string | null | undefined, fallback: string): string {
+  const input = value?.trim();
+  if (!input) {
+    return fallback;
+  }
+  const sanitized = input
+    .replace(/[\\/:*?"<>|]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim();
+  return sanitized.length > 0 ? sanitized : fallback;
+}
+
+function ensurePdfFilename(value: string | null | undefined, fallback: string): string {
+  const base = sanitizeFilename(value, fallback);
+  return base.toLowerCase().endsWith(".pdf") ? base : `${base}.pdf`;
+}
+
 export function MailboxShell({
   context,
   view,
@@ -328,6 +347,8 @@ export function MailboxShell({
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [isUpdatingFollowup, setIsUpdatingFollowup] = useState(false);
+  const [activeAttachmentDownloadId, setActiveAttachmentDownloadId] = useState<string | null>(null);
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
 
   const accountLookup = useMemo(() => {
     return new Map(accounts.map((account) => [account.id, account]));
@@ -751,6 +772,86 @@ export function MailboxShell({
     }
   }, [applyUnreadState, selectedMessage, showNotice]);
 
+  const handleDownloadAttachment = useCallback(
+    async (attachmentId: string, attachmentFilename: string) => {
+      setActiveAttachmentDownloadId(attachmentId);
+      try {
+        const response = await downloadAttachmentFile(attachmentId);
+        const defaultFileName = sanitizeFilename(
+          response.fileName ?? attachmentFilename,
+          `attachment-${attachmentId}.bin`,
+        );
+        const savedPath = await saveBinaryWithDialog({
+          defaultFileName,
+          bytes: response.bytes,
+        });
+        if (savedPath) {
+          showNotice(`Attachment saved: ${savedPath}`);
+        }
+      } catch (error) {
+        showNotice(toErrorMessage(error) || "Failed to download attachment");
+      } finally {
+        setActiveAttachmentDownloadId((current) => (current === attachmentId ? null : current));
+      }
+    },
+    [showNotice],
+  );
+
+  const handleExportMessagePdf = useCallback(async () => {
+    if (!selectedMessage) {
+      return;
+    }
+
+    setIsExportingPdf(true);
+    try {
+      const response = await exportMessagePdf(selectedMessage.id);
+      const defaultFileName = ensurePdfFilename(
+        response.fileName,
+        `mailpilot-message-${selectedMessage.id}`,
+      );
+      const savedPath = await saveBinaryWithDialog({
+        defaultFileName,
+        bytes: response.bytes,
+        filters: [{ name: "PDF", extensions: ["pdf"] }],
+      });
+      if (savedPath) {
+        showNotice(`PDF exported: ${savedPath}`);
+      }
+    } catch (error) {
+      showNotice(toErrorMessage(error) || "Failed to export message PDF");
+    } finally {
+      setIsExportingPdf(false);
+    }
+  }, [selectedMessage, showNotice]);
+
+  const handleExportThreadPdf = useCallback(async () => {
+    if (!selectedMessage?.threadId) {
+      showNotice("Thread export unavailable for this message.");
+      return;
+    }
+
+    setIsExportingPdf(true);
+    try {
+      const response = await exportThreadPdf(selectedMessage.threadId);
+      const defaultFileName = ensurePdfFilename(
+        response.fileName,
+        `mailpilot-thread-${selectedMessage.threadId}`,
+      );
+      const savedPath = await saveBinaryWithDialog({
+        defaultFileName,
+        bytes: response.bytes,
+        filters: [{ name: "PDF", extensions: ["pdf"] }],
+      });
+      if (savedPath) {
+        showNotice(`Thread PDF exported: ${savedPath}`);
+      }
+    } catch (error) {
+      showNotice(toErrorMessage(error) || "Failed to export thread PDF");
+    } finally {
+      setIsExportingPdf(false);
+    }
+  }, [selectedMessage, showNotice]);
+
   const handleToggleNeedsReply = useCallback(async () => {
     if (!selectedMessage) {
       return;
@@ -1018,6 +1119,17 @@ export function MailboxShell({
             void handleToggleNeedsReply();
           }}
           onToggleRead={handleToggleRead}
+          onDownloadAttachment={(attachmentId, filename) => {
+            void handleDownloadAttachment(attachmentId, filename);
+          }}
+          activeAttachmentDownloadId={activeAttachmentDownloadId}
+          onExportMessagePdf={() => {
+            void handleExportMessagePdf();
+          }}
+          onExportThreadPdf={() => {
+            void handleExportThreadPdf();
+          }}
+          isExportingPdf={isExportingPdf}
           ref={previewRef}
           selectedMessage={selectedMessage}
           statusMessage={detailError}

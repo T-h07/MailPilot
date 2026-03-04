@@ -27,6 +27,11 @@ type PreviewPanelProps = {
   onSnoozeDays: (days: 1 | 3 | 7) => void;
   onClearSnooze: () => void;
   onToggleFollowupStatus: () => void;
+  onDownloadAttachment: (attachmentId: string, filename: string) => void;
+  activeAttachmentDownloadId?: string | null;
+  onExportMessagePdf: () => void;
+  onExportThreadPdf: () => void;
+  isExportingPdf?: boolean;
 };
 
 function formatFollowupLine(followup: MessageFollowup): string {
@@ -60,6 +65,11 @@ export const PreviewPanel = forwardRef<HTMLDivElement, PreviewPanelProps>(
       onSnoozeDays,
       onClearSnooze,
       onToggleFollowupStatus,
+      onDownloadAttachment,
+      activeAttachmentDownloadId = null,
+      onExportMessagePdf,
+      onExportThreadPdf,
+      isExportingPdf = false,
     },
     ref,
   ) {
@@ -205,9 +215,11 @@ export const PreviewPanel = forwardRef<HTMLDivElement, PreviewPanelProps>(
               <MailActions
                 isUnread={selectedMessage.isUnread}
                 onPrimaryAction={(action) => onActionPlaceholder(`${action} is not implemented yet`)}
-                onSecondaryAction={(action) =>
-                  onActionPlaceholder(`${action.replace("-", " ")} is not implemented yet`)
-                }
+                onExportMessagePdf={onExportMessagePdf}
+                onExportThreadPdf={onExportThreadPdf}
+                canExportThread={Boolean(selectedMessage.threadId)}
+                isExportingPdf={isExportingPdf}
+                onOpenGmailPlaceholder={() => onActionPlaceholder("Open in Gmail is not implemented yet")}
                 onToggleRead={onToggleRead}
               />
             </CardHeader>
@@ -235,7 +247,11 @@ export const PreviewPanel = forwardRef<HTMLDivElement, PreviewPanelProps>(
             </CardContent>
           </Card>
 
-          <AttachmentList attachments={selectedMessage.attachments} />
+          <AttachmentList
+            attachments={selectedMessage.attachments}
+            onDownloadAttachment={onDownloadAttachment}
+            activeDownloadId={activeAttachmentDownloadId}
+          />
           <ThreadList
             onSelectThreadMessage={onSelectThreadMessage}
             selectedMessageId={selectedMessage.id}

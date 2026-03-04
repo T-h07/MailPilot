@@ -20,6 +20,12 @@ export type FetchJsonOptions = {
   timeoutMs?: number;
 };
 
+export type BinaryResponse = {
+  bytes: Uint8Array;
+  contentType: string;
+  fileName: string | null;
+};
+
 export type ApiHealthResponse = {
   status: string;
   app: string;
@@ -94,4 +100,87 @@ export async function fetchJson<T>(path: string, options: FetchJsonOptions = {})
   } finally {
     window.clearTimeout(timeoutId);
   }
+}
+
+export async function fetchBinary(path: string, options: FetchJsonOptions = {}): Promise<BinaryResponse> {
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const timeoutController = new AbortController();
+  const timeoutId = window.setTimeout(() => timeoutController.abort("timeout"), timeoutMs);
+
+  if (options.signal) {
+    if (options.signal.aborted) {
+      timeoutController.abort(options.signal.reason);
+    } else {
+      options.signal.addEventListener(
+        "abort",
+        () => {
+          timeoutController.abort(options.signal?.reason);
+        },
+        { once: true },
+      );
+    }
+  }
+
+  try {
+    const response = await fetch(`${API_BASE}${path}`, {
+      method: options.method ?? "GET",
+      headers: {
+        Accept: "*/*",
+      },
+      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      signal: timeoutController.signal,
+    });
+
+    if (!response.ok) {
+      const contentType = response.headers.get("content-type") ?? "";
+      const isJson = contentType.includes("application/json");
+      const payload = isJson ? await response.json() : null;
+      const errorMessage =
+        payload && typeof payload.message === "string"
+          ? payload.message
+          : `Request failed with status ${response.status}`;
+      throw new ApiClientError(errorMessage, response.status);
+    }
+
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    const fileName = parseContentDispositionFilename(response.headers.get("content-disposition"));
+    const contentType = response.headers.get("content-type") ?? "application/octet-stream";
+
+    return {
+      bytes,
+      contentType,
+      fileName,
+    };
+  } catch (error) {
+    if (error instanceof ApiClientError) {
+      throw error;
+    }
+    if (error instanceof DOMException && error.name === "AbortError") {
+      if (options.signal?.aborted) {
+        throw new ApiClientError("Request cancelled", 0);
+      }
+      throw new ApiClientError("Request timed out", 0);
+    }
+    throw new ApiClientError("Unable to reach API", 0);
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
+function parseContentDispositionFilename(contentDisposition: string | null): string | null {
+  if (!contentDisposition) {
+    return null;
+  }
+
+  const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1]);
+    } catch {
+      return utf8Match[1];
+    }
+  }
+
+  const plainMatch = contentDisposition.match(/filename=\"?([^\";]+)\"?/i);
+  return plainMatch?.[1] ?? null;
 }

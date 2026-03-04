@@ -26,6 +26,8 @@ public class GmailClient {
   private static final String GMAIL_BASE_URL = "https://gmail.googleapis.com/gmail/v1/users/me";
   private static final String LIST_MESSAGES_URL = GMAIL_BASE_URL + "/messages";
   private static final String MESSAGE_URL = GMAIL_BASE_URL + "/messages/{messageId}";
+  private static final String ATTACHMENT_URL =
+    GMAIL_BASE_URL + "/messages/{messageId}/attachments/{attachmentId}";
   private static final String PROFILE_URL = GMAIL_BASE_URL + "/profile";
   private static final String HISTORY_URL = GMAIL_BASE_URL + "/history";
 
@@ -98,6 +100,21 @@ public class GmailClient {
     );
   }
 
+  public GmailAttachmentResponse getAttachment(
+    String accessToken,
+    String messageId,
+    String attachmentId
+  ) {
+    URI uri = UriComponentsBuilder.fromUriString(ATTACHMENT_URL).buildAndExpand(messageId, attachmentId).encode().toUri();
+    return executeWithRetry(
+      "getAttachment",
+      uri,
+      accessToken,
+      GmailAttachmentResponse.class,
+      ErrorSemantics.ATTACHMENT_FETCH
+    );
+  }
+
   public HistoryListResponse historyList(String accessToken, String startHistoryId, String pageToken) {
     URI uri = UriComponentsBuilder
       .fromUriString(HISTORY_URL)
@@ -151,6 +168,10 @@ public class GmailClient {
 
         if (status == 404 && semantics == ErrorSemantics.MESSAGE_FETCH) {
           throw new GmailMessageNotFoundException("Gmail message not found.");
+        }
+
+        if (status == 404 && semantics == ErrorSemantics.ATTACHMENT_FETCH) {
+          throw new GmailAttachmentNotFoundException("Gmail attachment not found.");
         }
 
         if ((status == 404 || status == 400) && semantics == ErrorSemantics.HISTORY_LIST) {
@@ -232,6 +253,7 @@ public class GmailClient {
     DEFAULT,
     MESSAGE_FETCH,
     HISTORY_LIST,
+    ATTACHMENT_FETCH,
   }
 
   @JsonIgnoreProperties(ignoreUnknown = true)
@@ -279,6 +301,13 @@ public class GmailClient {
     @JsonProperty("size") Long size,
     @JsonProperty("data") String data,
     @JsonProperty("attachmentId") String attachmentId
+  ) {}
+
+  @JsonIgnoreProperties(ignoreUnknown = true)
+  public record GmailAttachmentResponse(
+    @JsonProperty("attachmentId") String attachmentId,
+    @JsonProperty("size") Long size,
+    @JsonProperty("data") String data
   ) {}
 
   @JsonIgnoreProperties(ignoreUnknown = true)
@@ -331,6 +360,13 @@ public class GmailClient {
   public static class GmailHistoryExpiredException extends GmailApiException {
 
     public GmailHistoryExpiredException(String message) {
+      super(message);
+    }
+  }
+
+  public static class GmailAttachmentNotFoundException extends GmailApiException {
+
+    public GmailAttachmentNotFoundException(String message) {
       super(message);
     }
   }
