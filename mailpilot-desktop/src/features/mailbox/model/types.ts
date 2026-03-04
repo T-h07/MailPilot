@@ -52,6 +52,10 @@ export type MailMessage = {
   attachments: MailAttachment[];
   threadId: string;
   threadMessages: ThreadMessageSummary[];
+  highlight?: {
+    label: string;
+    accent: string;
+  } | null;
 };
 
 export type MailboxDataset = {

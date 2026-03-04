@@ -4,7 +4,6 @@
 
 ### Prereqs
 - Docker Desktop running
-- Docker context should be default (optional)
 - Java 21 installed
 
 ### Run DB
@@ -17,7 +16,7 @@ Expected container includes `mailpilot-db`.
 ### Run server (dev profile)
 ```powershell
 cd mailpilot-server
-.\mvnw spring-boot:run -Dspring-boot.run.profiles=dev
+.\mvnw.cmd "-Dspring-boot.run.profiles=dev" spring-boot:run
 ```
 
 ### Verify
@@ -59,4 +58,35 @@ npm install
 npm run tauri dev
 ```
 
-This starts the MailPilot desktop shell with mock mailbox data (virtualized list + preview panel) and no backend API calls.
+The desktop now queries the backend API directly (`http://127.0.0.1:8082` by default; override with `VITE_API_BASE`).
+
+## Run full stack (dev)
+
+1. Start Postgres
+```powershell
+docker compose up -d
+```
+
+2. Start backend (dev profile)
+```powershell
+cd mailpilot-server
+.\mvnw.cmd "-Dspring-boot.run.profiles=dev" spring-boot:run
+```
+
+3. Seed dev data
+```powershell
+irm -Method Post http://127.0.0.1:8082/api/dev/seed
+```
+
+4. Start desktop
+```powershell
+cd ..\mailpilot-desktop
+npm install
+npm run tauri dev
+```
+
+Quick checks:
+```powershell
+irm http://127.0.0.1:8082/api/health
+irm -Method Post http://127.0.0.1:8082/api/dev/seed
+```

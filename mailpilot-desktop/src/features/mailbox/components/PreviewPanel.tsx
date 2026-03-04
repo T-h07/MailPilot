@@ -15,20 +15,32 @@ type PreviewPanelProps = {
   onSelectThreadMessage: (messageId: string) => void;
   onToggleRead: () => void;
   onActionPlaceholder: (label: string) => void;
+  isLoading?: boolean;
+  statusMessage?: string | null;
 };
 
 export const PreviewPanel = forwardRef<HTMLDivElement, PreviewPanelProps>(
   function PreviewPanel(
-    { selectedMessage, onSelectThreadMessage, onToggleRead, onActionPlaceholder },
+    {
+      selectedMessage,
+      onSelectThreadMessage,
+      onToggleRead,
+      onActionPlaceholder,
+      isLoading = false,
+      statusMessage = null,
+    },
     ref,
   ) {
     if (!selectedMessage) {
       return (
         <div className="mailbox-empty-state flex h-full items-center justify-center p-8 text-center">
           <div>
-            <p className="text-sm font-medium">Select a message to preview.</p>
+            <p className="text-sm font-medium">
+              {isLoading ? "Loading message..." : "Select a message to preview."}
+            </p>
             <p className="pt-1 text-xs text-muted-foreground">
-              The right panel will show full context, actions, and thread history.
+              {statusMessage ??
+                "The right panel will show full context, actions, and thread history."}
             </p>
           </div>
         </div>
@@ -49,6 +61,7 @@ export const PreviewPanel = forwardRef<HTMLDivElement, PreviewPanelProps>(
                   <span>•</span>
                   <span>{formatLongDate(selectedMessage.receivedAt)}</span>
                 </div>
+                {statusMessage && <p className="text-xs text-muted-foreground">{statusMessage}</p>}
                 <Badge
                   className={cn(
                     "w-fit border text-[10px]",

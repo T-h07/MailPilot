@@ -1,14 +1,35 @@
 import { useOutletContext } from "react-router-dom";
+import { useMemo, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import type { AppOutletContext } from "@/App";
+import { getApiHealth, resolveApiBase } from "@/lib/api/client";
 
 export function SettingsPage() {
   const { themeMode, setThemeMode } = useOutletContext<AppOutletContext>();
   const nextTheme = themeMode === "dark" ? "light" : "dark";
   const modeLabel = themeMode === "dark" ? "Dark" : "Light";
   const nextThemeLabel = nextTheme === "dark" ? "Dark" : "Light";
+  const apiBase = useMemo(() => resolveApiBase(), []);
+  const [healthStatus, setHealthStatus] = useState<string>("Unknown");
+  const [isCheckingHealth, setIsCheckingHealth] = useState(false);
+
+  const handleTestConnection = async () => {
+    setIsCheckingHealth(true);
+    try {
+      const health = await getApiHealth();
+      setHealthStatus(`${health.status.toUpperCase()} · ${health.time}`);
+    } catch (error) {
+      if (error instanceof Error) {
+        setHealthStatus(`Error · ${error.message}`);
+      } else {
+        setHealthStatus("Error · Connection failed");
+      }
+    } finally {
+      setIsCheckingHealth(false);
+    }
+  };
 
   return (
     <section className="space-y-6">
@@ -36,11 +57,22 @@ export function SettingsPage() {
       <Card>
         <CardHeader>
           <CardTitle>System</CardTitle>
-          <CardDescription>Connection and update controls are placeholders.</CardDescription>
+          <CardDescription>Connection and update controls for local development.</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-2 text-sm text-muted-foreground">
-          <p>Backend endpoint: Not configured</p>
+        <CardContent className="space-y-3 text-sm text-muted-foreground">
+          <p>Backend endpoint: {apiBase}</p>
           <p>Sync scheduler: Disabled</p>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              disabled={isCheckingHealth}
+              onClick={handleTestConnection}
+              size="sm"
+              variant="outline"
+            >
+              {isCheckingHealth ? "Testing..." : "Test connection"}
+            </Button>
+            <Badge variant="secondary">{healthStatus}</Badge>
+          </div>
         </CardContent>
       </Card>
     </section>
