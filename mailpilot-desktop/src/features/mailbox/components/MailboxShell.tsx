@@ -891,6 +891,7 @@ export function MailboxShell({
     (context === "view"
       ? describeView(view)
       : "Everything is a mailbox: unified queue across accounts and contexts.");
+  const isSearchLoading = isLoadingList && debouncedSearchQuery.length > 0;
 
   return (
     <section className="space-y-4">
@@ -899,6 +900,11 @@ export function MailboxShell({
           <div>
             <h1 className="text-xl font-semibold tracking-tight">{heading}</h1>
             <p className="pt-1 text-sm text-muted-foreground">{subtitle}</p>
+            {debouncedSearchQuery.length > 0 && (
+              <p className="pt-1 text-xs text-muted-foreground">
+                Search results for &quot;{debouncedSearchQuery}&quot;
+              </p>
+            )}
           </div>
           <Badge variant="secondary">
             {isLoadingList && messages.length === 0
@@ -925,6 +931,7 @@ export function MailboxShell({
         onAccountScopeChange={setAccountScope}
         onResetFilters={resetFilters}
         onSearchQueryChange={setSearchQuery}
+        isSearchLoading={isSearchLoading}
         onSettingsShortcut={() => navigate("/settings")}
         onToggleFilter={toggleQuickFilter}
         searchQuery={searchQuery}

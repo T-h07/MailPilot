@@ -160,6 +160,52 @@ and receives updated badge state through SSE.
 - If SSE disconnects:
   - desktop falls back to periodic polling (`/api/badges/summary`, `/api/sync/status`) until reconnect.
 
+## Search (MP-PT13)
+
+Mailbox search now uses PostgreSQL full-text search (FTS) with an indexed `messages.search_vector` column.
+Search covers sender, subject, and snippet with weighted ranking:
+
+- A: `subject`
+- B: `sender_name`, `sender_email`
+- C: `sender_domain`
+- D: `snippet`
+
+Results are sorted by `rank DESC`, then `received_at DESC`, then `id DESC`.
+
+### Run and verify
+1. Ensure DB has real messages (connect Gmail + sync).
+2. Start backend and desktop as usual.
+3. Type in the mailbox search input.
+4. Confirm results return quickly and relevant matches appear near the top.
+
+Dev diagnostic endpoint:
+
+- `GET /api/search/health?q=invoice`
+
+Expected shape:
+
+```json
+{
+  "configured": true,
+  "method": "fts",
+  "matches": 123
+}
+```
+
+Optional Postgres check (dev):
+
+```powershell
+docker exec -it mailpilot-db psql -U mailpilot -d mailpilot -c "EXPLAIN ANALYZE SELECT id FROM messages WHERE search_vector @@ websearch_to_tsquery('simple', 'invoice') LIMIT 20;"
+```
+
+### Troubleshooting
+- If search returns zero unexpectedly:
+  - confirm Gmail sync has inserted messages.
+  - confirm migration `V9__messages_fts.sql` applied.
+  - call `/api/search/health?q=test` and verify `configured=true`.
+- If parsing errors occur with unusual query text:
+  - backend automatically falls back from `websearch_to_tsquery` to `plainto_tsquery`, then to ILIKE as a last resort.
+
 ## Reset local DB (remove old demo rows)
 
 If you previously used seed/demo data in older milestones, reset the local DB volume:

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { EllipsisVertical, MessageSquarePlus, Search, Settings2 } from "lucide-react";
+import { EllipsisVertical, Loader2, MessageSquarePlus, Search, Settings2 } from "lucide-react";
 import type { AccountScope, MailAccount, QuickFilterKey } from "@/features/mailbox/model/types";
 import { AccountScopeDropdown } from "@/features/mailbox/components/AccountScopeDropdown";
 import { FilterChips } from "@/features/mailbox/components/FilterChips";
@@ -29,6 +29,7 @@ type CommandBarProps = {
   onAccountScopeChange: (scope: AccountScope) => void;
   searchQuery: string;
   onSearchQueryChange: (nextValue: string) => void;
+  isSearchLoading?: boolean;
   activeFilters: Set<QuickFilterKey>;
   onToggleFilter: (filter: QuickFilterKey) => void;
   onResetFilters: () => void;
@@ -42,6 +43,7 @@ export function CommandBar({
   onAccountScopeChange,
   searchQuery,
   onSearchQueryChange,
+  isSearchLoading = false,
   activeFilters,
   onToggleFilter,
   onResetFilters,
@@ -74,12 +76,15 @@ export function CommandBar({
         <div className="relative min-w-[220px] flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            className="pl-9"
+            className="pl-9 pr-9"
             onChange={(event) => onSearchQueryChange(event.target.value)}
             placeholder="Search sender, subject, snippet..."
             ref={searchInputRef}
             value={searchQuery}
           />
+          {isSearchLoading && (
+            <Loader2 className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
+          )}
         </div>
         <ComposePlaceholder />
         <DropdownMenu>
