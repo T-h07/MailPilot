@@ -5,6 +5,7 @@ export type AccountRecord = {
   email: string;
   provider: string;
   status: string;
+  lastSyncAt: string | null;
 };
 
 export function listAccounts(signal?: AbortSignal) {

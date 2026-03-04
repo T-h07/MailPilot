@@ -132,3 +132,60 @@ Desktop verification:
 - Open `/focus` in the desktop app.
 - Validate KPI counts and queue tabs.
 - Use row actions or PreviewPanel followup controls and confirm KPI/queue refresh.
+
+## MP-PT10: Gmail OAuth Setup
+
+Google OAuth Desktop client JSON location (Windows dev default):
+
+```text
+C:\Users\taulanth\AppData\Local\MailPilot\google-oauth-client.json
+```
+
+### Google Cloud Console prerequisites (manual)
+1. Create or select a Google Cloud project.
+2. Enable Gmail API for that project.
+3. Configure OAuth consent screen (Branding + Audience).
+4. If Audience is `External`, add your Gmail account as a Test user.
+5. Create OAuth client with Application type `Desktop app`.
+6. Download JSON and place it at:
+   `C:\Users\taulanth\AppData\Local\MailPilot\google-oauth-client.json`
+
+### Required scopes for MP-PT10
+- `openid`
+- `email`
+- `profile`
+- `https://www.googleapis.com/auth/gmail.readonly`
+
+### Environment variables (PowerShell)
+```powershell
+$env:MAILPILOT_GOOGLE_OAUTH_CLIENT_JSON="C:\Users\taulanth\AppData\Local\MailPilot\google-oauth-client.json"
+$env:MAILPILOT_TOKEN_KEY_B64="(base64 32-byte key)"
+```
+
+If `MAILPILOT_TOKEN_KEY_B64` is missing in `dev`, the server generates a key file at:
+`C:\Users\taulanth\AppData\Local\MailPilot\token_key.b64`
+and logs an instruction to set the env var from that file value.
+
+### Run (dev)
+1. Start Postgres:
+```powershell
+docker compose up -d
+```
+2. Start server in dev profile:
+```powershell
+cd mailpilot-server
+.\mvnw.cmd "-Dspring-boot.run.profiles=dev" spring-boot:run
+```
+3. Start desktop:
+```powershell
+cd ..\mailpilot-desktop
+npm install
+npm run tauri dev
+```
+4. In Settings, click `Connect Gmail`.
+
+### Common pitfalls
+- Consent screen in `Testing` mode requires adding Gmail accounts as Test users.
+- Redirect URI must match exactly:
+  `http://127.0.0.1:8082/api/oauth/gmail/callback`
+- In dev, OAuth requests use `prompt=consent` to increase refresh token issuance reliability.
