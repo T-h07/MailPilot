@@ -46,6 +46,53 @@ public class DevSeedService {
     new SeedTag(UUID.fromString("5ffaf5e3-7087-4227-ac9a-6674f6f1ee31"), "Hiring")
   );
 
+  private static final List<DefaultViewTemplate> DEFAULT_VIEWS = List.of(
+    new DefaultViewTemplate(
+      "Work",
+      5,
+      10,
+      "briefcase",
+      "ALL",
+      List.of("company.com"),
+      List.of("boss@company.com"),
+      List.of("invoice", "meeting"),
+      true
+    ),
+    new DefaultViewTemplate(
+      "LinkedIn",
+      3,
+      20,
+      "network",
+      "ALL",
+      List.of("linkedin.com", "lnkd.in"),
+      List.of(),
+      List.of("connection", "recruiter"),
+      false
+    ),
+    new DefaultViewTemplate(
+      "Gaming",
+      2,
+      30,
+      "gamepad-2",
+      "ALL",
+      List.of("steampowered.com", "epicgames.com"),
+      List.of(),
+      List.of("patch", "season"),
+      false
+    ),
+    new DefaultViewTemplate(
+      "Marketing",
+      2,
+      40,
+      "megaphone",
+      "ALL",
+      List.of("mailchimp.com", "canva.com"),
+      List.of(),
+      List.of("campaign", "audience"),
+      false
+    )
+  );
+
   private static final String[] FIRST_NAMES = {
     "Ava",
     "Noah",
@@ -157,7 +204,11 @@ public class DevSeedService {
   public SeedResult seedMailboxData() {
     Integer existingMessages = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM messages", Integer.class);
     if (existingMessages != null && existingMessages > 0) {
-      return new SeedResult("ok", "Seed skipped: mailbox already contains data", existingMessages);
+      boolean seededViews = seedDefaultViewsIfMissing();
+      String message = seededViews
+        ? "Seed skipped for mailbox data; default views seeded"
+        : "Seed skipped: mailbox already contains data";
+      return new SeedResult("ok", message, existingMessages);
     }
 
     Random random = new Random(9062026L);
@@ -174,8 +225,71 @@ public class DevSeedService {
     insertFollowups(random, now, messages);
     insertAttachments(random, messages);
     insertMessageTags(random, messages);
+    seedDefaultViewsIfMissing();
 
     return new SeedResult("ok", "Seeded mailbox data", messages.size());
+  }
+
+  private boolean seedDefaultViewsIfMissing() {
+    Integer existingViews = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM views", Integer.class);
+    if (existingViews != null && existingViews > 0) {
+      return false;
+    }
+
+    for (DefaultViewTemplate template : DEFAULT_VIEWS) {
+      UUID viewId = UUID.randomUUID();
+      jdbcTemplate.update(
+        """
+        INSERT INTO views (
+          id,
+          name,
+          priority,
+          sort_order,
+          icon,
+          accounts_scope,
+          unread_only,
+          created_at,
+          updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, now(), now())
+        """,
+        viewId,
+        template.name(),
+        template.priority(),
+        template.sortOrder(),
+        template.icon(),
+        template.scopeType(),
+        template.unreadOnly()
+      );
+
+      insertViewRules(viewId, "DOMAIN", template.senderDomains());
+      insertViewRules(viewId, "SENDER_EMAIL", template.senderEmails());
+      insertViewRules(viewId, "KEYWORD", template.keywords());
+    }
+
+    return true;
+  }
+
+  private void insertViewRules(UUID viewId, String ruleType, List<String> ruleValues) {
+    if (ruleValues.isEmpty()) {
+      return;
+    }
+
+    jdbcTemplate.batchUpdate(
+      """
+      INSERT INTO view_rules (id, view_id, rule_type, rule_value)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT (view_id, rule_type, rule_value) DO NOTHING
+      """,
+      ruleValues,
+      100,
+      (preparedStatement, ruleValue) -> {
+        preparedStatement.setObject(1, UUID.randomUUID());
+        preparedStatement.setObject(2, viewId);
+        preparedStatement.setString(3, ruleType);
+        preparedStatement.setString(4, ruleValue);
+      }
+    );
   }
 
   private void upsertAccounts() {
@@ -583,4 +697,16 @@ public class DevSeedService {
   ) {}
 
   private record SeedMessageTag(UUID messageId, UUID tagId) {}
+
+  private record DefaultViewTemplate(
+    String name,
+    int priority,
+    int sortOrder,
+    String icon,
+    String scopeType,
+    List<String> senderDomains,
+    List<String> senderEmails,
+    List<String> keywords,
+    boolean unreadOnly
+  ) {}
 }

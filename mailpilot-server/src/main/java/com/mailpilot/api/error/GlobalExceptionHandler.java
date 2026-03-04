@@ -24,6 +24,11 @@ public class GlobalExceptionHandler {
     return error(HttpStatus.NOT_FOUND, exception.getMessage());
   }
 
+  @ExceptionHandler(ApiConflictException.class)
+  public ResponseEntity<Map<String, String>> handleConflict(ApiConflictException exception) {
+    return error(HttpStatus.CONFLICT, exception.getMessage());
+  }
+
   @ExceptionHandler(MethodArgumentNotValidException.class)
   public ResponseEntity<Map<String, String>> handleValidation(MethodArgumentNotValidException exception) {
     String message = "Invalid request";

@@ -8,25 +8,26 @@ import type {
   QuickFilterKey,
   ThreadMessageSummary,
 } from "@/features/mailbox/model/types";
-import { getViewRule, getViewRuleSummary } from "@/features/mailbox/mock/mockRules";
 import { CommandBar } from "@/features/mailbox/components/CommandBar";
 import { MailList } from "@/features/mailbox/components/MailList";
 import { PreviewPanel } from "@/features/mailbox/components/PreviewPanel";
+import { listAccounts } from "@/lib/api/accounts";
 import {
-  ApiClientError,
-  getMessageDetail,
-  listAccounts,
+  getMessage,
   queryMailbox,
-  setMessageReadState,
+  queryMailboxView,
+  setRead,
   type MailboxListItem,
   type MessageDetailResponse,
-} from "@/lib/api/client";
+} from "@/lib/api/mailbox";
+import type { ViewRecord } from "@/lib/api/views";
+import { ApiClientError } from "@/lib/api/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
 type MailboxShellProps = {
   context: "inbox" | "view";
-  viewKey?: string;
+  view: ViewRecord | null;
 };
 
 type NoticeState = {
@@ -36,16 +37,6 @@ type NoticeState = {
 
 const ACCOUNT_COLOR_TOKENS: AccountColorToken[] = ["sky", "emerald", "violet", "amber"];
 const REQUEST_PAGE_SIZE = 50;
-
-function titleCase(input: string): string {
-  return input
-    .replace(/[-_]/g, " ")
-    .split(" ")
-    .map((segment) =>
-      segment.length > 0 ? `${segment.charAt(0).toUpperCase()}${segment.slice(1)}` : segment,
-    )
-    .join(" ");
-}
 
 function nameFromEmail(email: string): string {
   return email.split("@")[0].replace(/[._]/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
@@ -220,18 +211,53 @@ function toErrorMessage(error: unknown): string {
   return "Unexpected API error";
 }
 
-export function MailboxShell({ context, viewKey }: MailboxShellProps) {
+function describeView(view: ViewRecord | null): string {
+  if (!view) {
+    return "Saved view definition could not be loaded.";
+  }
+
+  const parts: string[] = [];
+  if (view.rules.senderDomains.length > 0) {
+    parts.push(`Domains: ${view.rules.senderDomains.slice(0, 2).join(", ")}`);
+  }
+  if (view.rules.senderEmails.length > 0) {
+    parts.push(`Senders: ${view.rules.senderEmails.slice(0, 2).join(", ")}`);
+  }
+  if (view.rules.keywords.length > 0) {
+    parts.push(`Keywords: ${view.rules.keywords.slice(0, 2).join(", ")}`);
+  }
+  if (view.rules.unreadOnly) {
+    parts.push("Unread only");
+  }
+
+  return parts.length > 0
+    ? parts.slice(0, 3).join(" • ")
+    : "Saved mailbox selection with no explicit rule constraints.";
+}
+
+function summarizeViewRules(view: ViewRecord | null): string[] {
+  if (!view) {
+    return [];
+  }
+
+  const chips: string[] = [];
+  view.rules.senderDomains.slice(0, 2).forEach((domain) => chips.push(`Domain:${domain}`));
+  view.rules.senderEmails.slice(0, 2).forEach((email) => chips.push(`Sender:${email}`));
+  view.rules.keywords.slice(0, 2).forEach((keyword) => chips.push(`Keyword:${keyword}`));
+  if (view.rules.unreadOnly) {
+    chips.push("UnreadOnly");
+  }
+  return chips;
+}
+
+export function MailboxShell({ context, view }: MailboxShellProps) {
   const navigate = useNavigate();
   const previewRef = useRef<HTMLDivElement>(null);
   const hideNoticeTimeoutRef = useRef<number | null>(null);
   const listAbortRef = useRef<AbortController | null>(null);
   const detailAbortRef = useRef<AbortController | null>(null);
 
-  const viewRule = useMemo(() => getViewRule(viewKey), [viewKey]);
-  const viewSummaryChips = useMemo(
-    () => (viewRule ? getViewRuleSummary(viewRule) : []),
-    [viewRule],
-  );
+  const viewSummaryChips = useMemo(() => summarizeViewRules(view), [view]);
 
   const [accountScope, setAccountScope] = useState<AccountScope>("ALL");
   const [searchQuery, setSearchQuery] = useState("");
@@ -255,10 +281,8 @@ export function MailboxShell({ context, viewKey }: MailboxShellProps) {
     return new Map(accounts.map((account) => [account.id, account]));
   }, [accounts]);
 
-  const activeFiltersKey = useMemo(
-    () => Array.from(activeFilters).sort().join("|"),
-    [activeFilters],
-  );
+  const activeFiltersKey = useMemo(() => Array.from(activeFilters).sort().join("|"), [activeFilters]);
+  const scopeDependency = context === "inbox" ? accountScope : "VIEW_SCOPE";
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -304,30 +328,16 @@ export function MailboxShell({ context, viewKey }: MailboxShellProps) {
     }, 2400);
   }, []);
 
-  const buildQueryPayload = useCallback(
-    (cursor: string | null) => ({
-      scope: accountScope === "ALL" ? {} : { accountIds: [accountScope] },
-      q: debouncedSearchQuery.length > 0 ? debouncedSearchQuery : null,
-      filters: {
-        unreadOnly: activeFilters.has("UNREAD"),
-        needsReply: activeFilters.has("NEEDS_REPLY"),
-        overdue: activeFilters.has("OVERDUE"),
-        dueToday: activeFilters.has("DUE_TODAY"),
-        snoozed: activeFilters.has("SNOOZED"),
-        senderDomains: viewRule?.domains ?? [],
-        senderEmails: [],
-        keywords: viewRule?.keywords ?? [],
-      },
-      sort: "RECEIVED_DESC" as const,
-      pageSize: REQUEST_PAGE_SIZE,
-      cursor,
-    }),
-    [accountScope, activeFilters, debouncedSearchQuery, viewRule],
-  );
-
   const fetchMailbox = useCallback(
     async (append: boolean, cursor: string | null) => {
       if (append && !cursor) {
+        return;
+      }
+
+      if (context === "view" && !view) {
+        setMessages([]);
+        setNextCursor(null);
+        setListError("View not found. It may have been removed.");
         return;
       }
 
@@ -343,7 +353,45 @@ export function MailboxShell({ context, viewKey }: MailboxShellProps) {
       }
 
       try {
-        const response = await queryMailbox(buildQueryPayload(cursor), controller.signal);
+        const response =
+          context === "view" && view
+            ? await queryMailboxView(
+                {
+                  viewId: view.id,
+                  q: debouncedSearchQuery.length > 0 ? debouncedSearchQuery : null,
+                  filtersOverride: {
+                    unreadOnly: activeFilters.has("UNREAD"),
+                    needsReply: activeFilters.has("NEEDS_REPLY"),
+                    overdue: activeFilters.has("OVERDUE"),
+                    dueToday: activeFilters.has("DUE_TODAY"),
+                    snoozed: activeFilters.has("SNOOZED"),
+                  },
+                  pageSize: REQUEST_PAGE_SIZE,
+                  cursor,
+                },
+                controller.signal,
+              )
+            : await queryMailbox(
+                {
+                  scope: accountScope === "ALL" ? {} : { accountIds: [accountScope] },
+                  q: debouncedSearchQuery.length > 0 ? debouncedSearchQuery : null,
+                  filters: {
+                    unreadOnly: activeFilters.has("UNREAD"),
+                    needsReply: activeFilters.has("NEEDS_REPLY"),
+                    overdue: activeFilters.has("OVERDUE"),
+                    dueToday: activeFilters.has("DUE_TODAY"),
+                    snoozed: activeFilters.has("SNOOZED"),
+                    senderDomains: [],
+                    senderEmails: [],
+                    keywords: [],
+                  },
+                  sort: "RECEIVED_DESC",
+                  pageSize: REQUEST_PAGE_SIZE,
+                  cursor,
+                },
+                controller.signal,
+              );
+
         const incomingMessages = response.items.map((item) => toSummaryMessage(item));
         const incomingAccounts = response.items.map((item) => toMailAccount(item.accountId, item.accountEmail));
 
@@ -368,14 +416,14 @@ export function MailboxShell({ context, viewKey }: MailboxShellProps) {
         }
       }
     },
-    [buildQueryPayload],
+    [context, view, debouncedSearchQuery, activeFilters, accountScope],
   );
 
   useEffect(() => {
     setSelectedMessageId(null);
     setDetailsById(new Map());
     fetchMailbox(false, null);
-  }, [fetchMailbox, accountScope, debouncedSearchQuery, activeFiltersKey, viewRule?.key]);
+  }, [fetchMailbox, context, view?.id, scopeDependency, debouncedSearchQuery, activeFiltersKey]);
 
   useEffect(() => {
     if (messages.length === 0) {
@@ -405,7 +453,7 @@ export function MailboxShell({ context, viewKey }: MailboxShellProps) {
     setIsLoadingDetail(true);
     setDetailError(null);
 
-    getMessageDetail(selectedMessageId, controller.signal)
+    getMessage(selectedMessageId, controller.signal)
       .then((detail) => {
         setDetailsById((previous) => {
           const next = new Map(previous);
@@ -495,7 +543,7 @@ export function MailboxShell({ context, viewKey }: MailboxShellProps) {
     showNotice(nextIsUnread ? "Marked as unread" : "Marked as read");
 
     try {
-      await setMessageReadState(selectedMessage.id, nextIsUnread);
+      await setRead(selectedMessage.id, nextIsUnread);
     } catch (error) {
       applyUnreadState(selectedMessage.id, selectedMessage.isUnread);
       showNotice(toErrorMessage(error) || "Failed to update read state");
@@ -530,14 +578,15 @@ export function MailboxShell({ context, viewKey }: MailboxShellProps) {
     setActiveFilters(new Set());
     setSearchQuery("");
     setDebouncedSearchQuery("");
-    setAccountScope("ALL");
-  }, []);
+    if (context === "inbox") {
+      setAccountScope("ALL");
+    }
+  }, [context]);
 
-  const heading =
-    context === "view" ? `View: ${viewRule?.label ?? titleCase(viewKey ?? "Custom")}` : "Inbox";
+  const heading = context === "view" ? `View: ${view?.name ?? "Missing"}` : "Inbox";
   const subtitle =
     context === "view"
-      ? viewRule?.summary ?? "Rule-backed message lane based on backend filters."
+      ? describeView(view)
       : "Everything is a mailbox: unified queue across accounts and contexts.";
 
   return (
@@ -569,6 +618,7 @@ export function MailboxShell({ context, viewKey }: MailboxShellProps) {
         accountScope={accountScope}
         accounts={accounts}
         activeFilters={activeFilters}
+        hideAccountScope={context === "view"}
         onAccountScopeChange={setAccountScope}
         onResetFilters={resetFilters}
         onSearchQueryChange={setSearchQuery}
@@ -603,7 +653,7 @@ export function MailboxShell({ context, viewKey }: MailboxShellProps) {
                 <p className="pt-1 text-xs text-muted-foreground">
                   {isLoadingList
                     ? "Fetching data from the server."
-                    : "Clear filters or switch account scope to bring messages back."}
+                    : "Clear filters to bring messages back."}
                 </p>
                 {!isLoadingList && (
                   <Button className="mt-4" onClick={resetFilters} size="sm" variant="outline">

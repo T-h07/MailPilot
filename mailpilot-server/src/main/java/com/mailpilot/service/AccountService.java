@@ -16,11 +16,13 @@ public class AccountService {
 
   public List<AccountResponse> listAccounts() {
     return jdbcTemplate.query(
-      "SELECT id, email FROM accounts ORDER BY email",
+      "SELECT id, email, provider, status FROM accounts ORDER BY email",
       (resultSet, rowNum) ->
         new AccountResponse(
           resultSet.getObject("id", java.util.UUID.class),
-          resultSet.getString("email")
+          resultSet.getString("email"),
+          resultSet.getString("provider"),
+          resultSet.getString("status")
         )
     );
   }

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import type { AppOutletContext } from "@/App";
 import { getApiHealth, resolveApiBase } from "@/lib/api/client";
+import { seedDev } from "@/lib/api/mailbox";
 
 export function SettingsPage() {
   const { themeMode, setThemeMode } = useOutletContext<AppOutletContext>();
@@ -14,6 +15,8 @@ export function SettingsPage() {
   const apiBase = useMemo(() => resolveApiBase(), []);
   const [healthStatus, setHealthStatus] = useState<string>("Unknown");
   const [isCheckingHealth, setIsCheckingHealth] = useState(false);
+  const [seedStatus, setSeedStatus] = useState<string>("Not run");
+  const [isSeeding, setIsSeeding] = useState(false);
 
   const handleTestConnection = async () => {
     setIsCheckingHealth(true);
@@ -28,6 +31,22 @@ export function SettingsPage() {
       }
     } finally {
       setIsCheckingHealth(false);
+    }
+  };
+
+  const handleSeedDev = async () => {
+    setIsSeeding(true);
+    try {
+      const response = await seedDev();
+      setSeedStatus(response.message ?? "Seed endpoint completed");
+    } catch (error) {
+      if (error instanceof Error) {
+        setSeedStatus(`Error · ${error.message}`);
+      } else {
+        setSeedStatus("Error · Seed failed");
+      }
+    } finally {
+      setIsSeeding(false);
     }
   };
 
@@ -72,6 +91,17 @@ export function SettingsPage() {
               {isCheckingHealth ? "Testing..." : "Test connection"}
             </Button>
             <Badge variant="secondary">{healthStatus}</Badge>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              disabled={isSeeding}
+              onClick={handleSeedDev}
+              size="sm"
+              variant="outline"
+            >
+              {isSeeding ? "Seeding..." : "Seed dev data"}
+            </Button>
+            <Badge variant="secondary">{seedStatus}</Badge>
           </div>
         </CardContent>
       </Card>

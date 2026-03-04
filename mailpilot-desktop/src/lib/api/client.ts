@@ -1,5 +1,5 @@
 const DEFAULT_API_BASE = "http://127.0.0.1:8082";
-const DEFAULT_TIMEOUT_MS = 12000;
+const DEFAULT_TIMEOUT_MS = 10000;
 
 export const API_BASE = (import.meta.env.VITE_API_BASE ?? DEFAULT_API_BASE).replace(/\/$/, "");
 
@@ -13,104 +13,11 @@ export class ApiClientError extends Error {
   }
 }
 
-type RequestOptions = {
+export type FetchJsonOptions = {
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   body?: unknown;
   signal?: AbortSignal;
   timeoutMs?: number;
-};
-
-export type MailboxQueryRequest = {
-  scope?: {
-    accountIds?: string[];
-  };
-  q?: string | null;
-  filters?: {
-    unreadOnly?: boolean;
-    needsReply?: boolean;
-    overdue?: boolean;
-    dueToday?: boolean;
-    snoozed?: boolean;
-    senderDomains?: string[];
-    senderEmails?: string[];
-    keywords?: string[];
-  };
-  sort: "RECEIVED_DESC";
-  pageSize: number;
-  cursor: string | null;
-};
-
-export type MailboxListItem = {
-  id: string;
-  accountId: string;
-  accountEmail: string;
-  senderName: string;
-  senderEmail: string;
-  senderDomain: string;
-  subject: string;
-  snippet: string;
-  receivedAt: string;
-  isUnread: boolean;
-  hasAttachments: boolean;
-  chips: string[];
-  tags: string[];
-  highlight: {
-    label: string;
-    accent: string;
-  } | null;
-};
-
-export type MailboxQueryResponse = {
-  items: MailboxListItem[];
-  nextCursor: string | null;
-};
-
-export type MessageDetailResponse = {
-  id: string;
-  accountId: string;
-  accountEmail: string;
-  threadId: string | null;
-  senderName: string;
-  senderEmail: string;
-  subject: string;
-  receivedAt: string;
-  isUnread: boolean;
-  body: {
-    mime: string;
-    content: string | null;
-    isCached: boolean;
-  };
-  attachments: Array<{
-    id: string;
-    filename: string;
-    mimeType: string;
-    sizeBytes: number;
-  }>;
-  thread: {
-    messages: Array<{
-      id: string;
-      senderEmail: string;
-      subject: string;
-      receivedAt: string;
-      isUnread: boolean;
-    }>;
-  };
-  tags: string[];
-  followup: {
-    status: "OPEN" | "DONE";
-    needsReply: boolean;
-    dueAt: string | null;
-    snoozedUntil: string | null;
-  };
-  highlight: {
-    label: string;
-    accent: string;
-  } | null;
-};
-
-export type AccountRecord = {
-  id: string;
-  email: string;
 };
 
 export type ApiHealthResponse = {
@@ -123,45 +30,11 @@ export function resolveApiBase(): string {
   return API_BASE;
 }
 
-export async function queryMailbox(
-  request: MailboxQueryRequest,
-  signal?: AbortSignal,
-): Promise<MailboxQueryResponse> {
-  return requestJson<MailboxQueryResponse>("/api/mailbox/query", {
-    method: "POST",
-    body: request,
-    signal,
-  });
-}
-
-export async function getMessageDetail(
-  messageId: string,
-  signal?: AbortSignal,
-): Promise<MessageDetailResponse> {
-  return requestJson<MessageDetailResponse>(`/api/messages/${messageId}`, { signal });
-}
-
-export async function setMessageReadState(
-  messageId: string,
-  isUnread: boolean,
-  signal?: AbortSignal,
-): Promise<{ status: string }> {
-  return requestJson<{ status: string }>(`/api/messages/${messageId}/read`, {
-    method: "POST",
-    body: { isUnread },
-    signal,
-  });
-}
-
-export async function listAccounts(signal?: AbortSignal): Promise<AccountRecord[]> {
-  return requestJson<AccountRecord[]>("/api/accounts", { signal });
-}
-
 export async function getApiHealth(signal?: AbortSignal): Promise<ApiHealthResponse> {
-  return requestJson<ApiHealthResponse>("/api/health", { signal });
+  return fetchJson<ApiHealthResponse>("/api/health", { signal });
 }
 
-async function requestJson<T>(path: string, options: RequestOptions = {}): Promise<T> {
+export async function fetchJson<T>(path: string, options: FetchJsonOptions = {}): Promise<T> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const timeoutController = new AbortController();
   const timeoutId = window.setTimeout(() => timeoutController.abort("timeout"), timeoutMs);
@@ -200,6 +73,10 @@ async function requestJson<T>(path: string, options: RequestOptions = {}): Promi
           ? payload.message
           : `Request failed with status ${response.status}`;
       throw new ApiClientError(errorMessage, response.status);
+    }
+
+    if (!isJson) {
+      throw new ApiClientError("API returned non-JSON response", response.status);
     }
 
     return payload as T;

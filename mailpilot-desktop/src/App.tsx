@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import {
   BrowserRouter,
   Navigate,
@@ -24,6 +24,7 @@ import { FocusPage } from "@/pages/focus-page";
 import { ViewPage } from "@/pages/view-page";
 import { InsightsPage } from "@/pages/insights-page";
 import { SettingsPage } from "@/pages/settings-page";
+import { ViewsHubPage } from "@/pages/views-hub-page";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -55,6 +56,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { ApiClientError } from "@/lib/api/client";
+import { listViews, type ViewRecord } from "@/lib/api/views";
 
 type ThemeMode = "light" | "dark";
 
@@ -63,6 +66,10 @@ const THEME_STORAGE_KEY = "mailpilot-theme";
 export type AppOutletContext = {
   themeMode: ThemeMode;
   setThemeMode: (mode: ThemeMode) => void;
+  views: ViewRecord[];
+  viewsLoading: boolean;
+  viewsError: string | null;
+  refreshViews: () => Promise<void>;
 };
 
 type SidebarLink = {
@@ -72,6 +79,10 @@ type SidebarLink = {
 };
 
 type SidebarProps = {
+  views: ViewRecord[];
+  viewsLoading: boolean;
+  viewsError: string | null;
+  onRetryViews: () => void;
   onNavigate?: () => void;
 };
 
@@ -79,13 +90,6 @@ const navItems: SidebarLink[] = [
   { label: "Inbox", to: "/inbox", icon: Mailbox },
   { label: "Focus", to: "/focus", icon: Target },
   { label: "Insights", to: "/insights", icon: BarChart3 },
-];
-
-const viewItems = [
-  { key: "work", label: "Work" },
-  { key: "linkedin", label: "LinkedIn" },
-  { key: "gaming", label: "Gaming" },
-  { key: "marketing", label: "Marketing" },
 ];
 
 const settingsItem: SidebarLink = {
@@ -102,10 +106,25 @@ function getInitialThemeMode(): ThemeMode {
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
-function resolveHeaderTitle(pathname: string): string {
+function toApiErrorMessage(error: unknown): string {
+  if (error instanceof ApiClientError) {
+    return error.message;
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return "Failed to load views";
+}
+
+function resolveHeaderTitle(pathname: string, views: ViewRecord[]): string {
+  if (pathname === "/views/manage") {
+    return "Views Hub";
+  }
+
   if (pathname.startsWith("/views/")) {
-    const key = pathname.replace("/views/", "");
-    return `View · ${formatViewLabel(key)}`;
+    const viewId = pathname.replace("/views/", "");
+    const view = views.find((candidate) => candidate.id === viewId);
+    return `View · ${view?.name ?? "Unknown"}`;
   }
 
   switch (pathname) {
@@ -121,10 +140,6 @@ function resolveHeaderTitle(pathname: string): string {
   }
 }
 
-function formatViewLabel(viewKey: string): string {
-  return viewItems.find((view) => view.key === viewKey)?.label ?? "Custom";
-}
-
 function linkClassName(active: boolean): string {
   return cn(
     "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
@@ -134,7 +149,7 @@ function linkClassName(active: boolean): string {
   );
 }
 
-function Sidebar({ onNavigate }: SidebarProps) {
+function Sidebar({ views, viewsLoading, viewsError, onRetryViews, onNavigate }: SidebarProps) {
   const location = useLocation();
   const onViewRoute = location.pathname.startsWith("/views/");
   const [viewsOpen, setViewsOpen] = useState(onViewRoute);
@@ -197,23 +212,66 @@ function Sidebar({ onNavigate }: SidebarProps) {
                 </Button>
               </CollapsibleTrigger>
               <CollapsibleContent className="space-y-1 pt-1">
-                {viewItems.map((view) => (
+                {viewsLoading && (
+                  <div className="space-y-1 px-2 py-1">
+                    {Array.from({ length: 4 }, (_, index) => (
+                      <div
+                        className="h-8 animate-pulse rounded-md bg-muted"
+                        key={`views-loading-${index}`}
+                      />
+                    ))}
+                  </div>
+                )}
+
+                {!viewsLoading && viewsError && (
+                  <div className="rounded-md border border-border bg-card p-2 text-xs text-muted-foreground">
+                    <p>{viewsError}</p>
+                    <Button className="mt-2 w-full" onClick={onRetryViews} size="sm" variant="outline">
+                      Retry
+                    </Button>
+                  </div>
+                )}
+
+                {!viewsLoading && !viewsError && views.length === 0 && (
+                  <p className="px-3 py-2 text-xs text-muted-foreground">No saved views yet.</p>
+                )}
+
+                {!viewsLoading && !viewsError && views.map((view) => (
                   <NavLink
                     className={({ isActive }) =>
                       cn(
-                        "ml-7 block rounded-lg px-3 py-2 text-sm transition-colors",
+                        "ml-7 flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm transition-colors",
                         isActive
                           ? "bg-primary/10 text-primary"
                           : "text-muted-foreground hover:bg-muted hover:text-foreground",
                       )
                     }
-                    key={view.key}
+                    key={view.id}
                     onClick={onNavigate}
-                    to={`/views/${view.key}`}
+                    to={`/views/${view.id}`}
                   >
-                    {view.label}
+                    <span className="truncate">{view.name}</span>
+                    <span className="rounded-full border border-border px-2 py-0.5 text-[10px]">
+                      P{view.priority}
+                    </span>
                   </NavLink>
                 ))}
+
+                <NavLink
+                  className={({ isActive }) =>
+                    cn(
+                      "ml-7 flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors",
+                      isActive
+                        ? "bg-primary/10 text-primary"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                    )
+                  }
+                  onClick={onNavigate}
+                  to="/views/manage"
+                >
+                  <Cog className="h-3.5 w-3.5" />
+                  Manage Views
+                </NavLink>
               </CollapsibleContent>
             </Collapsible>
           </nav>
@@ -237,7 +295,32 @@ function AppShell() {
   const location = useLocation();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [themeMode, setThemeMode] = useState<ThemeMode>(getInitialThemeMode);
-  const pageTitle = useMemo(() => resolveHeaderTitle(location.pathname), [location.pathname]);
+
+  const [views, setViews] = useState<ViewRecord[]>([]);
+  const [viewsLoading, setViewsLoading] = useState(false);
+  const [viewsError, setViewsError] = useState<string | null>(null);
+
+  const refreshViews = useCallback(async () => {
+    setViewsLoading(true);
+    setViewsError(null);
+    try {
+      const loadedViews = await listViews();
+      setViews(loadedViews);
+    } catch (error) {
+      setViewsError(toApiErrorMessage(error));
+    } finally {
+      setViewsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshViews();
+  }, [refreshViews]);
+
+  const pageTitle = useMemo(
+    () => resolveHeaderTitle(location.pathname, views),
+    [location.pathname, views],
+  );
 
   useLayoutEffect(() => {
     document.documentElement.classList.toggle("dark", themeMode === "dark");
@@ -247,7 +330,14 @@ function AppShell() {
   return (
     <div className="flex h-screen bg-background text-foreground">
       <aside className="sidebar-panel hidden w-[260px] shrink-0 border-r border-border md:block">
-        <Sidebar />
+        <Sidebar
+          onRetryViews={() => {
+            void refreshViews();
+          }}
+          views={views}
+          viewsError={viewsError}
+          viewsLoading={viewsLoading}
+        />
       </aside>
       <div className="app-shell-main flex min-w-0 flex-1 flex-col">
         <header className="flex h-16 items-center justify-between border-b border-border bg-background px-4 md:px-6">
@@ -262,7 +352,15 @@ function AppShell() {
                 <SheetHeader className="sr-only">
                   <SheetTitle>Navigation</SheetTitle>
                 </SheetHeader>
-                <Sidebar onNavigate={() => setMobileNavOpen(false)} />
+                <Sidebar
+                  onNavigate={() => setMobileNavOpen(false)}
+                  onRetryViews={() => {
+                    void refreshViews();
+                  }}
+                  views={views}
+                  viewsError={viewsError}
+                  viewsLoading={viewsLoading}
+                />
               </SheetContent>
             </Sheet>
             <div className="min-w-0">
@@ -291,7 +389,16 @@ function AppShell() {
         </header>
         <main className="flex-1 overflow-auto p-4 md:p-6">
           <div className="mx-auto max-w-7xl">
-            <Outlet context={{ themeMode, setThemeMode }} />
+            <Outlet
+              context={{
+                themeMode,
+                setThemeMode,
+                views,
+                viewsLoading,
+                viewsError,
+                refreshViews,
+              }}
+            />
           </div>
         </main>
       </div>
@@ -307,7 +414,8 @@ function App() {
           <Route element={<Navigate replace to="/inbox" />} index />
           <Route element={<InboxPage />} path="inbox" />
           <Route element={<FocusPage />} path="focus" />
-          <Route element={<ViewPage />} path="views/:viewKey" />
+          <Route element={<ViewsHubPage />} path="views/manage" />
+          <Route element={<ViewPage />} path="views/:viewId" />
           <Route element={<InsightsPage />} path="insights" />
           <Route element={<SettingsPage />} path="settings" />
         </Route>
