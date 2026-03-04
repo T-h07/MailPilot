@@ -1,0 +1,14 @@
+.sidebar-panel {
+  background:
+    linear-gradient(
+      180deg,
+      hsl(var(--card) / 0.95) 0%,
+      hsl(var(--card) / 0.82) 100%
+    );
+}
+
+.sidebar-section-label {
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 0.68rem;
+}
