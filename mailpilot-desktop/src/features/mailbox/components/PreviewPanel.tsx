@@ -24,7 +24,7 @@ export const PreviewPanel = forwardRef<HTMLDivElement, PreviewPanelProps>(
   ) {
     if (!selectedMessage) {
       return (
-        <div className="flex h-full items-center justify-center rounded-xl border border-dashed bg-card/50 p-8 text-center">
+        <div className="mailbox-empty-state flex h-full items-center justify-center p-8 text-center">
           <div>
             <p className="text-sm font-medium">Select a message to preview.</p>
             <p className="pt-1 text-xs text-muted-foreground">
@@ -36,9 +36,9 @@ export const PreviewPanel = forwardRef<HTMLDivElement, PreviewPanelProps>(
     }
 
     return (
-      <ScrollArea className="h-full rounded-xl border bg-card/70" ref={ref}>
+      <ScrollArea className="mailbox-panel h-full" ref={ref}>
         <div className="space-y-4 p-4">
-          <Card className="shadow-none">
+          <Card className="border-border bg-card shadow-none">
             <CardHeader className="space-y-3">
               <div className="space-y-2">
                 <CardTitle className="text-lg leading-tight">{selectedMessage.subject}</CardTitle>
@@ -69,7 +69,7 @@ export const PreviewPanel = forwardRef<HTMLDivElement, PreviewPanelProps>(
             </CardHeader>
             <CardContent className="space-y-3">
               {selectedMessage.bodyCache ? (
-                <div className="rounded-lg border bg-background/80 p-3 text-sm leading-relaxed">
+                <div className="rounded-lg border border-border bg-background p-3 text-sm leading-relaxed">
                   {selectedMessage.bodyCache.split("\n").map((line, index) => (
                     <p className="pt-2 first:pt-0" key={`${selectedMessage.id}-line-${index}`}>
                       {line}
@@ -77,7 +77,7 @@ export const PreviewPanel = forwardRef<HTMLDivElement, PreviewPanelProps>(
                   ))}
                 </div>
               ) : (
-                <div className="space-y-3 rounded-lg border bg-background/80 p-3">
+                <div className="space-y-3 rounded-lg border border-border bg-background p-3">
                   <p className="text-sm text-muted-foreground">{selectedMessage.snippet}</p>
                   <Button
                     onClick={() => onActionPlaceholder("Load full body is not implemented yet")}

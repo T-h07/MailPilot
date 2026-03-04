@@ -7,6 +7,8 @@ import type { AppOutletContext } from "@/App";
 export function SettingsPage() {
   const { themeMode, setThemeMode } = useOutletContext<AppOutletContext>();
   const nextTheme = themeMode === "dark" ? "light" : "dark";
+  const modeLabel = themeMode === "dark" ? "Dark" : "Light";
+  const nextThemeLabel = nextTheme === "dark" ? "Dark" : "Light";
 
   return (
     <section className="space-y-6">
@@ -25,9 +27,9 @@ export function SettingsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap items-center gap-3">
-          <Badge variant="secondary">Current: {themeMode}</Badge>
+          <Badge variant="secondary">Current mode: {modeLabel}</Badge>
           <Button onClick={() => setThemeMode(nextTheme)}>
-            Switch to {nextTheme}
+            Switch to {nextThemeLabel}
           </Button>
         </CardContent>
       </Card>

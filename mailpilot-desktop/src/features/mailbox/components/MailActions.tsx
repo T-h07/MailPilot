@@ -47,7 +47,10 @@ export function MailActions({
             <MoreVertical className="h-4 w-4" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
+        <DropdownMenuContent
+          align="end"
+          className="z-[60] border-border bg-popover text-popover-foreground shadow-md"
+        >
           <DropdownMenuItem onClick={onToggleRead}>
             {isUnread ? "Mark as read" : "Mark as unread"}
           </DropdownMenuItem>

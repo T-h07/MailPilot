@@ -32,8 +32,8 @@ function MailRowComponent({ message, isSelected, onSelect, searchQuery }: MailRo
       className={cn(
         "w-full rounded-lg border p-3 text-left transition-colors",
         isSelected
-          ? "border-primary/40 bg-primary/10 shadow-sm"
-          : "border-transparent bg-card/70 hover:border-border hover:bg-accent/35",
+          ? "border-primary/50 bg-accent ring-1 ring-primary/20 shadow-sm"
+          : "border-border bg-background hover:bg-accent",
       )}
       onClick={() => onSelect(message.id)}
       type="button"
@@ -44,7 +44,7 @@ function MailRowComponent({ message, isSelected, onSelect, searchQuery }: MailRo
             <span
               className={cn(
                 "h-2.5 w-2.5 shrink-0 rounded-full",
-                message.isUnread ? "bg-sky-500" : "bg-transparent",
+                message.isUnread ? "bg-sky-500" : "bg-muted",
               )}
             />
             <p

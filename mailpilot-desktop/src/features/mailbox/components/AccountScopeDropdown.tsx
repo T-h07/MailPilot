@@ -36,7 +36,10 @@ export function AccountScopeDropdown({
           <ChevronDown className="h-4 w-4 text-muted-foreground" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-72">
+      <DropdownMenuContent
+        align="start"
+        className="z-[60] w-72 border border-border bg-popover text-popover-foreground shadow-md"
+      >
         <DropdownMenuLabel>Account scope</DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuRadioGroup

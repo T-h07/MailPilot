@@ -60,7 +60,7 @@ export function CommandBar({
   }, []);
 
   return (
-    <div className="space-y-3 rounded-xl border bg-card/70 p-3 shadow-sm">
+    <div className="mailbox-panel space-y-3 p-3">
       <div className="flex flex-wrap items-center gap-2">
         <AccountScopeDropdown
           accounts={accounts}
@@ -84,7 +84,10 @@ export function CommandBar({
               <EllipsisVertical className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
+          <DropdownMenuContent
+            align="end"
+            className="z-[60] border-border bg-popover text-popover-foreground shadow-md"
+          >
             <DropdownMenuItem disabled>Sync now (coming soon)</DropdownMenuItem>
             <DropdownMenuItem disabled>Export selected (coming soon)</DropdownMenuItem>
             <DropdownMenuSeparator />

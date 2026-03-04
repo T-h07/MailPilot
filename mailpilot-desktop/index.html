@@ -4,7 +4,21 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Tauri + React + Typescript</title>
+    <script>
+      (() => {
+        const storageKey = "mailpilot-theme";
+        const root = document.documentElement;
+        try {
+          const storedTheme = localStorage.getItem(storageKey);
+          const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+          const isDark = storedTheme ? storedTheme === "dark" : prefersDark;
+          root.classList.toggle("dark", isDark);
+        } catch {
+          root.classList.remove("dark");
+        }
+      })();
+    </script>
+    <title>MailPilot Desktop</title>
   </head>
 
   <body>

@@ -4,7 +4,7 @@
     --foreground: 222.2 84% 4.9%;
     --card: 210 30% 99%;
     --card-foreground: 222.2 84% 4.9%;
-    --popover: 0 0% 100%;
+    --popover: 210 30% 99%;
     --popover-foreground: 222.2 84% 4.9%;
     --primary: 221 48% 15%;
     --primary-foreground: 210 40% 98%;
@@ -32,7 +32,7 @@
     --foreground: 210 40% 98%;
     --card: 222.2 36% 11%;
     --card-foreground: 210 40% 98%;
-    --popover: 222.2 42% 8%;
+    --popover: 222.2 36% 11%;
     --popover-foreground: 210 40% 98%;
     --primary: 210 40% 98%;
     --primary-foreground: 222.2 47.4% 11.2%;
@@ -58,12 +58,21 @@
     @apply border-border;
   }
 
+  html {
+    color-scheme: light;
+  }
+
+  html.dark {
+    color-scheme: dark;
+  }
+
   body {
     @apply bg-background text-foreground antialiased;
     font-family: "Segoe UI Variable", "Inter", "Segoe UI", sans-serif;
+    min-height: 100vh;
   }
 
   #root {
-    @apply h-screen;
+    @apply h-screen bg-background text-foreground;
   }
 }

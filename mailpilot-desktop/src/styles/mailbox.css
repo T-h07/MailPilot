@@ -1,3 +1,13 @@
+@layer components {
+  .mailbox-panel {
+    @apply rounded-xl border border-border bg-card shadow-sm;
+  }
+
+  .mailbox-empty-state {
+    @apply rounded-xl border border-border bg-card;
+  }
+}
+
 .mailbox-grid {
   grid-template-columns: minmax(330px, 44%) minmax(420px, 56%);
 }

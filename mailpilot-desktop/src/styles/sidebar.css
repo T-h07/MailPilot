@@ -1,10 +1,5 @@
 .sidebar-panel {
-  background:
-    linear-gradient(
-      180deg,
-      hsl(var(--card) / 0.95) 0%,
-      hsl(var(--card) / 0.82) 100%
-    );
+  background-color: hsl(var(--card));
 }
 
 .sidebar-section-label {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import {
   BrowserRouter,
   Navigate,
@@ -58,6 +58,8 @@ import {
 
 type ThemeMode = "light" | "dark";
 
+const THEME_STORAGE_KEY = "mailpilot-theme";
+
 export type AppOutletContext = {
   themeMode: ThemeMode;
   setThemeMode: (mode: ThemeMode) => void;
@@ -91,6 +93,14 @@ const settingsItem: SidebarLink = {
   to: "/settings",
   icon: Cog,
 };
+
+function getInitialThemeMode(): ThemeMode {
+  const storedTheme = localStorage.getItem(THEME_STORAGE_KEY);
+  if (storedTheme === "light" || storedTheme === "dark") {
+    return storedTheme;
+  }
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
 
 function resolveHeaderTitle(pathname: string): string {
   if (pathname.startsWith("/views/")) {
@@ -226,27 +236,21 @@ function Sidebar({ onNavigate }: SidebarProps) {
 function AppShell() {
   const location = useLocation();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
-    const storedTheme = localStorage.getItem("mailpilot-theme");
-    if (storedTheme === "light" || storedTheme === "dark") {
-      return storedTheme;
-    }
-    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-  });
+  const [themeMode, setThemeMode] = useState<ThemeMode>(getInitialThemeMode);
   const pageTitle = useMemo(() => resolveHeaderTitle(location.pathname), [location.pathname]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     document.documentElement.classList.toggle("dark", themeMode === "dark");
-    localStorage.setItem("mailpilot-theme", themeMode);
+    localStorage.setItem(THEME_STORAGE_KEY, themeMode);
   }, [themeMode]);
 
   return (
     <div className="flex h-screen bg-background text-foreground">
-      <aside className="sidebar-panel hidden w-[260px] shrink-0 border-r md:block">
+      <aside className="sidebar-panel hidden w-[260px] shrink-0 border-r border-border md:block">
         <Sidebar />
       </aside>
       <div className="app-shell-main flex min-w-0 flex-1 flex-col">
-        <header className="desktop-glass flex h-16 items-center justify-between border-b bg-background/85 px-4 md:px-6">
+        <header className="flex h-16 items-center justify-between border-b border-border bg-background px-4 md:px-6">
           <div className="flex min-w-0 items-center gap-3">
             <Sheet onOpenChange={setMobileNavOpen} open={mobileNavOpen}>
               <SheetTrigger asChild>
@@ -274,7 +278,10 @@ function AppShell() {
                 </Badge>
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
+            <DropdownMenuContent
+              align="end"
+              className="z-[60] border-border bg-popover text-popover-foreground shadow-md"
+            >
               <DropdownMenuLabel>Sync status</DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuItem disabled>Offline mode</DropdownMenuItem>

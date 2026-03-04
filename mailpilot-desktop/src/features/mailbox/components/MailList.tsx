@@ -57,7 +57,7 @@ export function MailList({
 
   if (messages.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center rounded-xl border border-dashed bg-card/50 p-8 text-center">
+      <div className="mailbox-empty-state flex h-full items-center justify-center p-8 text-center">
         <div>
           <p className="text-sm font-medium">No messages match this filter.</p>
           <p className="pt-1 text-xs text-muted-foreground">
@@ -70,7 +70,7 @@ export function MailList({
 
   return (
     <div
-      className="h-full rounded-xl border bg-card/60 p-2"
+      className="mailbox-panel h-full overflow-y-auto p-2"
       onKeyDown={onKeyDown}
       ref={parentRef}
       role="listbox"

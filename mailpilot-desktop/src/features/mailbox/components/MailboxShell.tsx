@@ -143,7 +143,8 @@ export function MailboxShell({ context, viewKey }: MailboxShellProps) {
     [filteredMessages, showNotice],
   );
 
-  const heading = context === "view" ? `View: ${viewRule?.label ?? titleCase(viewKey ?? "Custom")}` : "Inbox";
+  const heading =
+    context === "view" ? `View: ${viewRule?.label ?? titleCase(viewKey ?? "Custom")}` : "Inbox";
   const subtitle =
     context === "view"
       ? viewRule?.summary ?? "Rule-backed message lane based on mock mailbox definitions."
@@ -151,7 +152,7 @@ export function MailboxShell({ context, viewKey }: MailboxShellProps) {
 
   return (
     <section className="space-y-4">
-      <div className="rounded-xl border bg-card/75 p-4">
+      <div className="mailbox-panel p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 className="text-xl font-semibold tracking-tight">{heading}</h1>
@@ -184,7 +185,7 @@ export function MailboxShell({ context, viewKey }: MailboxShellProps) {
 
       <div className="mailbox-grid grid min-h-[560px] gap-4">
         {filteredMessages.length === 0 ? (
-          <div className="flex h-full items-center justify-center rounded-xl border border-dashed bg-card/50 p-8">
+          <div className="mailbox-empty-state flex h-full items-center justify-center p-8">
             <div className="text-center">
               <p className="text-sm font-medium">No messages in this view.</p>
               <p className="pt-1 text-xs text-muted-foreground">
@@ -215,7 +216,7 @@ export function MailboxShell({ context, viewKey }: MailboxShellProps) {
       </div>
 
       {notice && (
-        <div className="mailbox-toast fixed bottom-5 right-5 z-50 rounded-lg border bg-card/95 px-3 py-2 text-xs shadow-lg">
+        <div className="mailbox-toast fixed bottom-5 right-5 z-[60] rounded-lg border border-border bg-card px-3 py-2 text-xs shadow-lg">
           {notice.message}
         </div>
       )}
