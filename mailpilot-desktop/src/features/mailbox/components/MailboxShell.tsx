@@ -1619,6 +1619,31 @@ export function MailboxShell({
     }
   }, [context, forcedFilters, hideScope]);
 
+  const handleToggleSelectedViewLabel = useCallback(
+    (labelId: string) => {
+      if (!isViewContext || !selectedMessageId) {
+        showNotice("Select a message first.");
+        return;
+      }
+      const currentlySelected = new Set(selectedViewLabelIds);
+      if (currentlySelected.has(labelId)) {
+        currentlySelected.delete(labelId);
+      } else {
+        currentlySelected.add(labelId);
+      }
+      void handleSaveViewLabels(Array.from(currentlySelected));
+    },
+    [handleSaveViewLabels, isViewContext, selectedMessageId, selectedViewLabelIds, showNotice],
+  );
+
+  const handleClearSelectedViewLabels = useCallback(() => {
+    if (!isViewContext || !selectedMessageId) {
+      showNotice("Select a message first.");
+      return;
+    }
+    void handleSaveViewLabels([]);
+  }, [handleSaveViewLabels, isViewContext, selectedMessageId, showNotice]);
+
   const heading = titleOverride ?? (
     context === "view" ? `View: ${view?.name ?? "Missing"}` : context === "sent" ? "Sent" : "Inbox"
   );
@@ -1681,6 +1706,12 @@ export function MailboxShell({
         onRefresh={handleRefreshMailbox}
         isRefreshing={isRefreshingMailbox || isLoadingList}
         searchQuery={searchQuery}
+        showViewLabelsQuickAssign={isViewContext}
+        viewLabelOptions={viewLabelOptions.map((label) => ({ id: label.id, name: label.name }))}
+        selectedViewLabelIds={selectedViewLabelIds}
+        onToggleSelectedViewLabel={handleToggleSelectedViewLabel}
+        onClearSelectedViewLabels={handleClearSelectedViewLabels}
+        viewLabelsActionDisabled={!selectedMessageId || isSavingViewLabels || isLoadingViewLabels}
       />
 
       <div className="mailbox-grid grid min-h-[560px] gap-4">

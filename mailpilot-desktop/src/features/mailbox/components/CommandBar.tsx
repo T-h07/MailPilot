@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { EllipsisVertical, Loader2, MessageSquarePlus, RefreshCw, Search, Settings2 } from "lucide-react";
 import type { AccountScope, MailAccount, QuickFilterKey } from "@/features/mailbox/model/types";
 import { AccountScopeDropdown } from "@/features/mailbox/components/AccountScopeDropdown";
@@ -34,6 +34,12 @@ type CommandBarProps = {
   onCompose: () => void;
   onRefresh: () => void;
   isRefreshing?: boolean;
+  showViewLabelsQuickAssign?: boolean;
+  viewLabelOptions?: Array<{ id: string; name: string }>;
+  selectedViewLabelIds?: string[];
+  onToggleSelectedViewLabel?: (labelId: string) => void;
+  onClearSelectedViewLabels?: () => void;
+  viewLabelsActionDisabled?: boolean;
 };
 
 export function CommandBar({
@@ -56,8 +62,15 @@ export function CommandBar({
   onCompose,
   onRefresh,
   isRefreshing = false,
+  showViewLabelsQuickAssign = false,
+  viewLabelOptions = [],
+  selectedViewLabelIds = [],
+  onToggleSelectedViewLabel,
+  onClearSelectedViewLabels,
+  viewLabelsActionDisabled = false,
 }: CommandBarProps) {
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const [labelActionValue, setLabelActionValue] = useState("");
 
   useEffect(() => {
     const handleFocusShortcut = (event: KeyboardEvent) => {
@@ -147,11 +160,46 @@ export function CommandBar({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-      <FilterChips
-        activeFilters={activeFilters}
-        onReset={onResetFilters}
-        onToggleFilter={onToggleFilter}
-      />
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <FilterChips
+          activeFilters={activeFilters}
+          onReset={onResetFilters}
+          onToggleFilter={onToggleFilter}
+        />
+        {showViewLabelsQuickAssign && (
+          <div className="ml-auto flex min-w-[220px] items-center gap-2">
+            <span className="text-xs text-muted-foreground">Message labels</span>
+            <select
+              className="h-9 min-w-[190px] rounded-md border border-input bg-background px-3 text-sm"
+              disabled={viewLabelsActionDisabled || viewLabelOptions.length === 0}
+              onChange={(event) => {
+                const value = event.target.value;
+                setLabelActionValue("");
+                if (!value) {
+                  return;
+                }
+                if (value === "__clear__") {
+                  onClearSelectedViewLabels?.();
+                  return;
+                }
+                onToggleSelectedViewLabel?.(value);
+              }}
+              value={labelActionValue}
+            >
+              <option value="">{viewLabelOptions.length === 0 ? "No labels" : "Assign label..."}</option>
+              <option value="__clear__">Clear all labels</option>
+              {viewLabelOptions.map((label) => {
+                const selected = selectedViewLabelIds.includes(label.id);
+                return (
+                  <option key={label.id} value={label.id}>
+                    {selected ? `Remove: ${label.name}` : `Add: ${label.name}`}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
