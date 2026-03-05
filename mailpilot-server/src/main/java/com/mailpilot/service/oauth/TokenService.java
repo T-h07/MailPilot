@@ -8,6 +8,8 @@ import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
 import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -31,6 +33,7 @@ public class TokenService {
   private final TokenCrypto tokenCrypto;
   private final GoogleOAuthClientConfigService googleOAuthClientConfigService;
   private final RestTemplate restTemplate;
+  private final ConcurrentHashMap<UUID, ReentrantLock> refreshLocks = new ConcurrentHashMap<>();
 
   public TokenService(
       JdbcTemplate jdbcTemplate,
@@ -62,52 +65,60 @@ public class TokenService {
   }
 
   public AccessToken refreshAccessToken(UUID accountId) {
-    TokenRow existing = loadTokenRow(accountId);
-    if (!StringUtils.hasText(existing.refreshToken())) {
-      throw new IllegalStateException("OAuth refresh token is missing. Reconnect Gmail account.");
-    }
-
-    GoogleOAuthClientConfig config = googleOAuthClientConfigService.loadRequiredConfig();
-
-    MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
-    form.add("grant_type", "refresh_token");
-    form.add("refresh_token", existing.refreshToken());
-    form.add("client_id", config.clientId());
-    form.add("client_secret", config.clientSecret());
-
-    HttpHeaders headers = new HttpHeaders();
-    headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
-    HttpEntity<MultiValueMap<String, String>> requestEntity = new HttpEntity<>(form, headers);
-
-    GoogleRefreshTokenResponse responseBody;
+    ReentrantLock refreshLock =
+        refreshLocks.computeIfAbsent(accountId, ignored -> new ReentrantLock());
+    refreshLock.lock();
     try {
-      ResponseEntity<GoogleRefreshTokenResponse> response =
-          restTemplate.postForEntity(
-              URI.create(GOOGLE_TOKEN_ENDPOINT), requestEntity, GoogleRefreshTokenResponse.class);
-      responseBody = response.getBody();
-    } catch (HttpStatusCodeException exception) {
-      throw new IllegalStateException(
-          "Failed to refresh Google OAuth token: " + safeError(exception));
-    }
+      TokenRow existing = loadTokenRow(accountId);
+      OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+      if (existing.expiryAt() == null || existing.expiryAt().isAfter(now.plus(EXPIRY_SKEW))) {
+        return toAccessToken(existing);
+      }
+      if (!StringUtils.hasText(existing.refreshToken())) {
+        throw new IllegalStateException("OAuth refresh token is missing. Reconnect Gmail account.");
+      }
 
-    if (responseBody == null || !StringUtils.hasText(responseBody.accessToken())) {
-      throw new IllegalStateException(
-          "Google token refresh response did not include an access token.");
-    }
+      GoogleOAuthClientConfig config = googleOAuthClientConfigService.loadRequiredConfig();
 
-    OffsetDateTime nextExpiryAt =
-        responseBody.expiresIn() == null
-            ? null
-            : OffsetDateTime.now(ZoneOffset.UTC).plusSeconds(responseBody.expiresIn());
+      MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
+      form.add("grant_type", "refresh_token");
+      form.add("refresh_token", existing.refreshToken());
+      form.add("client_id", config.clientId());
+      form.add("client_secret", config.clientSecret());
 
-    String accessTokenEncrypted = tokenCrypto.encrypt(responseBody.accessToken());
-    String refreshTokenEncrypted =
-        StringUtils.hasText(responseBody.refreshToken())
-            ? tokenCrypto.encrypt(responseBody.refreshToken())
-            : null;
+      HttpHeaders headers = new HttpHeaders();
+      headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+      HttpEntity<MultiValueMap<String, String>> requestEntity = new HttpEntity<>(form, headers);
 
-    jdbcTemplate.update(
-        """
+      GoogleRefreshTokenResponse responseBody;
+      try {
+        ResponseEntity<GoogleRefreshTokenResponse> response =
+            restTemplate.postForEntity(
+                URI.create(GOOGLE_TOKEN_ENDPOINT), requestEntity, GoogleRefreshTokenResponse.class);
+        responseBody = response.getBody();
+      } catch (HttpStatusCodeException exception) {
+        throw new IllegalStateException(
+            "Failed to refresh Google OAuth token: " + safeError(exception));
+      }
+
+      if (responseBody == null || !StringUtils.hasText(responseBody.accessToken())) {
+        throw new IllegalStateException(
+            "Google token refresh response did not include an access token.");
+      }
+
+      OffsetDateTime nextExpiryAt =
+          responseBody.expiresIn() == null
+              ? null
+              : OffsetDateTime.now(ZoneOffset.UTC).plusSeconds(responseBody.expiresIn());
+
+      String accessTokenEncrypted = tokenCrypto.encrypt(responseBody.accessToken());
+      String refreshTokenEncrypted =
+          StringUtils.hasText(responseBody.refreshToken())
+              ? tokenCrypto.encrypt(responseBody.refreshToken())
+              : null;
+
+      jdbcTemplate.update(
+          """
       UPDATE oauth_tokens
       SET
         access_token_enc = ?,
@@ -118,25 +129,28 @@ public class TokenService {
         updated_at = now()
       WHERE account_id = ?
       """,
-        accessTokenEncrypted,
-        refreshTokenEncrypted,
-        nextExpiryAt,
-        responseBody.scope(),
-        responseBody.tokenType(),
-        accountId);
+          accessTokenEncrypted,
+          refreshTokenEncrypted,
+          nextExpiryAt,
+          responseBody.scope(),
+          responseBody.tokenType(),
+          accountId);
 
-    TokenRow refreshed =
-        new TokenRow(
-            accountId,
-            responseBody.accessToken(),
-            StringUtils.hasText(responseBody.refreshToken())
-                ? responseBody.refreshToken()
-                : existing.refreshToken(),
-            nextExpiryAt,
-            firstNonBlank(responseBody.scope(), existing.scope()),
-            firstNonBlank(responseBody.tokenType(), existing.tokenType()));
+      TokenRow refreshed =
+          new TokenRow(
+              accountId,
+              responseBody.accessToken(),
+              StringUtils.hasText(responseBody.refreshToken())
+                  ? responseBody.refreshToken()
+                  : existing.refreshToken(),
+              nextExpiryAt,
+              firstNonBlank(responseBody.scope(), existing.scope()),
+              firstNonBlank(responseBody.tokenType(), existing.tokenType()));
 
-    return toAccessToken(refreshed);
+      return toAccessToken(refreshed);
+    } finally {
+      refreshLock.unlock();
+    }
   }
 
   private TokenRow loadTokenRow(UUID accountId) {

@@ -27,9 +27,11 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.Function;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -43,6 +45,8 @@ public class GmailSyncService {
   public static final int DEFAULT_MAX_MESSAGES = 500;
   public static final int MAX_MAX_MESSAGES = 2000;
   private static final int GMAIL_LIST_PAGE_SIZE = 100;
+  private static final int MESSAGE_FETCH_CONCURRENCY = 4;
+  private static final long MESSAGE_FETCH_TIMEOUT_SECONDS = 45L;
 
   private static final Logger LOGGER = LoggerFactory.getLogger(GmailSyncService.class);
 
@@ -52,7 +56,8 @@ public class GmailSyncService {
   private final TokenService tokenService;
   private final BadgeService badgeService;
   private final AppEventBus appEventBus;
-  private final ExecutorService messageFetchExecutor = Executors.newFixedThreadPool(4);
+  private final ExecutorService messageFetchExecutor =
+      Executors.newFixedThreadPool(MESSAGE_FETCH_CONCURRENCY);
 
   public GmailSyncService(
       JdbcTemplate jdbcTemplate,
@@ -323,35 +328,78 @@ public class GmailSyncService {
       return new SyncCounters(0, 0, 0, total);
     }
 
-    List<CompletableFuture<FetchedMessage>> futures =
-        messageIds.stream()
-            .map(
-                (messageId) ->
-                    CompletableFuture.supplyAsync(
-                        () -> fetchMessage(accountId, messageId), messageFetchExecutor))
-            .toList();
-
     int upserted = 0;
     int deleted = 0;
     int processed = 0;
     Map<String, UUID> threadCache = new HashMap<>();
 
-    for (CompletableFuture<FetchedMessage> future : futures) {
-      FetchedMessage fetchedMessage;
-      try {
-        fetchedMessage = future.join();
-      } catch (CompletionException exception) {
-        Throwable cause = exception.getCause();
-        if (cause instanceof RuntimeException runtimeException) {
-          throw runtimeException;
-        }
-        throw exception;
-      }
+    for (int start = 0; start < messageIds.size(); start += MESSAGE_FETCH_CONCURRENCY) {
+      int end = Math.min(start + MESSAGE_FETCH_CONCURRENCY, messageIds.size());
+      List<String> batch = messageIds.subList(start, end);
+      List<CompletableFuture<FetchedMessage>> futures =
+          batch.stream()
+              .map(
+                  (messageId) ->
+                      CompletableFuture.supplyAsync(
+                          () -> fetchMessage(accountId, messageId), messageFetchExecutor))
+              .toList();
 
-      if (fetchedMessage.notFound()) {
-        if (!alreadyDeletedMessageIds.contains(fetchedMessage.providerMessageId())) {
-          deleted += deleteMessageByProviderId(accountId, fetchedMessage.providerMessageId());
+      for (CompletableFuture<FetchedMessage> future : futures) {
+        FetchedMessage fetchedMessage = waitForFetchedMessage(future);
+
+        if (fetchedMessage.notFound()) {
+          if (!alreadyDeletedMessageIds.contains(fetchedMessage.providerMessageId())) {
+            deleted += deleteMessageByProviderId(accountId, fetchedMessage.providerMessageId());
+          }
+          processed += 1;
+          appEventBus.publishSyncStatus(
+              accountId,
+              accountEmail,
+              "RUNNING",
+              processed,
+              total,
+              "Syncing " + processed + "/" + total);
+          continue;
         }
+
+        if (fetchedMessage.message() == null) {
+          processed += 1;
+          appEventBus.publishSyncStatus(
+              accountId,
+              accountEmail,
+              "RUNNING",
+              processed,
+              total,
+              "Syncing " + processed + "/" + total);
+          continue;
+        }
+
+        GmailMessageMapper.GmailMetadata metadata =
+            gmailMessageMapper.mapCoreFields(fetchedMessage.message());
+        UpsertMessageResult upsertResult = upsertMessageMetadata(accountId, metadata, threadCache);
+        upserted += 1;
+        if (upsertResult.inserted()) {
+          List<UUID> matchedViews =
+              badgeService.findMatchingViewIds(
+                  new BadgeService.MessageCandidate(
+                      accountId,
+                      metadata.senderEmail(),
+                      metadata.senderDomain(),
+                      metadata.subject(),
+                      metadata.snippet(),
+                      metadata.isRead()),
+                  viewMatchers);
+          appEventBus.publishNewMail(
+              accountId,
+              accountEmail,
+              upsertResult.messageId(),
+              metadata.senderEmail(),
+              metadata.senderName(),
+              StringUtils.hasText(metadata.subject()) ? metadata.subject() : "(no subject)",
+              metadata.receivedAt(),
+              matchedViews);
+        }
+
         processed += 1;
         appEventBus.publishSyncStatus(
             accountId,
@@ -360,58 +408,29 @@ public class GmailSyncService {
             processed,
             total,
             "Syncing " + processed + "/" + total);
-        continue;
       }
-
-      if (fetchedMessage.message() == null) {
-        processed += 1;
-        appEventBus.publishSyncStatus(
-            accountId,
-            accountEmail,
-            "RUNNING",
-            processed,
-            total,
-            "Syncing " + processed + "/" + total);
-        continue;
-      }
-
-      GmailMessageMapper.GmailMetadata metadata =
-          gmailMessageMapper.mapCoreFields(fetchedMessage.message());
-      UpsertMessageResult upsertResult = upsertMessageMetadata(accountId, metadata, threadCache);
-      upserted += 1;
-      if (upsertResult.inserted()) {
-        List<UUID> matchedViews =
-            badgeService.findMatchingViewIds(
-                new BadgeService.MessageCandidate(
-                    accountId,
-                    metadata.senderEmail(),
-                    metadata.senderDomain(),
-                    metadata.subject(),
-                    metadata.snippet(),
-                    metadata.isRead()),
-                viewMatchers);
-        appEventBus.publishNewMail(
-            accountId,
-            accountEmail,
-            upsertResult.messageId(),
-            metadata.senderEmail(),
-            metadata.senderName(),
-            StringUtils.hasText(metadata.subject()) ? metadata.subject() : "(no subject)",
-            metadata.receivedAt(),
-            matchedViews);
-      }
-
-      processed += 1;
-      appEventBus.publishSyncStatus(
-          accountId,
-          accountEmail,
-          "RUNNING",
-          processed,
-          total,
-          "Syncing " + processed + "/" + total);
     }
 
     return new SyncCounters(upserted, deleted, processed, total);
+  }
+
+  private FetchedMessage waitForFetchedMessage(CompletableFuture<FetchedMessage> future) {
+    try {
+      return future.get(MESSAGE_FETCH_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+    } catch (TimeoutException timeoutException) {
+      future.cancel(true);
+      throw new IllegalStateException(
+          "Timed out while fetching Gmail message metadata during sync.");
+    } catch (InterruptedException interruptedException) {
+      Thread.currentThread().interrupt();
+      throw new IllegalStateException("Interrupted while fetching Gmail message metadata.");
+    } catch (ExecutionException executionException) {
+      Throwable cause = executionException.getCause();
+      if (cause instanceof RuntimeException runtimeException) {
+        throw runtimeException;
+      }
+      throw new IllegalStateException("Gmail message fetch failed during sync.", cause);
+    }
   }
 
   private FetchedMessage fetchMessage(UUID accountId, String messageId) {
