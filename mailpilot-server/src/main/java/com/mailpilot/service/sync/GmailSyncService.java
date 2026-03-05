@@ -16,6 +16,7 @@ import com.mailpilot.service.gmail.GmailClient.HistoryMessageContainer;
 import com.mailpilot.service.gmail.GmailClient.HistoryRecord;
 import com.mailpilot.service.gmail.GmailClient.MessageListResponse;
 import com.mailpilot.service.gmail.GmailClient.MessageRef;
+import com.mailpilot.service.logging.LogSanitizer;
 import com.mailpilot.service.oauth.TokenService;
 import com.mailpilot.service.events.AppEventBus;
 import java.time.Instant;
@@ -742,7 +743,7 @@ public class GmailSyncService {
             "Repair skipped message {} for account {}: {}",
             providerMessageId,
             account.email(),
-            exception.getMessage()
+            LogSanitizer.sanitize(exception.getMessage())
           );
         }
       }

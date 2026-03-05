@@ -2,6 +2,7 @@ package com.mailpilot.service.oauth;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.mailpilot.service.logging.LogSanitizer;
 import java.net.URI;
 import java.time.Duration;
 import java.time.OffsetDateTime;
@@ -178,7 +179,7 @@ public class TokenService {
   private String safeError(HttpStatusCodeException exception) {
     String body = exception.getResponseBodyAsString();
     if (StringUtils.hasText(body)) {
-      return body;
+      return LogSanitizer.sanitize(body);
     }
     return "HTTP " + exception.getStatusCode().value();
   }

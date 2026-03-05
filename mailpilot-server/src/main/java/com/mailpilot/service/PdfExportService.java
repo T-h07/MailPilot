@@ -3,6 +3,7 @@ package com.mailpilot.service;
 import com.mailpilot.api.error.ApiBadRequestException;
 import com.mailpilot.api.error.ApiInternalException;
 import com.mailpilot.api.error.ApiNotFoundException;
+import com.mailpilot.service.logging.LogSanitizer;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
@@ -72,7 +73,11 @@ public class PdfExportService {
     } catch (ApiBadRequestException exception) {
       throw new ApiInternalException("Unable to fetch full body for export. Try Open in Gmail.");
     } catch (RuntimeException exception) {
-      LOGGER.error("Failed to export message PDF: {}", messageId, exception);
+      LOGGER.error(
+        "Failed to export message PDF for messageId={} reason={}",
+        messageId,
+        LogSanitizer.sanitize(exception.getMessage())
+      );
       throw new ApiInternalException("Failed to export message PDF.");
     }
   }
@@ -101,7 +106,11 @@ public class PdfExportService {
     } catch (ApiBadRequestException exception) {
       throw new ApiInternalException("Unable to fetch full body for export. Try Open in Gmail.");
     } catch (RuntimeException exception) {
-      LOGGER.error("Failed to export thread PDF: {}", threadId, exception);
+      LOGGER.error(
+        "Failed to export thread PDF for threadId={} reason={}",
+        threadId,
+        LogSanitizer.sanitize(exception.getMessage())
+      );
       throw new ApiInternalException("Failed to export thread PDF.");
     }
   }

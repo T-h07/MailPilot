@@ -7,6 +7,7 @@ import com.mailpilot.service.gmail.GmailClient.GmailApiException;
 import com.mailpilot.service.gmail.GmailClient.GmailAttachmentNotFoundException;
 import com.mailpilot.service.gmail.GmailClient.GmailAttachmentResponse;
 import com.mailpilot.service.gmail.GmailClient.GmailUnauthorizedException;
+import com.mailpilot.service.logging.LogSanitizer;
 import com.mailpilot.service.oauth.TokenService;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -157,7 +158,7 @@ public class AttachmentDownloadService {
     try {
       return Files.readAllBytes(cachePath);
     } catch (IOException exception) {
-      LOGGER.warn("Failed to read cached attachment file: {}", cachePath);
+      LOGGER.warn("Failed to read cached attachment file: {}", LogSanitizer.sanitizePath(cachePath));
       return null;
     }
   }
@@ -167,7 +168,7 @@ public class AttachmentDownloadService {
       Files.createDirectories(cachePath.getParent());
       Files.write(cachePath, bytes);
     } catch (IOException exception) {
-      LOGGER.warn("Failed to write attachment cache file: {}", cachePath);
+      LOGGER.warn("Failed to write attachment cache file: {}", LogSanitizer.sanitizePath(cachePath));
     }
   }
 

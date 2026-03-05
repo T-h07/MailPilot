@@ -3,6 +3,7 @@ package com.mailpilot.service.gmail;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.mailpilot.service.logging.LogSanitizer;
 import java.net.URI;
 import java.time.Duration;
 import java.util.LinkedHashMap;
@@ -305,11 +306,11 @@ public class GmailClient {
     try {
       GoogleErrorEnvelope envelope = objectMapper.readValue(body, GoogleErrorEnvelope.class);
       if (envelope.error() != null && StringUtils.hasText(envelope.error().message())) {
-        return envelope.error().message();
+        return LogSanitizer.sanitize(envelope.error().message());
       }
     } catch (Exception ignored) {}
 
-    return body;
+    return LogSanitizer.sanitize(body);
   }
 
   private String normalize(String value) {

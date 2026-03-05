@@ -5,6 +5,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mailpilot.api.model.GmailOAuthStartResponse;
+import com.mailpilot.service.logging.LogSanitizer;
 import com.mailpilot.service.oauth.OAuthAccountService.EncryptedTokenPayload;
 import com.mailpilot.service.oauth.OAuthStateStore.OAuthFlowStatus;
 import com.mailpilot.service.oauth.OAuthStateStore.PkceState;
@@ -159,9 +160,11 @@ public class GmailOAuthService {
       oauthStateStore.markSuccess(state, "Connected " + confirmedEmail);
       return successResult("Gmail connected. You can close this tab.");
     } catch (OAuthFlowException exception) {
+      LOGGER.warn("Gmail OAuth callback rejected: {}", LogSanitizer.sanitize(exception.getMessage()));
       oauthStateStore.markError(state, exception.getMessage());
       return failureResult(exception.getMessage(), HttpStatus.BAD_REQUEST);
     } catch (Exception exception) {
+      LOGGER.error("Unexpected Gmail OAuth callback failure: {}", LogSanitizer.sanitize(exception.getMessage()));
       oauthStateStore.markError(state, "Unexpected error while connecting Gmail.");
       return failureResult(
         "Unexpected error while connecting Gmail. Please retry.",
@@ -287,7 +290,7 @@ public class GmailOAuthService {
         responseBody,
         GoogleTokenErrorResponse.class
       );
-      return mapGoogleError(errorResponse.error(), errorResponse.errorDescription());
+      return LogSanitizer.sanitize(mapGoogleError(errorResponse.error(), errorResponse.errorDescription()));
     } catch (IOException ignored) {
       return "Token exchange failed with HTTP " + statusCode + ".";
     }
@@ -317,7 +320,7 @@ public class GmailOAuthService {
     }
 
     if (StringUtils.hasText(description)) {
-      return description.trim();
+      return LogSanitizer.sanitize(description.trim());
     }
 
     if (StringUtils.hasText(error)) {

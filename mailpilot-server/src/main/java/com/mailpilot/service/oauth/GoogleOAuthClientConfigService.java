@@ -3,12 +3,16 @@ package com.mailpilot.service.oauth;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mailpilot.api.error.ApiBadRequestException;
+import com.mailpilot.service.logging.LogSanitizer;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Locale;
+import jakarta.annotation.PostConstruct;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -16,6 +20,7 @@ import org.springframework.util.StringUtils;
 @Service
 public class GoogleOAuthClientConfigService {
 
+  private static final Logger LOGGER = LoggerFactory.getLogger(GoogleOAuthClientConfigService.class);
   private static final Path WINDOWS_DEFAULT_PATH = Paths.get(
     "C:\\Users\\taulanth\\AppData\\Local\\MailPilot\\google-oauth-client.json"
   );
@@ -26,6 +31,25 @@ public class GoogleOAuthClientConfigService {
   public GoogleOAuthClientConfigService(Environment environment, ObjectMapper objectMapper) {
     this.environment = environment;
     this.objectMapper = objectMapper;
+  }
+
+  @PostConstruct
+  public void validateStartupConfiguration() {
+    if (!isDevProfile()) {
+      return;
+    }
+
+    GoogleOAuthConfigCheck check = checkConfiguration();
+    if (check.configured()) {
+      LOGGER.info("Google OAuth client configuration is available at {}", sanitizePath(check.path()));
+      return;
+    }
+
+    String message = "Google OAuth client configuration missing or invalid. " + check.message();
+    if (isStartupFailFastEnabled()) {
+      throw new IllegalStateException(message);
+    }
+    LOGGER.warn("{} (set MAILPILOT_OAUTH_FAIL_FAST=true to enforce startup failure)", message);
   }
 
   public GoogleOAuthConfigCheck checkConfiguration() {
@@ -115,6 +139,31 @@ public class GoogleOAuthClientConfigService {
     }
 
     return null;
+  }
+
+  private boolean isDevProfile() {
+    for (String profile : environment.getActiveProfiles()) {
+      if ("dev".equalsIgnoreCase(profile)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private boolean isStartupFailFastEnabled() {
+    String value = environment.getProperty("MAILPILOT_OAUTH_FAIL_FAST");
+    return value != null && Boolean.parseBoolean(value);
+  }
+
+  private String sanitizePath(String rawPath) {
+    if (!StringUtils.hasText(rawPath)) {
+      return "(unresolved)";
+    }
+    try {
+      return LogSanitizer.sanitizePath(Paths.get(rawPath));
+    } catch (InvalidPathException exception) {
+      return "(invalid-path)";
+    }
   }
 
   private boolean isWindows() {
