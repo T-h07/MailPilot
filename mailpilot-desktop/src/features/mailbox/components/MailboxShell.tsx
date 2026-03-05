@@ -20,6 +20,7 @@ import { configCheck, getGmailOAuthStatus, startGmailOAuth } from "@/lib/api/oau
 import {
   getMessage,
   loadMessageBody,
+  type MailboxMode,
   type MailboxSortOrder,
   queryMailbox,
   queryMailboxView,
@@ -45,12 +46,13 @@ type ForcedMailboxFilters = {
 };
 
 type MailboxShellProps = {
-  context: "inbox" | "view";
+  context: "inbox" | "view" | "sent";
   view: ViewRecord | null;
   titleOverride?: string;
   subtitleOverride?: string;
   hideAccountScope?: boolean;
   forcedFilters?: ForcedMailboxFilters;
+  forcedMailboxMode?: MailboxMode;
 };
 
 type NoticeState = {
@@ -412,6 +414,7 @@ export function MailboxShell({
   subtitleOverride,
   hideAccountScope = false,
   forcedFilters,
+  forcedMailboxMode,
 }: MailboxShellProps) {
   const navigate = useNavigate();
   const previewRef = useRef<HTMLDivElement>(null);
@@ -427,6 +430,7 @@ export function MailboxShell({
   const viewSummaryChips = useMemo(() => summarizeViewRules(view), [view]);
 
   const [accountScope, setAccountScope] = useState<AccountScope>("ALL");
+  const [mailboxMode, setMailboxMode] = useState<MailboxMode>(forcedMailboxMode ?? "INBOX");
   const [sortOrder, setSortOrder] = useState<MailboxSortOrder>("RECEIVED_DESC");
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
@@ -479,11 +483,12 @@ export function MailboxShell({
       JSON.stringify({
         context,
         viewId: view?.id ?? null,
-        scope: context === "inbox" ? accountScope : "VIEW_SCOPE",
+        scope: context === "view" ? "VIEW_SCOPE" : accountScope,
         filters: activeFiltersKey,
         forced: forcedFiltersKey,
         q: debouncedSearchQuery,
         sort: sortOrder,
+        mode: mailboxMode,
       }),
     [
       accountScope,
@@ -491,6 +496,7 @@ export function MailboxShell({
       context,
       debouncedSearchQuery,
       forcedFiltersKey,
+      mailboxMode,
       sortOrder,
       view?.id,
     ],
@@ -520,6 +526,14 @@ export function MailboxShell({
     }
     setActiveFilters(next);
   }, [forcedFiltersKey, forcedFilters]);
+
+  useEffect(() => {
+    if (forcedMailboxMode) {
+      setMailboxMode(forcedMailboxMode);
+      return;
+    }
+    setMailboxMode("INBOX");
+  }, [context, forcedMailboxMode, view?.id]);
 
   useEffect(() => {
     return () => {
@@ -672,6 +686,7 @@ export function MailboxShell({
                     allOpen: resolvedAllOpen,
                   },
                   sort: sortOrder,
+                  mode: mailboxMode,
                   pageSize: REQUEST_PAGE_SIZE,
                   cursor,
                 },
@@ -693,6 +708,7 @@ export function MailboxShell({
                     keywords: [],
                   },
                   sort: sortOrder,
+                  mode: mailboxMode,
                   pageSize: REQUEST_PAGE_SIZE,
                   cursor,
                 },
@@ -724,7 +740,7 @@ export function MailboxShell({
         }
       }
     },
-    [context, view, debouncedSearchQuery, activeFilters, accountScope, forcedFiltersKey, sortOrder],
+    [context, view, debouncedSearchQuery, activeFilters, accountScope, forcedFiltersKey, mailboxMode, sortOrder],
   );
 
   const refreshMailbox = useCallback(
@@ -761,7 +777,11 @@ export function MailboxShell({
   }, [fetchMailbox, mailboxQueryKey, refreshNonce]);
 
   useEffect(() => {
-    const mailboxKey = context === "inbox" ? "INBOX" : view?.id ? `VIEW:${view.id}` : null;
+    const mailboxKey = context === "inbox"
+      ? "INBOX"
+      : context === "view" && view?.id
+        ? `VIEW:${view.id}`
+        : null;
     if (!mailboxKey || isLoadingList) {
       return;
     }
@@ -1407,16 +1427,20 @@ export function MailboxShell({
     setActiveFilters(next);
     setSearchQuery("");
     setDebouncedSearchQuery("");
-    if (context === "inbox" && !hideScope) {
+    if (context !== "view" && !hideScope) {
       setAccountScope("ALL");
     }
   }, [context, forcedFilters, hideScope]);
 
-  const heading = titleOverride ?? (context === "view" ? `View: ${view?.name ?? "Missing"}` : "Inbox");
+  const heading = titleOverride ?? (
+    context === "view" ? `View: ${view?.name ?? "Missing"}` : context === "sent" ? "Sent" : "Inbox"
+  );
   const subtitle =
     subtitleOverride ??
     (context === "view"
       ? describeView(view)
+      : context === "sent"
+        ? "Unified sent mail across connected accounts."
       : "Everything is a mailbox: unified queue across accounts and contexts.");
   const isSearchLoading = isLoadingList && debouncedSearchQuery.length > 0;
 
@@ -1458,6 +1482,9 @@ export function MailboxShell({
         onAccountScopeChange={setAccountScope}
         onResetFilters={resetFilters}
         onSearchQueryChange={setSearchQuery}
+        mailboxMode={mailboxMode}
+        onMailboxModeChange={setMailboxMode}
+        mailboxModeLocked={forcedMailboxMode !== undefined}
         sortOrder={sortOrder}
         onSortOrderChange={setSortOrder}
         isSearchLoading={isSearchLoading}

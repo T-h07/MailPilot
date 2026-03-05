@@ -10,6 +10,7 @@ public record MailboxQueryRequest(
   String q,
   Filters filters,
   String sort,
+  String mode,
   @Min(value = 10, message = "pageSize must be between 10 and 200")
   @Max(value = 200, message = "pageSize must be between 10 and 200")
   Integer pageSize,

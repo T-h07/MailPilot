@@ -1,6 +1,7 @@
 import { fetchJson } from "@/lib/api/client";
 
 export type MailboxSortOrder = "RECEIVED_DESC" | "RECEIVED_ASC";
+export type MailboxMode = "INBOX" | "SENT";
 
 export type MailboxQueryRequest = {
   scope?: {
@@ -19,6 +20,7 @@ export type MailboxQueryRequest = {
     keywords?: string[];
   };
   sort: MailboxSortOrder;
+  mode: MailboxMode;
   pageSize: number;
   cursor: string | null;
 };
@@ -35,6 +37,7 @@ export type ViewMailboxQueryRequest = {
     allOpen?: boolean;
   };
   sort: MailboxSortOrder;
+  mode: MailboxMode;
   pageSize: number;
   cursor: string | null;
 };
@@ -75,6 +78,7 @@ export type MessageDetailResponse = {
   receivedAt: string;
   openInGmailUrl: string | null;
   isUnread: boolean;
+  isSent: boolean;
   body: {
     mime: string;
     content: string | null;

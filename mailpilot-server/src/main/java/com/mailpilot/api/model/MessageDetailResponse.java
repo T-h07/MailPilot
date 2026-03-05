@@ -15,6 +15,7 @@ public record MessageDetailResponse(
   String receivedAt,
   String openInGmailUrl,
   boolean isUnread,
+  boolean isSent,
   Body body,
   List<Attachment> attachments,
   Thread thread,

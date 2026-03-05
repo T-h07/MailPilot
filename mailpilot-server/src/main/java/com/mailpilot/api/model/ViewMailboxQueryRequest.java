@@ -7,6 +7,7 @@ public record ViewMailboxQueryRequest(
   String q,
   FiltersOverride filtersOverride,
   String sort,
+  String mode,
   Integer pageSize,
   String cursor
 ) {

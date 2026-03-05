@@ -49,6 +49,7 @@ public class ViewExecutionService {
       request.q(),
       filters,
       request.sort(),
+      request.mode(),
       request.pageSize(),
       request.cursor()
     );

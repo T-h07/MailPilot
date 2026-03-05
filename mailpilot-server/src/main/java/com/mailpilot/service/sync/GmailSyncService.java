@@ -483,9 +483,10 @@ public class GmailSyncService {
         snippet,
         received_at,
         is_read,
+        is_sent,
         has_attachments
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT (account_id, provider_message_id)
       DO UPDATE SET
         thread_id = EXCLUDED.thread_id,
@@ -497,6 +498,7 @@ public class GmailSyncService {
         snippet = EXCLUDED.snippet,
         received_at = EXCLUDED.received_at,
         is_read = EXCLUDED.is_read,
+        is_sent = EXCLUDED.is_sent,
         has_attachments = EXCLUDED.has_attachments
       RETURNING id, (xmax = 0) AS inserted
       """,
@@ -516,6 +518,7 @@ public class GmailSyncService {
       metadata.snippet(),
       metadata.receivedAt(),
       metadata.isRead(),
+      metadata.isSent(),
       metadata.hasAttachments()
     );
 
@@ -664,6 +667,7 @@ public class GmailSyncService {
 
     OffsetDateTime receivedAt = resolveReceivedAt(message.internalDate(), headers.get("date"));
     boolean isRead = message.labelIds() == null || !message.labelIds().contains("UNREAD");
+    boolean isSent = hasGmailLabel(message.labelIds(), "SENT");
     List<AttachmentMetadata> attachments = extractAttachments(message.payload());
 
     return new GmailMetadata(
@@ -677,6 +681,7 @@ public class GmailSyncService {
       messageRfc822Id,
       receivedAt,
       isRead,
+      isSent,
       !attachments.isEmpty(),
       attachments
     );
@@ -854,6 +859,19 @@ public class GmailSyncService {
     return trimmed.isEmpty() ? null : trimmed;
   }
 
+  private boolean hasGmailLabel(List<String> labelIds, String targetLabel) {
+    if (labelIds == null || labelIds.isEmpty() || !StringUtils.hasText(targetLabel)) {
+      return false;
+    }
+
+    for (String labelId : labelIds) {
+      if (targetLabel.equalsIgnoreCase(labelId)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   public record SyncResult(UUID accountId, String email, int upsertedMessages, int deletedMessages) {}
 
   private record SyncCounters(int upserted, int deleted, int processed, int total) {}
@@ -879,6 +897,7 @@ public class GmailSyncService {
     String messageRfc822Id,
     OffsetDateTime receivedAt,
     boolean isRead,
+    boolean isSent,
     boolean hasAttachments,
     List<AttachmentMetadata> attachments
   ) {}

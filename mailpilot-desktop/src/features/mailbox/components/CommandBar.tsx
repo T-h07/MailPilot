@@ -3,7 +3,7 @@ import { EllipsisVertical, Loader2, MessageSquarePlus, RefreshCw, Search, Settin
 import type { AccountScope, MailAccount, QuickFilterKey } from "@/features/mailbox/model/types";
 import { AccountScopeDropdown } from "@/features/mailbox/components/AccountScopeDropdown";
 import { FilterChips } from "@/features/mailbox/components/FilterChips";
-import type { MailboxSortOrder } from "@/lib/api/mailbox";
+import type { MailboxMode, MailboxSortOrder } from "@/lib/api/mailbox";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -21,6 +21,9 @@ type CommandBarProps = {
   onAccountScopeChange: (scope: AccountScope) => void;
   searchQuery: string;
   onSearchQueryChange: (nextValue: string) => void;
+  mailboxMode: MailboxMode;
+  onMailboxModeChange: (nextValue: MailboxMode) => void;
+  mailboxModeLocked?: boolean;
   sortOrder: MailboxSortOrder;
   onSortOrderChange: (nextValue: MailboxSortOrder) => void;
   isSearchLoading?: boolean;
@@ -40,6 +43,9 @@ export function CommandBar({
   onAccountScopeChange,
   searchQuery,
   onSearchQueryChange,
+  mailboxMode,
+  onMailboxModeChange,
+  mailboxModeLocked = false,
   sortOrder,
   onSortOrderChange,
   isSearchLoading = false,
@@ -88,6 +94,16 @@ export function CommandBar({
             <Loader2 className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
           )}
         </div>
+        <select
+          aria-label="Mailbox mode"
+          className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+          disabled={mailboxModeLocked}
+          onChange={(event) => onMailboxModeChange(event.target.value as MailboxMode)}
+          value={mailboxMode}
+        >
+          <option value="INBOX">Inbox</option>
+          <option value="SENT">Sent</option>
+        </select>
         <select
           aria-label="Sort order"
           className="h-9 rounded-md border border-input bg-background px-3 text-sm"

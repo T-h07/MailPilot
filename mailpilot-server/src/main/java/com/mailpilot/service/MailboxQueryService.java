@@ -46,6 +46,7 @@ public class MailboxQueryService {
   public MailboxQueryResponse query(MailboxQueryRequest request) {
     int pageSize = resolvePageSize(request.pageSize());
     SortDirection sortDirection = resolveSort(request.sort());
+    MailboxMode mailboxMode = resolveMode(request.mode());
     Cursor cursor = decodeCursor(request.cursor());
 
     MailboxQueryRequest.Filters filters = request.filters();
@@ -66,6 +67,12 @@ public class MailboxQueryService {
     if (!accountIds.isEmpty()) {
       fromWhere.append(" AND m.account_id IN (").append(placeholders(accountIds.size())).append(")");
       baseParams.addAll(accountIds);
+    }
+
+    if (mailboxMode == MailboxMode.SENT) {
+      fromWhere.append(" AND m.is_sent = true");
+    } else {
+      fromWhere.append(" AND m.is_sent = false");
     }
 
     boolean unreadOnly = filters != null && Boolean.TRUE.equals(filters.unreadOnly());
@@ -578,6 +585,15 @@ public class MailboxQueryService {
     };
   }
 
+  private MailboxMode resolveMode(String mode) {
+    String normalized = mode == null ? "INBOX" : mode.trim().toUpperCase(Locale.ROOT);
+    return switch (normalized) {
+      case "INBOX" -> MailboxMode.INBOX;
+      case "SENT" -> MailboxMode.SENT;
+      default -> throw new ApiBadRequestException("mode must be INBOX or SENT");
+    };
+  }
+
   private Cursor decodeCursor(String cursor) {
     if (cursor == null || cursor.isBlank()) {
       return null;
@@ -666,6 +682,11 @@ public class MailboxQueryService {
   private enum SortDirection {
     RECEIVED_DESC,
     RECEIVED_ASC,
+  }
+
+  private enum MailboxMode {
+    INBOX,
+    SENT,
   }
 
   private record Cursor(String mode, Double rank, OffsetDateTime receivedAt, UUID id) {}
