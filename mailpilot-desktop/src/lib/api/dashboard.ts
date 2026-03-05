@@ -7,6 +7,21 @@ export type DashboardSummary = {
   dueToday: number;
   snoozed: number;
   unreadBoss: number;
+  receivedLast24h: number;
+  receivedPrev24h: number;
+  receivedDeltaPct: number;
+  unreadDelta: number;
+  overdueDelta: number;
+  needsReplyDelta: number;
+  topDomainsUnread: Array<{ domain: string; count: number }>;
+  topSendersUnread: Array<{ email: string; count: number }>;
+  topDomainsReceived24h: Array<{ domain: string; count: number }>;
+  topSendersReceived24h: Array<{ email: string; count: number }>;
+  unreadByAccount: Array<{ accountId: string; email: string; count: number }>;
+  bossSenderDomains: string[];
+  bossSenderEmails: string[];
+  openFollowupsTotal: number;
+  snoozedWakingNext24h: number;
   lastUpdatedAt: string;
 };
 

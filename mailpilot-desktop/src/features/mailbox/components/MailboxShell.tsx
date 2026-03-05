@@ -38,11 +38,15 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
 type ForcedMailboxFilters = {
+  unreadOnly?: boolean;
   needsReply?: boolean;
   overdue?: boolean;
   dueToday?: boolean;
   snoozed?: boolean;
   allOpen?: boolean;
+  senderDomains?: string[];
+  senderEmails?: string[];
+  accountIds?: string[];
 };
 
 type MailboxShellProps = {
@@ -512,6 +516,9 @@ export function MailboxShell({
 
   useEffect(() => {
     const next = new Set<QuickFilterKey>();
+    if (forcedFilters?.unreadOnly) {
+      next.add("UNREAD");
+    }
     if (forcedFilters?.needsReply) {
       next.add("NEEDS_REPLY");
     }
@@ -526,6 +533,19 @@ export function MailboxShell({
     }
     setActiveFilters(next);
   }, [forcedFiltersKey, forcedFilters]);
+
+  useEffect(() => {
+    if (context === "view") {
+      return;
+    }
+    if (forcedFilters?.accountIds && forcedFilters.accountIds.length === 1) {
+      setAccountScope(forcedFilters.accountIds[0]);
+      return;
+    }
+    if (forcedFilters?.accountIds && forcedFilters.accountIds.length > 1) {
+      setAccountScope("ALL");
+    }
+  }, [context, forcedFiltersKey, forcedFilters]);
 
   useEffect(() => {
     if (forcedMailboxMode) {
@@ -665,11 +685,20 @@ export function MailboxShell({
       }
 
       try {
+        const forcedAccountIds = forcedFilters?.accountIds ?? [];
+        const resolvedAccountIds = forcedAccountIds.length > 0
+          ? forcedAccountIds
+          : accountScope === "ALL"
+            ? []
+            : [accountScope];
+        const resolvedUnreadOnly = forcedFilters?.unreadOnly ?? activeFilters.has("UNREAD");
         const resolvedNeedsReply = forcedFilters?.needsReply ?? activeFilters.has("NEEDS_REPLY");
         const resolvedOverdue = forcedFilters?.overdue ?? activeFilters.has("OVERDUE");
         const resolvedDueToday = forcedFilters?.dueToday ?? activeFilters.has("DUE_TODAY");
         const resolvedSnoozed = forcedFilters?.snoozed ?? activeFilters.has("SNOOZED");
         const resolvedAllOpen = forcedFilters?.allOpen ?? false;
+        const resolvedSenderDomains = forcedFilters?.senderDomains ?? [];
+        const resolvedSenderEmails = forcedFilters?.senderEmails ?? [];
 
         const response =
           context === "view" && view
@@ -678,7 +707,7 @@ export function MailboxShell({
                   viewId: view.id,
                   q: debouncedSearchQuery.length > 0 ? debouncedSearchQuery : null,
                   filtersOverride: {
-                    unreadOnly: activeFilters.has("UNREAD"),
+                    unreadOnly: resolvedUnreadOnly,
                     needsReply: resolvedNeedsReply,
                     overdue: resolvedOverdue,
                     dueToday: resolvedDueToday,
@@ -694,17 +723,17 @@ export function MailboxShell({
               )
             : await queryMailbox(
                 {
-                  scope: accountScope === "ALL" ? {} : { accountIds: [accountScope] },
+                  scope: resolvedAccountIds.length > 0 ? { accountIds: resolvedAccountIds } : {},
                   q: debouncedSearchQuery.length > 0 ? debouncedSearchQuery : null,
                   filters: {
-                    unreadOnly: activeFilters.has("UNREAD"),
+                    unreadOnly: resolvedUnreadOnly,
                     needsReply: resolvedNeedsReply,
                     overdue: resolvedOverdue,
                     dueToday: resolvedDueToday,
                     snoozed: resolvedSnoozed,
                     allOpen: resolvedAllOpen,
-                    senderDomains: [],
-                    senderEmails: [],
+                    senderDomains: resolvedSenderDomains,
+                    senderEmails: resolvedSenderEmails,
                     keywords: [],
                   },
                   sort: sortOrder,
@@ -1412,6 +1441,9 @@ export function MailboxShell({
 
   const resetFilters = useCallback(() => {
     const next = new Set<QuickFilterKey>();
+    if (forcedFilters?.unreadOnly) {
+      next.add("UNREAD");
+    }
     if (forcedFilters?.needsReply) {
       next.add("NEEDS_REPLY");
     }
@@ -1428,7 +1460,11 @@ export function MailboxShell({
     setSearchQuery("");
     setDebouncedSearchQuery("");
     if (context !== "view" && !hideScope) {
-      setAccountScope("ALL");
+      if (forcedFilters?.accountIds && forcedFilters.accountIds.length === 1) {
+        setAccountScope(forcedFilters.accountIds[0]);
+      } else {
+        setAccountScope("ALL");
+      }
     }
   }, [context, forcedFilters, hideScope]);
 

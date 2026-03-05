@@ -6,10 +6,26 @@ export type InsightsSummary = {
   range: InsightsRange;
   receivedCount: number;
   uniqueSenders: number;
+  comparison: {
+    receivedPreviousCount: number;
+    receivedDeltaPct: number;
+    uniqueSendersPreviousCount: number;
+    uniqueSendersDeltaPct: number;
+  };
   topDomains: Array<{ domain: string; count: number }>;
   topSenders: Array<{ email: string; count: number }>;
+  volumeByAccount: Array<{ accountId: string; email: string; count: number }>;
+  unreadNow: number;
+  unreadByDomain: Array<{ domain: string; count: number }>;
+  followupCountsNow: {
+    needsReply: number;
+    overdue: number;
+    dueToday: number;
+    snoozed: number;
+  };
   series: {
     volumePerDay: Array<{ date: string; count: number }>;
+    unreadPerDay: Array<{ date: string; count: number }>;
   };
 };
 
