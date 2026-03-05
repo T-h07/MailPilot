@@ -9,6 +9,7 @@ import com.mailpilot.service.PdfExportService;
 import com.mailpilot.service.PdfExportService.PdfDocument;
 import jakarta.validation.Valid;
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 import java.util.UUID;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
@@ -77,6 +78,22 @@ public class MessageController {
     if (value == null || value.isBlank()) {
       return "mailpilot-message-export.pdf";
     }
-    return value.replaceAll("[\\r\\n]+", " ").trim();
+    String sanitized = value
+      .replaceAll("[\\p{Cntrl}<>:\"/\\\\|?*]+", " ")
+      .replaceAll("\\s+", " ")
+      .trim();
+    if (sanitized.isBlank()) {
+      return "mailpilot-message-export.pdf";
+    }
+    if (!sanitized.toLowerCase(Locale.ROOT).endsWith(".pdf")) {
+      sanitized = sanitized + ".pdf";
+    }
+    if (sanitized.length() > 80) {
+      sanitized = sanitized.substring(0, 80).trim();
+      if (!sanitized.toLowerCase(Locale.ROOT).endsWith(".pdf")) {
+        sanitized = sanitized.replaceAll("\\.*$", "") + ".pdf";
+      }
+    }
+    return sanitized;
   }
 }

@@ -2,6 +2,8 @@ package com.mailpilot.api.error;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -13,6 +15,8 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+  private static final Logger LOGGER = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
   @ExceptionHandler(ApiBadRequestException.class)
   public ResponseEntity<Map<String, String>> handleBadRequest(ApiBadRequestException exception) {
@@ -27,6 +31,12 @@ public class GlobalExceptionHandler {
   @ExceptionHandler(ApiConflictException.class)
   public ResponseEntity<Map<String, String>> handleConflict(ApiConflictException exception) {
     return error(HttpStatus.CONFLICT, exception.getMessage());
+  }
+
+  @ExceptionHandler(ApiInternalException.class)
+  public ResponseEntity<Map<String, String>> handleInternal(ApiInternalException exception) {
+    LOGGER.error("Internal API error", exception);
+    return error(HttpStatus.INTERNAL_SERVER_ERROR, exception.getMessage());
   }
 
   @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -50,6 +60,7 @@ public class GlobalExceptionHandler {
 
   @ExceptionHandler(Exception.class)
   public ResponseEntity<Map<String, String>> handleUnhandled(Exception exception) {
+    LOGGER.error("Unhandled API error", exception);
     return error(HttpStatus.INTERNAL_SERVER_ERROR, "Internal server error");
   }
 

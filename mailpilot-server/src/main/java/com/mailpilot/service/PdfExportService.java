@@ -1,6 +1,7 @@
 package com.mailpilot.service;
 
 import com.mailpilot.api.error.ApiNotFoundException;
+import com.mailpilot.api.error.ApiInternalException;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.time.OffsetDateTime;
@@ -10,10 +11,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
 import org.apache.pdfbox.pdmodel.common.PDRectangle;
+import org.apache.pdfbox.pdmodel.font.PDFont;
 import org.apache.pdfbox.pdmodel.font.PDType1Font;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -22,12 +26,14 @@ import org.springframework.util.StringUtils;
 @Service
 public class PdfExportService {
 
+  private static final Logger LOGGER = LoggerFactory.getLogger(PdfExportService.class);
   private static final DateTimeFormatter FILE_TIMESTAMP_FORMATTER = DateTimeFormatter
-    .ofPattern("yyyyMMdd-HHmmss")
+    .ofPattern("yyyyMMdd-HHmm")
     .withZone(ZoneOffset.UTC);
   private static final DateTimeFormatter HUMAN_TIMESTAMP_FORMATTER = DateTimeFormatter
     .ofPattern("yyyy-MM-dd HH:mm:ss 'UTC'")
     .withZone(ZoneOffset.UTC);
+  private static final int MAX_FILENAME_LENGTH = 80;
 
   private final JdbcTemplate jdbcTemplate;
 
@@ -36,87 +42,92 @@ public class PdfExportService {
   }
 
   public PdfDocument exportMessage(UUID messageId) {
-    MessageExportRow message = loadMessage(messageId);
-    List<String> attachmentNames = loadAttachmentNames(message.id());
+    try {
+      MessageExportRow message = loadMessage(messageId);
+      List<String> attachmentNames = loadAttachmentNames(message.id());
 
-    List<String> lines = new ArrayList<>();
-    lines.add("MailPilot - Email Export");
-    lines.add(repeat("=", 64));
-    lines.add("Subject: " + message.subject());
-    lines.add("From: " + formatSender(message.senderName(), message.senderEmail()));
-    lines.add("Date: " + formatDate(message.receivedAt()));
-    lines.add("Account: " + message.accountEmail());
-    lines.add("");
-    lines.add("Body");
-    lines.add(repeat("-", 64));
-    if (StringUtils.hasText(message.bodyCache())) {
-      lines.add(message.bodyCache());
-    } else {
-      lines.add(message.snippet());
+      List<String> lines = new ArrayList<>();
+      lines.add("MailPilot - Email Export");
+      lines.add(repeat("=", 64));
+      lines.add("Subject: " + safeText(message.subject(), "No subject"));
+      lines.add("From: " + formatSender(message.senderName(), message.senderEmail()));
+      lines.add("Date: " + formatDate(message.receivedAt()));
+      lines.add("Account: " + safeText(message.accountEmail(), "Unknown account"));
       lines.add("");
-      lines.add("(Body not cached)");
-    }
-    lines.add("");
-    lines.add("Attachments");
-    lines.add(repeat("-", 64));
-    if (attachmentNames.isEmpty()) {
-      lines.add("(none)");
-    } else {
-      for (String attachmentName : attachmentNames) {
-        lines.add("- " + attachmentName);
+      lines.add("Body");
+      lines.add(repeat("-", 64));
+      appendBody(lines, message.bodyCache(), message.snippet());
+      lines.add("");
+      lines.add("Attachments");
+      lines.add(repeat("-", 64));
+      if (attachmentNames.isEmpty()) {
+        lines.add("(none)");
+      } else {
+        for (String attachmentName : attachmentNames) {
+          lines.add("- " + safeText(attachmentName, "unnamed-attachment"));
+        }
       }
-    }
 
-    byte[] pdfBytes = renderPdf(lines);
-    String filename = buildFilename("mailpilot-message", message.subject());
-    return new PdfDocument(filename, pdfBytes);
+      byte[] pdfBytes = renderPdf(lines);
+      if (pdfBytes.length == 0) {
+        throw new ApiInternalException("Failed to generate message PDF.");
+      }
+      return new PdfDocument(buildFilename("mailpilot-message"), pdfBytes);
+    } catch (ApiNotFoundException | ApiInternalException exception) {
+      throw exception;
+    } catch (RuntimeException exception) {
+      LOGGER.error("Failed to export message PDF: {}", messageId, exception);
+      throw new ApiInternalException("Failed to export message PDF.");
+    }
   }
 
   public PdfDocument exportThread(UUID threadId) {
-    ThreadExportRow thread = loadThread(threadId);
-    List<MessageExportRow> threadMessages = loadThreadMessages(threadId);
-    if (threadMessages.isEmpty()) {
-      throw new ApiNotFoundException("Thread has no messages");
-    }
-
-    List<String> lines = new ArrayList<>();
-    lines.add("MailPilot - Thread Export");
-    lines.add(repeat("=", 64));
-    lines.add("Thread Subject: " + thread.subject());
-    lines.add("Account: " + thread.accountEmail());
-    lines.add("Exported At: " + HUMAN_TIMESTAMP_FORMATTER.format(OffsetDateTime.now(ZoneOffset.UTC)));
-    lines.add("Message Count: " + threadMessages.size());
-    lines.add("");
-
-    String normalizedThreadSubject = normalizeSubject(thread.subject());
-    for (int index = 0; index < threadMessages.size(); index += 1) {
-      MessageExportRow message = threadMessages.get(index);
-      lines.add("Message " + (index + 1));
-      lines.add(repeat("-", 64));
-      lines.add("From: " + formatSender(message.senderName(), message.senderEmail()));
-      lines.add("Date: " + formatDate(message.receivedAt()));
-      if (!normalizeSubject(message.subject()).equals(normalizedThreadSubject)) {
-        lines.add("Subject: " + message.subject());
+    try {
+      ThreadExportRow thread = loadThread(threadId);
+      List<MessageExportRow> threadMessages = loadThreadMessages(threadId);
+      if (threadMessages.isEmpty()) {
+        throw new ApiNotFoundException("No messages in thread");
       }
+
+      List<String> lines = new ArrayList<>();
+      lines.add("MailPilot - Thread Export");
+      lines.add(repeat("=", 64));
+      lines.add("Thread Subject: " + safeText(thread.subject(), "No subject"));
+      lines.add("Account: " + safeText(thread.accountEmail(), "Unknown account"));
+      lines.add("Exported At: " + HUMAN_TIMESTAMP_FORMATTER.format(OffsetDateTime.now(ZoneOffset.UTC)));
+      lines.add("Message Count: " + threadMessages.size());
       lines.add("");
 
-      if (StringUtils.hasText(message.bodyCache())) {
-        lines.add(message.bodyCache());
-      } else {
-        lines.add(message.snippet());
+      String normalizedThreadSubject = normalizeSubject(thread.subject());
+      for (int index = 0; index < threadMessages.size(); index += 1) {
+        MessageExportRow message = threadMessages.get(index);
+        lines.add("Message " + (index + 1));
+        lines.add(repeat("-", 64));
+        lines.add("From: " + formatSender(message.senderName(), message.senderEmail()));
+        lines.add("Date: " + formatDate(message.receivedAt()));
+        if (!normalizeSubject(message.subject()).equals(normalizedThreadSubject)) {
+          lines.add("Subject: " + safeText(message.subject(), "No subject"));
+        }
         lines.add("");
-        lines.add("(Body not cached)");
-      }
-      lines.add("");
-      if (index < threadMessages.size() - 1) {
-        lines.add(repeat("=", 64));
+        appendBody(lines, message.bodyCache(), message.snippet());
         lines.add("");
+        if (index < threadMessages.size() - 1) {
+          lines.add(repeat("=", 64));
+          lines.add("");
+        }
       }
-    }
 
-    byte[] pdfBytes = renderPdf(lines);
-    String filename = buildFilename("mailpilot-thread", thread.subject());
-    return new PdfDocument(filename, pdfBytes);
+      byte[] pdfBytes = renderPdf(lines);
+      if (pdfBytes.length == 0) {
+        throw new ApiInternalException("Failed to generate thread PDF.");
+      }
+      return new PdfDocument(buildFilename("mailpilot-thread"), pdfBytes);
+    } catch (ApiNotFoundException | ApiInternalException exception) {
+      throw exception;
+    } catch (RuntimeException exception) {
+      LOGGER.error("Failed to export thread PDF: {}", threadId, exception);
+      throw new ApiInternalException("Failed to export thread PDF.");
+    }
   }
 
   private MessageExportRow loadMessage(UUID messageId) {
@@ -125,10 +136,10 @@ public class PdfExportService {
       SELECT
         m.id,
         m.thread_id,
-        a.email AS account_email,
-        COALESCE(m.sender_name, split_part(m.sender_email, '@', 1)) AS sender_name,
+        COALESCE(NULLIF(a.email, ''), 'Unknown account') AS account_email,
+        m.sender_name,
         m.sender_email,
-        COALESCE(m.subject, '(no subject)') AS subject,
+        m.subject,
         COALESCE(m.snippet, '') AS snippet,
         m.body_cache,
         m.received_at
@@ -157,8 +168,8 @@ public class PdfExportService {
       """
       SELECT
         t.id,
-        COALESCE(t.subject, '(no subject)') AS subject,
-        a.email AS account_email
+        t.subject,
+        COALESCE(NULLIF(a.email, ''), 'Unknown account') AS account_email
       FROM threads t
       JOIN accounts a ON a.id = t.account_id
       WHERE t.id = ?
@@ -179,10 +190,10 @@ public class PdfExportService {
       SELECT
         m.id,
         m.thread_id,
-        a.email AS account_email,
-        COALESCE(m.sender_name, split_part(m.sender_email, '@', 1)) AS sender_name,
+        COALESCE(NULLIF(a.email, ''), 'Unknown account') AS account_email,
+        m.sender_name,
         m.sender_email,
-        COALESCE(m.subject, '(no subject)') AS subject,
+        m.subject,
         COALESCE(m.snippet, '') AS snippet,
         m.body_cache,
         m.received_at
@@ -221,24 +232,38 @@ public class PdfExportService {
   }
 
   private byte[] renderPdf(List<String> lines) {
+    if (lines.isEmpty()) {
+      throw new ApiInternalException("Failed to generate PDF document.");
+    }
+
     try (PDDocument document = new PDDocument(); ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
       PdfTextWriter writer = new PdfTextWriter(document);
       for (String line : lines) {
-        writer.writeParagraph(line);
+        writer.writeParagraph(line, isHeading(line));
       }
       writer.finish();
       document.save(outputStream);
       return outputStream.toByteArray();
     } catch (IOException exception) {
-      throw new IllegalStateException("Failed to generate PDF export.", exception);
+      LOGGER.error("Failed to generate PDF export", exception);
+      throw new ApiInternalException("Failed to generate PDF document.");
     }
   }
 
   private String formatSender(String senderName, String senderEmail) {
-    if (StringUtils.hasText(senderName)) {
-      return senderName + " <" + senderEmail + ">";
+    String normalizedName = StringUtils.hasText(senderName) ? senderName.trim() : null;
+    String normalizedEmail = StringUtils.hasText(senderEmail) ? senderEmail.trim() : null;
+
+    if (normalizedName != null && normalizedEmail != null) {
+      return normalizedName + " <" + normalizedEmail + ">";
     }
-    return senderEmail;
+    if (normalizedEmail != null) {
+      return normalizedEmail;
+    }
+    if (normalizedName != null) {
+      return normalizedName;
+    }
+    return "Unknown sender";
   }
 
   private String formatDate(OffsetDateTime receivedAt) {
@@ -255,10 +280,15 @@ public class PdfExportService {
     return subject.trim().toLowerCase(Locale.ROOT);
   }
 
-  private String buildFilename(String prefix, String subject) {
-    String safeSubject = sanitizeFilenameComponent(subject, "untitled");
+  private String buildFilename(String prefix) {
     String timestamp = FILE_TIMESTAMP_FORMATTER.format(OffsetDateTime.now(ZoneOffset.UTC));
-    return prefix + "-" + timestamp + "-" + safeSubject + ".pdf";
+    String safePrefix = sanitizeFilenameComponent(prefix, "mailpilot-export");
+    String candidate = safePrefix + "-" + timestamp + ".pdf";
+    if (candidate.length() > MAX_FILENAME_LENGTH) {
+      String withoutExtension = candidate.substring(0, MAX_FILENAME_LENGTH - 4).replaceAll("[.\\s]+$", "");
+      return withoutExtension + ".pdf";
+    }
+    return candidate;
   }
 
   private String sanitizeFilenameComponent(String value, String fallback) {
@@ -275,7 +305,36 @@ public class PdfExportService {
     if (sanitized.isBlank()) {
       return fallback;
     }
-    return sanitized.length() > 60 ? sanitized.substring(0, 60) : sanitized;
+    return sanitized.length() > 40 ? sanitized.substring(0, 40) : sanitized;
+  }
+
+  private void appendBody(List<String> lines, String bodyCache, String snippet) {
+    if (StringUtils.hasText(bodyCache)) {
+      lines.add(bodyCache);
+      return;
+    }
+    if (StringUtils.hasText(snippet)) {
+      lines.add(snippet);
+      lines.add("");
+    }
+    lines.add("(Body not cached)");
+  }
+
+  private String safeText(String value, String fallback) {
+    if (!StringUtils.hasText(value)) {
+      return fallback;
+    }
+    return value.trim();
+  }
+
+  private boolean isHeading(String line) {
+    String normalized = line == null ? "" : line.trim();
+    return normalized.startsWith("MailPilot -")
+      || normalized.startsWith("Subject:")
+      || normalized.startsWith("Thread Subject:")
+      || normalized.equals("Body")
+      || normalized.equals("Attachments")
+      || normalized.startsWith("Message ");
   }
 
   private String repeat(String value, int count) {
@@ -304,6 +363,8 @@ public class PdfExportService {
     private static final float MARGIN = 48f;
     private static final float FONT_SIZE = 11f;
     private static final float LINE_HEIGHT = 14f;
+    private static final PDFont BODY_FONT = PDType1Font.HELVETICA;
+    private static final PDFont HEADING_FONT = PDType1Font.HELVETICA_BOLD;
 
     private final PDDocument document;
     private final float writableWidth;
@@ -316,33 +377,34 @@ public class PdfExportService {
       startNewPage();
     }
 
-    private void writeParagraph(String text) throws IOException {
+    private void writeParagraph(String text, boolean heading) throws IOException {
       String value = text == null ? "" : text;
+      PDFont font = heading ? HEADING_FONT : BODY_FONT;
       String[] logicalLines = value.replace("\r", "").split("\n", -1);
       for (String logicalLine : logicalLines) {
-        List<String> wrappedLines = wrapLine(sanitizeText(logicalLine));
+        List<String> wrappedLines = wrapLine(sanitizeText(logicalLine), font);
         if (wrappedLines.isEmpty()) {
-          writeLine("");
+          writeLine("", font);
           continue;
         }
         for (String wrapped : wrappedLines) {
-          writeLine(wrapped);
+          writeLine(wrapped, font);
         }
       }
-      writeLine("");
+      writeLine("", BODY_FONT);
     }
 
-    private void writeLine(String line) throws IOException {
+    private void writeLine(String line, PDFont font) throws IOException {
       ensureCapacity();
       contentStream.beginText();
-      contentStream.setFont(PDType1Font.COURIER, FONT_SIZE);
+      contentStream.setFont(font, FONT_SIZE);
       contentStream.newLineAtOffset(MARGIN, cursorY);
       contentStream.showText(line);
       contentStream.endText();
       cursorY -= LINE_HEIGHT;
     }
 
-    private List<String> wrapLine(String input) throws IOException {
+    private List<String> wrapLine(String input, PDFont font) throws IOException {
       List<String> lines = new ArrayList<>();
       if (input.isEmpty()) {
         lines.add("");
@@ -356,7 +418,7 @@ public class PdfExportService {
         }
 
         String candidate = currentLine.isEmpty() ? word : currentLine + " " + word;
-        if (stringWidth(candidate) <= writableWidth) {
+        if (stringWidth(candidate, font) <= writableWidth) {
           currentLine.setLength(0);
           currentLine.append(candidate);
           continue;
@@ -367,7 +429,7 @@ public class PdfExportService {
           currentLine.setLength(0);
         }
 
-        if (stringWidth(word) <= writableWidth) {
+        if (stringWidth(word, font) <= writableWidth) {
           currentLine.append(word);
           continue;
         }
@@ -376,7 +438,7 @@ public class PdfExportService {
         for (int index = 0; index < word.length(); index += 1) {
           char nextChar = word.charAt(index);
           String segmentCandidate = segment + String.valueOf(nextChar);
-          if (!segment.isEmpty() && stringWidth(segmentCandidate) > writableWidth) {
+          if (!segment.isEmpty() && stringWidth(segmentCandidate, font) > writableWidth) {
             lines.add(segment.toString());
             segment.setLength(0);
           }
@@ -392,8 +454,8 @@ public class PdfExportService {
       return lines;
     }
 
-    private float stringWidth(String value) throws IOException {
-      return (PDType1Font.COURIER.getStringWidth(value) / 1000f) * FONT_SIZE;
+    private float stringWidth(String value, PDFont font) throws IOException {
+      return (font.getStringWidth(value) / 1000f) * FONT_SIZE;
     }
 
     private String sanitizeText(String input) {
@@ -408,7 +470,7 @@ public class PdfExportService {
           builder.append("  ");
           continue;
         }
-        if (character < 32 || character > 255) {
+        if (character < 32 || character > 126) {
           builder.append('?');
           continue;
         }

@@ -262,10 +262,21 @@ function toErrorMessage(error: unknown): string {
     }
     return error.message;
   }
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "message" in error &&
+    typeof (error as { message?: unknown }).message === "string"
+  ) {
+    return ((error as { message: string }).message || "").trim();
+  }
+  if (typeof error === "string") {
+    return error;
+  }
   if (error instanceof Error) {
     return error.message;
   }
-  return "Unexpected API error";
+  return "Request failed. Check server logs.";
 }
 
 function describeView(view: ViewRecord | null): string {
@@ -322,6 +333,12 @@ function sanitizeFilename(value: string | null | undefined, fallback: string): s
 function ensurePdfFilename(value: string | null | undefined, fallback: string): string {
   const base = sanitizeFilename(value, fallback);
   return base.toLowerCase().endsWith(".pdf") ? base : `${base}.pdf`;
+}
+
+function leafFilename(pathValue: string): string {
+  const normalized = pathValue.replace(/\\/g, "/");
+  const parts = normalized.split("/");
+  return parts.length > 0 ? parts[parts.length - 1] : pathValue;
 }
 
 function sleep(durationMs: number) {
@@ -1086,10 +1103,11 @@ export function MailboxShell({
         filters: [{ name: "PDF", extensions: ["pdf"] }],
       });
       if (savedPath) {
-        showNotice(`PDF exported: ${savedPath}`);
+        showNotice(`Saved PDF: ${leafFilename(savedPath)}`);
       }
     } catch (error) {
-      showNotice(toErrorMessage(error) || "Failed to export message PDF");
+      const message = toErrorMessage(error);
+      showNotice(message ? `Export failed: ${message}` : "Export failed.");
     } finally {
       setIsExportingPdf(false);
     }
@@ -1114,10 +1132,11 @@ export function MailboxShell({
         filters: [{ name: "PDF", extensions: ["pdf"] }],
       });
       if (savedPath) {
-        showNotice(`Thread PDF exported: ${savedPath}`);
+        showNotice(`Saved PDF: ${leafFilename(savedPath)}`);
       }
     } catch (error) {
-      showNotice(toErrorMessage(error) || "Failed to export thread PDF");
+      const message = toErrorMessage(error);
+      showNotice(message ? `Export failed: ${message}` : "Export failed.");
     } finally {
       setIsExportingPdf(false);
     }

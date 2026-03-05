@@ -102,7 +102,7 @@ export async function fetchJson<T>(path: string, options: FetchJsonOptions = {})
   }
 }
 
-export async function fetchBinary(path: string, options: FetchJsonOptions = {}): Promise<BinaryResponse> {
+export async function downloadBinary(path: string, options: FetchJsonOptions = {}): Promise<BinaryResponse> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const timeoutController = new AbortController();
   const timeoutId = window.setTimeout(() => timeoutController.abort("timeout"), timeoutMs);
@@ -122,23 +122,22 @@ export async function fetchBinary(path: string, options: FetchJsonOptions = {}):
   }
 
   try {
+    const headers: Record<string, string> = {
+      Accept: "*/*",
+    };
+    if (options.body !== undefined) {
+      headers["Content-Type"] = "application/json";
+    }
+
     const response = await fetch(`${API_BASE}${path}`, {
       method: options.method ?? "GET",
-      headers: {
-        Accept: "*/*",
-      },
+      headers,
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
       signal: timeoutController.signal,
     });
 
     if (!response.ok) {
-      const contentType = response.headers.get("content-type") ?? "";
-      const isJson = contentType.includes("application/json");
-      const payload = isJson ? await response.json() : null;
-      const errorMessage =
-        payload && typeof payload.message === "string"
-          ? payload.message
-          : `Request failed with status ${response.status}`;
+      const errorMessage = await parseBinaryErrorMessage(response);
       throw new ApiClientError(errorMessage, response.status);
     }
 
@@ -165,6 +164,50 @@ export async function fetchBinary(path: string, options: FetchJsonOptions = {}):
   } finally {
     window.clearTimeout(timeoutId);
   }
+}
+
+export async function fetchBinary(path: string, options: FetchJsonOptions = {}): Promise<BinaryResponse> {
+  return downloadBinary(path, options);
+}
+
+async function parseBinaryErrorMessage(response: Response): Promise<string> {
+  const statusCode = response.status;
+  const fallbackMessage = `Request failed (HTTP ${statusCode}). Check server logs.`;
+
+  let rawBody = "";
+  try {
+    rawBody = await response.text();
+  } catch {
+    return fallbackMessage;
+  }
+
+  const trimmedBody = rawBody.trim();
+  if (!trimmedBody) {
+    return fallbackMessage;
+  }
+
+  try {
+    const parsed = JSON.parse(trimmedBody) as unknown;
+    if (parsed && typeof parsed === "object" && "message" in parsed) {
+      const message = (parsed as { message?: unknown }).message;
+      if (typeof message === "string" && message.trim().length > 0) {
+        return message.trim();
+      }
+    }
+  } catch {
+    // Ignore JSON parse errors and continue with plain text fallback.
+  }
+
+  const contentType = response.headers.get("content-type") ?? "";
+  const looksLikeHtml = trimmedBody.startsWith("<!DOCTYPE") || trimmedBody.startsWith("<html");
+  if (!looksLikeHtml || contentType.includes("text/plain")) {
+    if (trimmedBody.length > 240) {
+      return `${trimmedBody.slice(0, 237)}...`;
+    }
+    return trimmedBody;
+  }
+
+  return fallbackMessage;
 }
 
 function parseContentDispositionFilename(contentDisposition: string | null): string | null {
