@@ -44,5 +44,16 @@ public class LocalAuthRepository {
         algo);
   }
 
+  public void updatePasswordHash(String passwordHash, String algo) {
+    jdbcTemplate.update(
+        """
+      UPDATE local_auth
+      SET password_hash = ?, algo = ?, updated_at = now()
+      WHERE id = 1
+      """,
+        passwordHash,
+        algo);
+  }
+
   public record LocalAuthRow(String passwordHash, String algo) {}
 }

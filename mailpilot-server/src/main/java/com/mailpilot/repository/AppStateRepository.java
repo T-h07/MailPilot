@@ -16,13 +16,15 @@ public class AppStateRepository {
     ensureAppStateRow();
     return jdbcTemplate.queryForObject(
         """
-      SELECT onboarding_complete, locked
+      SELECT onboarding_complete, locked, onboarding_step
       FROM app_state
       WHERE id = 1
       """,
         (resultSet, rowNum) ->
             new AppStateRow(
-                resultSet.getBoolean("onboarding_complete"), resultSet.getBoolean("locked")));
+                resultSet.getBoolean("onboarding_complete"),
+                resultSet.getBoolean("locked"),
+                resultSet.getInt("onboarding_step")));
   }
 
   public UserProfileRow getUserProfile() {
@@ -51,6 +53,31 @@ public class AppStateRepository {
         locked);
   }
 
+  public void setOnboardingStep(int step) {
+    ensureAppStateRow();
+    jdbcTemplate.update(
+        """
+      UPDATE app_state
+      SET onboarding_step = ?, onboarding_updated_at = now(), updated_at = now()
+      WHERE id = 1
+      """,
+        step);
+  }
+
+  public void markOnboardingCompleted() {
+    ensureAppStateRow();
+    jdbcTemplate.update(
+        """
+      UPDATE app_state
+      SET onboarding_complete = true,
+          onboarding_step = 4,
+          onboarding_updated_at = now(),
+          updated_at = now(),
+          locked = false
+      WHERE id = 1
+      """);
+  }
+
   public void updateUserProfile(String firstName, String lastName, String fieldOfWork) {
     ensureUserProfileRow();
     jdbcTemplate.update(
@@ -67,8 +94,8 @@ public class AppStateRepository {
   private void ensureAppStateRow() {
     jdbcTemplate.update(
         """
-      INSERT INTO app_state (id, onboarding_complete, locked)
-      VALUES (1, false, false)
+      INSERT INTO app_state (id, onboarding_complete, locked, onboarding_step)
+      VALUES (1, false, false, 1)
       ON CONFLICT (id) DO NOTHING
       """);
   }
@@ -82,7 +109,7 @@ public class AppStateRepository {
       """);
   }
 
-  public record AppStateRow(boolean onboardingComplete, boolean locked) {}
+  public record AppStateRow(boolean onboardingComplete, boolean locked, int onboardingStep) {}
 
   public record UserProfileRow(String firstName, String lastName, String fieldOfWork) {}
 }

@@ -8,6 +8,7 @@ export type UserProfileRecord = {
 
 export type AppStateRecord = {
   onboardingComplete: boolean;
+  onboardingStep: number;
   locked: boolean;
   hasPassword: boolean;
   profile: UserProfileRecord | null;

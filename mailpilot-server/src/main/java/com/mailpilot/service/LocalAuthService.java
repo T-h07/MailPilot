@@ -14,7 +14,7 @@ import org.springframework.util.StringUtils;
 @Service
 public class LocalAuthService {
 
-  private static final int MIN_PASSWORD_LENGTH = 6;
+  private static final int MIN_PASSWORD_LENGTH = 8;
   private static final int MAX_PASSWORD_LENGTH = 128;
 
   private final LocalAuthRepository localAuthRepository;
@@ -30,12 +30,21 @@ public class LocalAuthService {
   }
 
   public void setPassword(String rawPassword) {
+    setPassword(rawPassword, false);
+  }
+
+  public void setPassword(String rawPassword, boolean allowOverwrite) {
     String normalizedPassword = normalizePassword(rawPassword);
+    String hash = passwordEncoder.encode(normalizedPassword);
+
     if (localAuthRepository.hasPassword()) {
-      throw new ApiConflictException("Password already set.");
+      if (!allowOverwrite) {
+        throw new ApiConflictException("Password already set.");
+      }
+      localAuthRepository.updatePasswordHash(hash, "bcrypt");
+      return;
     }
 
-    String hash = passwordEncoder.encode(normalizedPassword);
     localAuthRepository.insertPasswordHash(hash, "bcrypt");
   }
 
@@ -58,7 +67,7 @@ public class LocalAuthService {
 
     String normalized = rawPassword.trim();
     if (normalized.length() < MIN_PASSWORD_LENGTH || normalized.length() > MAX_PASSWORD_LENGTH) {
-      throw new ApiBadRequestException("Password must be between 6 and 128 characters.");
+      throw new ApiBadRequestException("Password must be between 8 and 128 characters.");
     }
     return normalized;
   }

@@ -431,6 +431,7 @@ type AppRouteGuardProps = {
 type OnboardingRouteProps = {
   appState: AppStateRecord | null;
   loggedIn: boolean;
+  onEnterInbox: () => Promise<void>;
 };
 
 type LoginRouteProps = {
@@ -682,20 +683,14 @@ function BootstrappingScreen({ error, onRetry }: { error: string | null; onRetry
   );
 }
 
-function OnboardingRoute({ appState, loggedIn }: OnboardingRouteProps) {
+function OnboardingRoute({ appState, loggedIn, onEnterInbox }: OnboardingRouteProps) {
   if (!appState) {
     return <BootstrappingScreen error={null} onRetry={() => undefined} />;
   }
   if (appState.onboardingComplete && appState.hasPassword) {
     return <Navigate replace to={loggedIn ? "/inbox" : "/login"} />;
   }
-  return (
-    <OnboardingPage
-      onStartSetup={() => {
-        window.alert("Onboarding wizard is coming in MP-PT17.");
-      }}
-    />
-  );
+  return <OnboardingPage appState={appState} onEnterInbox={onEnterInbox} />;
 }
 
 function LoginRoute({ appState, loggedIn, loginInFlight, loginError, onLogin }: LoginRouteProps) {
@@ -832,6 +827,11 @@ function App() {
     }
   }, [refreshAppState]);
 
+  const handleOnboardingEnterInbox = useCallback(async () => {
+    setLoggedIn(true);
+    await refreshAppState();
+  }, [refreshAppState]);
+
   const wildcardRedirect = useMemo(() => {
     if (!appState || !appState.onboardingComplete || !appState.hasPassword) {
       return "/onboarding";
@@ -857,7 +857,16 @@ function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route element={<OnboardingRoute appState={appState} loggedIn={loggedIn} />} path="/onboarding" />
+        <Route
+          element={
+            <OnboardingRoute
+              appState={appState}
+              loggedIn={loggedIn}
+              onEnterInbox={handleOnboardingEnterInbox}
+            />
+          }
+          path="/onboarding"
+        />
         <Route
           element={
             <LoginRoute

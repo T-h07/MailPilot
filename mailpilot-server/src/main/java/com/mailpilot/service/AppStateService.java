@@ -26,10 +26,27 @@ public class AppStateService {
 
     return new AppStateResponse(
         appState.onboardingComplete(),
+        appState.onboardingStep(),
         appState.locked(),
         localAuthService.hasPassword(),
         new AppStateResponse.Profile(
             profile.firstName(), profile.lastName(), profile.fieldOfWork()));
+  }
+
+  @Transactional(readOnly = true)
+  public AppStateRow getCurrentAppStateRow() {
+    return appStateRepository.getAppState();
+  }
+
+  @Transactional
+  public void setOnboardingStep(int step) {
+    int clampedStep = Math.max(1, Math.min(4, step));
+    appStateRepository.setOnboardingStep(clampedStep);
+  }
+
+  @Transactional
+  public void markOnboardingCompleted() {
+    appStateRepository.markOnboardingCompleted();
   }
 
   @Transactional
