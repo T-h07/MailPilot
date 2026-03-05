@@ -33,6 +33,9 @@ jobs:
       - name: Run tests
         run: ./mvnw -q test
 
+      - name: Fetch Spotless ratchet baseline
+        run: git fetch --no-tags --depth=1 origin +refs/heads/main:refs/remotes/origin/main
+
       - name: Spotless check
         run: ./mvnw -q spotless:check
 
