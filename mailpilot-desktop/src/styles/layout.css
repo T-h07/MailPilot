@@ -1,0 +1,6 @@
+.app-shell-main {
+  background-color: hsl(var(--background));
+  background-image:
+    radial-gradient(circle at 0% 0%, hsl(var(--accent) / 0.2) 0%, transparent 35%),
+    radial-gradient(circle at 100% 0%, hsl(var(--secondary) / 0.55) 0%, transparent 40%);
+}
