@@ -10,6 +10,8 @@ import {
 
 type MailActionsProps = {
   isUnread: boolean;
+  onRefreshMessage: () => void;
+  isRefreshingMessage?: boolean;
   onPrimaryAction: (action: "reply" | "reply-all" | "forward") => void;
   onToggleRead: () => void;
   onExportMessagePdf: () => void;
@@ -21,6 +23,8 @@ type MailActionsProps = {
 
 export function MailActions({
   isUnread,
+  onRefreshMessage,
+  isRefreshingMessage = false,
   onPrimaryAction,
   onToggleRead,
   onExportMessagePdf,
@@ -59,6 +63,10 @@ export function MailActions({
           align="end"
           className="z-[60] border-border bg-popover text-popover-foreground shadow-md"
         >
+          <DropdownMenuItem disabled={isRefreshingMessage} onClick={onRefreshMessage}>
+            {isRefreshingMessage ? "Refreshing..." : "Refresh message"}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
           <DropdownMenuItem onClick={onToggleRead}>
             {isUnread ? "Mark as read" : "Mark as unread"}
           </DropdownMenuItem>

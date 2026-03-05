@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { EllipsisVertical, Loader2, MessageSquarePlus, Search, Settings2 } from "lucide-react";
+import { EllipsisVertical, Loader2, MessageSquarePlus, RefreshCw, Search, Settings2 } from "lucide-react";
 import type { AccountScope, MailAccount, QuickFilterKey } from "@/features/mailbox/model/types";
 import { AccountScopeDropdown } from "@/features/mailbox/components/AccountScopeDropdown";
 import { FilterChips } from "@/features/mailbox/components/FilterChips";
@@ -29,6 +29,8 @@ type CommandBarProps = {
   onResetFilters: () => void;
   onSettingsShortcut: () => void;
   onCompose: () => void;
+  onRefresh: () => void;
+  isRefreshing?: boolean;
 };
 
 export function CommandBar({
@@ -46,6 +48,8 @@ export function CommandBar({
   onResetFilters,
   onSettingsShortcut,
   onCompose,
+  onRefresh,
+  isRefreshing = false,
 }: CommandBarProps) {
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -93,6 +97,16 @@ export function CommandBar({
           <option value="RECEIVED_DESC">Newest first</option>
           <option value="RECEIVED_ASC">Oldest first</option>
         </select>
+        <Button
+          className="gap-2"
+          disabled={isRefreshing}
+          onClick={onRefresh}
+          size="sm"
+          variant="outline"
+        >
+          {isRefreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+          Refresh
+        </Button>
         <Button className="gap-2" onClick={onCompose}>
           <MessageSquarePlus className="h-4 w-4" />
           Compose

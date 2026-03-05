@@ -18,6 +18,8 @@ import type { MessageFollowup } from "@/features/mailbox/model/types";
 type PreviewPanelProps = {
   selectedMessage: MailMessage | null;
   onSelectThreadMessage: (messageId: string) => void;
+  onRefreshMessage: () => void;
+  isRefreshingMessage?: boolean;
   onToggleRead: () => void;
   onLoadFullBody: () => void;
   isLoadingBody?: boolean;
@@ -61,6 +63,8 @@ export const PreviewPanel = forwardRef<HTMLDivElement, PreviewPanelProps>(
     {
       selectedMessage,
       onSelectThreadMessage,
+      onRefreshMessage,
+      isRefreshingMessage = false,
       onToggleRead,
       onLoadFullBody,
       isLoadingBody = false,
@@ -238,6 +242,8 @@ export const PreviewPanel = forwardRef<HTMLDivElement, PreviewPanelProps>(
               </div>
               <MailActions
                 isUnread={selectedMessage.isUnread}
+                onRefreshMessage={onRefreshMessage}
+                isRefreshingMessage={isRefreshingMessage}
                 onPrimaryAction={onComposeAction}
                 onExportMessagePdf={onExportMessagePdf}
                 onExportThreadPdf={onExportThreadPdf}
