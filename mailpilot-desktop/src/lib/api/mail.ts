@@ -1,4 +1,4 @@
-import { fetchFormJson } from "@/lib/api/client";
+import { fetchFormJson } from "@/api/client";
 
 export type MailSendMode = "NEW" | "REPLY" | "REPLY_ALL" | "FORWARD";
 
@@ -65,3 +65,4 @@ export async function sendMail(payload: SendMailRequest, signal?: AbortSignal): 
     signal,
   });
 }
+

@@ -9,7 +9,7 @@ import {
   type DraftSortOrder,
   type DraftSummary,
 } from "@/lib/api/drafts";
-import { ApiClientError } from "@/lib/api/client";
+import { ApiClientError } from "@/api/client";
 import { configCheck, getGmailOAuthStatus, startGmailOAuth } from "@/lib/api/oauth";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Badge } from "@/components/ui/badge";
@@ -425,3 +425,4 @@ function sleep(durationMs: number) {
     window.setTimeout(resolve, durationMs);
   });
 }
+

@@ -1,4 +1,4 @@
-import { fetchJson } from "@/lib/api/client";
+import { fetchJson } from "@/api/client";
 
 export type AccountRole = "PRIMARY" | "SECONDARY" | "CUSTOM";
 
@@ -39,3 +39,4 @@ export function updateAccountLabel(accountId: string, payload: AccountLabelUpdat
     body: payload,
   });
 }
+

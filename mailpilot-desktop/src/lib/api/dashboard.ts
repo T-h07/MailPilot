@@ -1,4 +1,4 @@
-import { fetchJson } from "@/lib/api/client";
+import { fetchJson } from "@/api/client";
 
 export type DashboardSummary = {
   unreadTotal: number;
@@ -37,3 +37,4 @@ export type DashboardSummary = {
 export function getDashboardSummary(signal?: AbortSignal) {
   return fetchJson<DashboardSummary>("/api/dashboard/summary", { signal });
 }
+

@@ -1,4 +1,4 @@
-import { fetchJson } from "@/lib/api/client";
+import { fetchJson } from "@/api/client";
 
 export type FocusQueueType = "NEEDS_REPLY" | "OVERDUE" | "DUE_TODAY" | "SNOOZED" | "ALL_OPEN";
 
@@ -53,3 +53,4 @@ export function getFocusQueue(
   }
   return fetchJson<FocusQueueResponse>(`/api/focus/queue?${params.toString()}`, { signal });
 }
+

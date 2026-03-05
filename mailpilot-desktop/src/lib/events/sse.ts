@@ -1,4 +1,4 @@
-import { API_BASE } from "@/lib/api/client";
+import { API_BASE } from "@/api/client";
 
 export type BadgeUpdateEvent = {
   inbox: number;
@@ -171,3 +171,4 @@ class MailPilotSseClient {
 }
 
 export const sseClient = new MailPilotSseClient(`${API_BASE}/api/events/stream`);
+

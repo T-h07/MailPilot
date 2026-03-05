@@ -1,4 +1,4 @@
-import { fetchJson } from "@/lib/api/client";
+import { fetchJson } from "@/api/client";
 
 export type SyncStartResponse = {
   status: string;
@@ -55,3 +55,4 @@ export function repairMessageMetadata(days = 30, signal?: AbortSignal) {
     signal,
   });
 }
+

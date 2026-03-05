@@ -1,4 +1,4 @@
-import { fetchJson } from "@/lib/api/client";
+import { fetchJson } from "@/api/client";
 
 export type InsightsRange = "2d" | "7d" | "14d" | "30d" | "6m";
 
@@ -34,3 +34,4 @@ export type InsightsSummary = {
 export function getInsightsSummary(range: InsightsRange, signal?: AbortSignal) {
   return fetchJson<InsightsSummary>(`/api/insights/summary?range=${encodeURIComponent(range)}`, { signal });
 }
+

@@ -1,4 +1,4 @@
-import { ApiClientError } from "@/lib/api/client";
+import { ApiClientError } from "@/api/client";
 
 export function toApiErrorMessage(error: unknown): string {
   if (error instanceof ApiClientError) {
@@ -9,3 +9,4 @@ export function toApiErrorMessage(error: unknown): string {
   }
   return "Request failed";
 }
+

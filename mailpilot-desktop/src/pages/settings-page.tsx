@@ -10,7 +10,7 @@ import {
   type AccountRecord,
   type AccountRole,
 } from "@/lib/api/accounts";
-import { ApiClientError, getApiHealth, resolveApiBase } from "@/lib/api/client";
+import { ApiClientError, getApiHealth, resolveApiBase } from "@/api/client";
 import { configCheck, getGmailOAuthStatus, startGmailOAuth } from "@/lib/api/oauth";
 import { repairMessageMetadata, runAccountSync, runAllAccountsSync } from "@/lib/api/sync";
 import { useLiveEvents } from "@/lib/events/live-events-context";
@@ -1339,3 +1339,4 @@ export function SettingsPage() {
     </section>
   );
 }
+

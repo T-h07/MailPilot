@@ -1,4 +1,4 @@
-import { fetchJson } from "@/lib/api/client";
+import { fetchJson } from "@/api/client";
 
 export type BadgeSummaryRecord = {
   inbox: number;
@@ -23,3 +23,4 @@ export function markViewOpened(viewId: string, signal?: AbortSignal) {
     signal,
   });
 }
+

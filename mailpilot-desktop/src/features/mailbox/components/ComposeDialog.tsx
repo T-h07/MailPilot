@@ -1,7 +1,7 @@
 import { Loader2, Paperclip, Send, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { readFile } from "@tauri-apps/plugin-fs";
-import { ApiClientError } from "@/lib/api/client";
+import { ApiClientError } from "@/api/client";
 import { sendMail, type MailSendMode, type SendMailResponse } from "@/lib/api/mail";
 import type { AccountRecord } from "@/lib/api/accounts";
 import {
@@ -630,3 +630,4 @@ function toErrorMessage(error: unknown): string {
 }
 
 export type { ComposeDraft };
+

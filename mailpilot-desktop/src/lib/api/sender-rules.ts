@@ -1,4 +1,4 @@
-import { fetchJson } from "@/lib/api/client";
+import { fetchJson } from "@/api/client";
 import type { AccentToken } from "@/features/mailbox/utils/accent";
 
 export type SenderRuleMatchType = "EMAIL" | "DOMAIN";
@@ -49,3 +49,4 @@ export function deleteSenderRule(ruleId: string, signal?: AbortSignal) {
     signal,
   });
 }
+

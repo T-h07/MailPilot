@@ -1,4 +1,4 @@
-import { fetchJson } from "@/lib/api/client";
+import { fetchJson } from "@/api/client";
 
 export type GmailOAuthConfigCheckResponse = {
   configured: boolean;
@@ -40,3 +40,4 @@ export function getGmailOAuthStatus(state: string, signal?: AbortSignal) {
     signal,
   });
 }
+

@@ -1,4 +1,4 @@
-import { fetchJson } from "@/lib/api/client";
+import { fetchJson } from "@/api/client";
 import type { AccentToken } from "@/features/mailbox/utils/accent";
 
 export type ViewScopeType = "ALL" | "SELECTED";
@@ -125,3 +125,4 @@ export function replaceMessageViewLabels(
     signal,
   });
 }
+

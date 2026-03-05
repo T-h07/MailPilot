@@ -3,7 +3,7 @@ import { useOutletContext } from "react-router-dom";
 import { Plus, Pencil, Copy, Trash2, RefreshCw } from "lucide-react";
 import type { AppOutletContext } from "@/App";
 import { cn } from "@/lib/utils";
-import { ApiClientError } from "@/lib/api/client";
+import { ApiClientError } from "@/api/client";
 import { listAccounts, type AccountRecord } from "@/lib/api/accounts";
 import {
   createViewLabel,
@@ -1109,3 +1109,4 @@ export function ViewsHubPage() {
     </section>
   );
 }
+

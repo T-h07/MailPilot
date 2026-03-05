@@ -40,7 +40,7 @@ import {
   type ViewRecord,
 } from "@/lib/api/views";
 import { listSenderRules } from "@/lib/api/sender-rules";
-import { ApiClientError } from "@/lib/api/client";
+import { ApiClientError } from "@/api/client";
 import { saveBinaryWithDialog } from "@/lib/files/save-binary";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -1921,3 +1921,4 @@ export function MailboxShell({
     </section>
   );
 }
+

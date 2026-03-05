@@ -55,7 +55,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { ApiClientError } from "@/lib/api/client";
+import { ApiClientError } from "@/api/client";
 import { listViews, type ViewRecord } from "@/lib/api/views";
 import { LiveEventsProvider, useLiveEvents } from "@/lib/events/live-events-context";
 
@@ -590,3 +590,4 @@ function App() {
 }
 
 export default App;
+

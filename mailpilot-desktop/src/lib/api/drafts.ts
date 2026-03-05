@@ -1,4 +1,4 @@
-import { fetchJson } from "@/lib/api/client";
+import { fetchJson } from "@/api/client";
 
 export type DraftSortOrder = "UPDATED_DESC" | "UPDATED_ASC";
 
@@ -92,3 +92,4 @@ export function deleteDraft(id: string, signal?: AbortSignal) {
     signal,
   });
 }
+

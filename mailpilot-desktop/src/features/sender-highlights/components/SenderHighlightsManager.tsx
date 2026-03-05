@@ -9,7 +9,7 @@ import {
   type SenderRuleRecord,
   type SenderRuleUpsertPayload,
 } from "@/lib/api/sender-rules";
-import { ApiClientError } from "@/lib/api/client";
+import { ApiClientError } from "@/api/client";
 import { ACCENT_TOKENS, getAccentClasses, type AccentToken } from "@/features/mailbox/utils/accent";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -375,3 +375,4 @@ export function SenderHighlightsManager() {
     </Card>
   );
 }
+
