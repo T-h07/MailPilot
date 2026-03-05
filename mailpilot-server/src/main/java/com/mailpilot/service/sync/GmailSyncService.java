@@ -3,12 +3,9 @@ package com.mailpilot.service.sync;
 import com.mailpilot.api.error.ApiBadRequestException;
 import com.mailpilot.service.BadgeService;
 import com.mailpilot.service.gmail.GmailClient;
-import com.mailpilot.service.gmail.GmailClient.GmailBody;
-import com.mailpilot.service.gmail.GmailClient.GmailHeader;
 import com.mailpilot.service.gmail.GmailClient.GmailHistoryExpiredException;
 import com.mailpilot.service.gmail.GmailClient.GmailMessageNotFoundException;
 import com.mailpilot.service.gmail.GmailClient.GmailMessageResponse;
-import com.mailpilot.service.gmail.GmailClient.GmailPayload;
 import com.mailpilot.service.gmail.GmailClient.GmailProfileResponse;
 import com.mailpilot.service.gmail.GmailClient.GmailUnauthorizedException;
 import com.mailpilot.service.gmail.GmailClient.HistoryListResponse;
@@ -19,10 +16,7 @@ import com.mailpilot.service.gmail.GmailClient.MessageRef;
 import com.mailpilot.service.logging.LogSanitizer;
 import com.mailpilot.service.oauth.TokenService;
 import com.mailpilot.service.events.AppEventBus;
-import java.time.Instant;
 import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -37,8 +31,6 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Function;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -54,12 +46,10 @@ public class GmailSyncService {
   private static final int GMAIL_LIST_PAGE_SIZE = 100;
 
   private static final Logger LOGGER = LoggerFactory.getLogger(GmailSyncService.class);
-  private static final Pattern ANGLE_BRACKET_EMAIL = Pattern.compile("<([^>]+)>");
-  private static final Pattern SIMPLE_EMAIL =
-    Pattern.compile("([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})");
 
   private final JdbcTemplate jdbcTemplate;
   private final GmailClient gmailClient;
+  private final GmailMessageMapper gmailMessageMapper;
   private final TokenService tokenService;
   private final BadgeService badgeService;
   private final AppEventBus appEventBus;
@@ -68,12 +58,14 @@ public class GmailSyncService {
   public GmailSyncService(
     JdbcTemplate jdbcTemplate,
     GmailClient gmailClient,
+    GmailMessageMapper gmailMessageMapper,
     TokenService tokenService,
     BadgeService badgeService,
     AppEventBus appEventBus
   ) {
     this.jdbcTemplate = jdbcTemplate;
     this.gmailClient = gmailClient;
+    this.gmailMessageMapper = gmailMessageMapper;
     this.tokenService = tokenService;
     this.badgeService = badgeService;
     this.appEventBus = appEventBus;
@@ -404,7 +396,7 @@ public class GmailSyncService {
         continue;
       }
 
-      GmailMetadata metadata = mapMessage(fetchedMessage.message());
+      GmailMessageMapper.GmailMetadata metadata = gmailMessageMapper.mapCoreFields(fetchedMessage.message());
       UpsertMessageResult upsertResult = upsertMessageMetadata(accountId, metadata, threadCache);
       upserted += 1;
       if (upsertResult.inserted()) {
@@ -459,7 +451,7 @@ public class GmailSyncService {
 
   private UpsertMessageResult upsertMessageMetadata(
     UUID accountId,
-    GmailMetadata metadata,
+    GmailMessageMapper.GmailMetadata metadata,
     Map<String, UUID> threadCache
   ) {
     UUID threadId = threadCache.computeIfAbsent(
@@ -570,13 +562,13 @@ public class GmailSyncService {
     return threadId;
   }
 
-  private void upsertAttachmentMetadata(UUID messageId, List<AttachmentMetadata> attachments) {
+  private void upsertAttachmentMetadata(UUID messageId, List<GmailMessageMapper.AttachmentMetadata> attachments) {
     if (attachments.isEmpty()) {
       jdbcTemplate.update("DELETE FROM attachments WHERE message_id = ?", messageId);
       return;
     }
 
-    for (AttachmentMetadata attachment : attachments) {
+    for (GmailMessageMapper.AttachmentMetadata attachment : attachments) {
       if (StringUtils.hasText(attachment.providerAttachmentId())) {
         int updatedRows = jdbcTemplate.update(
           """
@@ -664,49 +656,6 @@ public class GmailSyncService {
     );
   }
 
-  private GmailMetadata mapMessage(GmailMessageResponse message) {
-    String providerMessageId = requireText(message.id(), "Message id is missing from Gmail response");
-    String providerThreadId = StringUtils.hasText(message.threadId()) ? message.threadId() : providerMessageId;
-
-    Map<String, String> headers = extractHeaders(message.payload());
-    Sender sender = parseSender(headers.get("from"));
-
-    String subject = nullable(headers.get("subject"));
-    String messageRfc822Id = nullable(headers.get("message-id"));
-    String snippet = StringUtils.hasText(message.snippet()) ? message.snippet().trim() : "";
-
-    long internalDateMs = resolveInternalDateMillis(message.internalDate());
-    OffsetDateTime receivedAt = OffsetDateTime.ofInstant(Instant.ofEpochMilli(internalDateMs), ZoneOffset.UTC);
-    List<String> labelIds = normalizeGmailLabels(message.labelIds());
-    boolean isRead = !hasGmailLabel(labelIds, "UNREAD");
-    boolean hasSpam = hasGmailLabel(labelIds, "SPAM");
-    boolean hasTrash = hasGmailLabel(labelIds, "TRASH");
-    boolean isInbox = hasGmailLabel(labelIds, "INBOX") && !hasSpam && !hasTrash;
-    boolean isSent = hasGmailLabel(labelIds, "SENT");
-    boolean isDraft = hasGmailLabel(labelIds, "DRAFT");
-    List<AttachmentMetadata> attachments = extractAttachments(message.payload());
-
-    return new GmailMetadata(
-      providerMessageId,
-      providerThreadId,
-      sender.name(),
-      sender.email(),
-      sender.domain(),
-      subject,
-      snippet,
-      messageRfc822Id,
-      receivedAt,
-      internalDateMs,
-      labelIds,
-      isRead,
-      isInbox,
-      isSent,
-      isDraft,
-      !attachments.isEmpty(),
-      attachments
-    );
-  }
-
   public RepairResult repairMessageMetadata(int days) {
     int normalizedDays = normalizeRepairDays(days);
     List<AccountRow> gmailAccounts = loadAllGmailAccounts();
@@ -732,7 +681,7 @@ public class GmailSyncService {
             account.id(),
             (accessToken) -> gmailClient.getMessage(accessToken, providerMessageId)
           );
-          GmailMetadata metadata = mapMessage(message);
+          GmailMessageMapper.GmailMetadata metadata = gmailMessageMapper.mapCoreFields(message);
           upsertMessageMetadata(account.id(), metadata, threadCache);
           updated += 1;
         } catch (GmailMessageNotFoundException notFoundException) {
@@ -757,117 +706,6 @@ public class GmailSyncService {
       throw new ApiBadRequestException("days must be between 1 and 365");
     }
     return days;
-  }
-
-  private Map<String, String> extractHeaders(GmailPayload payload) {
-    Map<String, String> headers = new HashMap<>();
-    if (payload == null || payload.headers() == null) {
-      return headers;
-    }
-
-    for (GmailHeader header : payload.headers()) {
-      if (header == null || !StringUtils.hasText(header.name()) || !StringUtils.hasText(header.value())) {
-        continue;
-      }
-      headers.put(header.name().trim().toLowerCase(Locale.ROOT), header.value().trim());
-    }
-
-    return headers;
-  }
-
-  private Sender parseSender(String fromHeader) {
-    if (!StringUtils.hasText(fromHeader)) {
-      return new Sender("Unknown Sender", "unknown@unknown.invalid", "unknown.invalid");
-    }
-
-    String raw = fromHeader.trim();
-    String email = null;
-    String name = null;
-
-    Matcher angleMatcher = ANGLE_BRACKET_EMAIL.matcher(raw);
-    if (angleMatcher.find()) {
-      email = angleMatcher.group(1).trim();
-      name = raw.substring(0, angleMatcher.start()).replace("\"", "").trim();
-    } else {
-      Matcher simpleEmail = SIMPLE_EMAIL.matcher(raw);
-      if (simpleEmail.find()) {
-        email = simpleEmail.group(1).trim();
-        name = raw.replace(email, "").replace("\"", "").trim();
-      }
-    }
-
-    if (!StringUtils.hasText(email) || !email.contains("@")) {
-      email = "unknown@unknown.invalid";
-    }
-
-    if (!StringUtils.hasText(name)) {
-      String localPart = email.split("@")[0];
-      name = localPart.isBlank() ? "Unknown Sender" : localPart;
-    }
-
-    String[] parts = email.split("@", 2);
-    String domain = parts.length == 2 && StringUtils.hasText(parts[1])
-      ? parts[1].toLowerCase(Locale.ROOT)
-      : "unknown.invalid";
-
-    return new Sender(name, email.toLowerCase(Locale.ROOT), domain);
-  }
-
-  private long resolveInternalDateMillis(String internalDateMillis) {
-    if (StringUtils.hasText(internalDateMillis)) {
-      try {
-        return Long.parseLong(internalDateMillis);
-      } catch (NumberFormatException ignored) {}
-    }
-    return Instant.now().toEpochMilli();
-  }
-
-  private List<AttachmentMetadata> extractAttachments(GmailPayload rootPayload) {
-    if (rootPayload == null) {
-      return List.of();
-    }
-
-    List<AttachmentMetadata> attachments = new ArrayList<>();
-    collectAttachments(rootPayload, attachments);
-
-    if (attachments.isEmpty()) {
-      return List.of();
-    }
-
-    LinkedHashSet<AttachmentMetadata> deduped = new LinkedHashSet<>(attachments);
-    return List.copyOf(deduped);
-  }
-
-  private void collectAttachments(GmailPayload payload, List<AttachmentMetadata> attachments) {
-    if (payload == null) {
-      return;
-    }
-
-    GmailBody body = payload.body();
-    boolean hasAttachmentId = body != null && StringUtils.hasText(body.attachmentId());
-    boolean hasFilename = StringUtils.hasText(payload.filename());
-
-    if (hasAttachmentId || hasFilename) {
-      String filename = hasFilename ? payload.filename().trim() : "(unnamed)";
-      long sizeBytes = body != null && body.size() != null ? Math.max(body.size(), 0L) : 0L;
-      attachments.add(
-        new AttachmentMetadata(
-          filename,
-          nullable(payload.mimeType()),
-          sizeBytes,
-          hasAttachmentId ? body.attachmentId().trim() : null
-        )
-      );
-    }
-
-    List<GmailPayload> parts = payload.parts();
-    if (parts == null || parts.isEmpty()) {
-      return;
-    }
-
-    for (GmailPayload part : parts) {
-      collectAttachments(part, attachments);
-    }
   }
 
   private AccountRow loadAccount(UUID accountId) {
@@ -934,54 +772,11 @@ public class GmailSyncService {
     }
   }
 
-  private String requireText(String value, String message) {
-    if (!StringUtils.hasText(value)) {
-      throw new IllegalStateException(message);
-    }
-    return value.trim();
-  }
-
   private String normalize(String value) {
     if (!StringUtils.hasText(value)) {
       return "";
     }
     return value.trim().toLowerCase(Locale.ROOT);
-  }
-
-  private String nullable(String value) {
-    if (!StringUtils.hasText(value)) {
-      return null;
-    }
-    String trimmed = value.trim();
-    return trimmed.isEmpty() ? null : trimmed;
-  }
-
-  private boolean hasGmailLabel(List<String> labelIds, String targetLabel) {
-    if (labelIds == null || labelIds.isEmpty() || !StringUtils.hasText(targetLabel)) {
-      return false;
-    }
-
-    for (String labelId : labelIds) {
-      if (targetLabel.equalsIgnoreCase(labelId)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  private List<String> normalizeGmailLabels(List<String> labelIds) {
-    if (labelIds == null || labelIds.isEmpty()) {
-      return List.of();
-    }
-
-    LinkedHashSet<String> normalized = new LinkedHashSet<>();
-    for (String labelId : labelIds) {
-      if (!StringUtils.hasText(labelId)) {
-        continue;
-      }
-      normalized.add(labelId.trim().toUpperCase(Locale.ROOT));
-    }
-    return List.copyOf(normalized);
   }
 
   public record SyncResult(UUID accountId, String email, int upsertedMessages, int deletedMessages) {}
@@ -998,33 +793,6 @@ public class GmailSyncService {
 
   private record HistoryChanges(List<String> changedMessageIds, Set<String> deletedMessageIds) {}
 
-  private record GmailMetadata(
-    String providerMessageId,
-    String providerThreadId,
-    String senderName,
-    String senderEmail,
-    String senderDomain,
-    String subject,
-    String snippet,
-    String messageRfc822Id,
-    OffsetDateTime receivedAt,
-    long gmailInternalDateMs,
-    List<String> gmailLabelIds,
-    boolean isRead,
-    boolean isInbox,
-    boolean isSent,
-    boolean isDraft,
-    boolean hasAttachments,
-    List<AttachmentMetadata> attachments
-  ) {}
-
-  private record AttachmentMetadata(
-    String filename,
-    String mimeType,
-    long sizeBytes,
-    String providerAttachmentId
-  ) {}
-
   private record FetchedMessage(
     String providerMessageId,
     boolean notFound,
@@ -1034,6 +802,4 @@ public class GmailSyncService {
   private record UpsertMessageResult(UUID messageId, boolean inserted) {}
 
   public record RepairResult(String status, int updated, int skipped) {}
-
-  private record Sender(String name, String email, String domain) {}
 }
