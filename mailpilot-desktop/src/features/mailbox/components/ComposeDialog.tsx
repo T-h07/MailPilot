@@ -1,8 +1,15 @@
 import { Loader2, Paperclip, Send, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { readFile } from "@tauri-apps/plugin-fs";
 import { ApiClientError } from "@/lib/api/client";
 import { sendMail, type MailSendMode, type SendMailResponse } from "@/lib/api/mail";
 import type { AccountRecord } from "@/lib/api/accounts";
+import {
+  createDraft,
+  deleteDraft,
+  updateDraft,
+  type DraftAttachmentRef,
+} from "@/lib/api/drafts";
 import { pickFilesForUpload } from "@/lib/files/pick-files";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -18,6 +25,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 
 type ComposeDraft = {
+  draftId?: string | null;
   mode: MailSendMode;
   accountId: string;
   to: string;
@@ -26,13 +34,15 @@ type ComposeDraft = {
   subject: string;
   bodyText: string;
   replyToMessageDbId: string | null;
+  attachments?: DraftAttachmentRef[];
 };
 
 type DraftAttachment = {
   id: string;
   fileName: string;
+  path: string | null;
   mimeType: string | null;
-  bytes: Uint8Array;
+  bytes: Uint8Array | null;
   size: number;
 };
 
@@ -42,6 +52,7 @@ type ComposeDialogProps = {
   initialDraft: ComposeDraft;
   onOpenChange: (open: boolean) => void;
   onSendSuccess: (result: SendMailResponse) => void;
+  onDraftDeleted?: (draftId: string) => void;
   onRequestReauth: (accountId: string) => Promise<boolean>;
 };
 
@@ -68,6 +79,7 @@ export function ComposeDialog({
   initialDraft,
   onOpenChange,
   onSendSuccess,
+  onDraftDeleted,
   onRequestReauth,
 }: ComposeDialogProps) {
   const gmailAccounts = useMemo(
@@ -76,12 +88,18 @@ export function ComposeDialog({
   );
 
   const [accountId, setAccountId] = useState(initialDraft.accountId);
+  const [draftId, setDraftId] = useState<string | null>(initialDraft.draftId ?? null);
   const [to, setTo] = useState(initialDraft.to);
   const [cc, setCc] = useState(initialDraft.cc);
   const [bcc, setBcc] = useState(initialDraft.bcc);
   const [subject, setSubject] = useState(initialDraft.subject);
   const [bodyText, setBodyText] = useState(initialDraft.bodyText);
-  const [attachments, setAttachments] = useState<DraftAttachment[]>([]);
+  const [attachments, setAttachments] = useState<DraftAttachment[]>(() =>
+    toComposeAttachments(initialDraft.attachments),
+  );
+  const [hasDraftEdits, setHasDraftEdits] = useState(false);
+  const [isSavingDraft, setIsSavingDraft] = useState(false);
+  const [draftSaveStatus, setDraftSaveStatus] = useState<"idle" | "saved" | "error">("idle");
   const [isSending, setIsSending] = useState(false);
   const [isPickingAttachment, setIsPickingAttachment] = useState(false);
   const [isReauthing, setIsReauthing] = useState(false);
@@ -92,13 +110,17 @@ export function ComposeDialog({
     if (!open) {
       return;
     }
+    setDraftId(initialDraft.draftId ?? null);
     setAccountId(initialDraft.accountId);
     setTo(initialDraft.to);
     setCc(initialDraft.cc);
     setBcc(initialDraft.bcc);
     setSubject(initialDraft.subject);
     setBodyText(initialDraft.bodyText);
-    setAttachments([]);
+    setAttachments(toComposeAttachments(initialDraft.attachments));
+    setHasDraftEdits(false);
+    setIsSavingDraft(false);
+    setDraftSaveStatus(initialDraft.draftId ? "saved" : "idle");
     setIsSending(false);
     setIsPickingAttachment(false);
     setIsReauthing(false);
@@ -109,6 +131,11 @@ export function ComposeDialog({
   const selectedAccount = gmailAccounts.find((account) => account.id === accountId) ?? null;
   const canSend = selectedAccount?.canSend ?? false;
   const toRequired = isToRequired(initialDraft.mode);
+  const draftPersistenceEnabled = initialDraft.mode === "NEW";
+  const draftAttachments = useMemo(
+    () => attachments.map((attachment) => toDraftAttachmentRef(attachment)),
+    [attachments],
+  );
 
   const canSubmit = useMemo(() => {
     if (!accountId || !selectedAccount) {
@@ -126,6 +153,28 @@ export function ComposeDialog({
     return true;
   }, [accountId, canSend, initialDraft.mode, selectedAccount, subject, to, toRequired]);
 
+  const draftPayload = useMemo(() => ({
+    accountId,
+    to,
+    cc,
+    bcc,
+    subject,
+    bodyText,
+    bodyHtml: null,
+    attachments: draftAttachments,
+  }), [accountId, bcc, bodyText, cc, draftAttachments, subject, to]);
+
+  const hasMeaningfulDraftContent = useMemo(() => {
+    return (
+      to.trim().length > 0
+      || cc.trim().length > 0
+      || bcc.trim().length > 0
+      || subject.trim().length > 0
+      || bodyText.trim().length > 0
+      || draftAttachments.length > 0
+    );
+  }, [bcc, bodyText, cc, draftAttachments.length, subject, to]);
+
   const handleAddAttachment = async () => {
     setErrorMessage(null);
     setIsPickingAttachment(true);
@@ -139,11 +188,14 @@ export function ComposeDialog({
         ...pickedFiles.map((file) => ({
           id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
           fileName: file.fileName,
+          path: file.path,
           mimeType: file.mimeType,
           bytes: file.bytes,
           size: file.size,
         })),
       ]);
+      setHasDraftEdits(true);
+      setDraftSaveStatus("idle");
     } catch (error) {
       setErrorMessage(toErrorMessage(error));
     } finally {
@@ -153,6 +205,92 @@ export function ComposeDialog({
 
   const handleRemoveAttachment = (attachmentId: string) => {
     setAttachments((previous) => previous.filter((attachment) => attachment.id !== attachmentId));
+    setHasDraftEdits(true);
+    setDraftSaveStatus("idle");
+  };
+
+  useEffect(() => {
+    if (!open || !draftPersistenceEnabled || !hasDraftEdits || !accountId) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        if (!draftId && !hasMeaningfulDraftContent) {
+          return;
+        }
+
+        setIsSavingDraft(true);
+        try {
+          if (!draftId) {
+            const created = await createDraft(draftPayload);
+            setDraftId(created.id);
+          } else {
+            await updateDraft(draftId, draftPayload);
+          }
+          setDraftSaveStatus("saved");
+          setHasDraftEdits(false);
+        } catch {
+          setDraftSaveStatus("error");
+        } finally {
+          setIsSavingDraft(false);
+        }
+      })();
+    }, 800);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    accountId,
+    draftId,
+    draftPayload,
+    draftPersistenceEnabled,
+    hasDraftEdits,
+    hasMeaningfulDraftContent,
+    open,
+  ]);
+
+  const handleDiscardDraft = async () => {
+    if (!draftId) {
+      onOpenChange(false);
+      return;
+    }
+
+    const confirmed = window.confirm("Discard draft? This will permanently delete it.");
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      await deleteDraft(draftId);
+      onDraftDeleted?.(draftId);
+      onOpenChange(false);
+    } catch (error) {
+      setErrorMessage(toErrorMessage(error));
+    }
+  };
+
+  const resolveAttachmentPayloads = async () => {
+    const resolved: Array<{ fileName: string; mimeType: string | null; bytes: Uint8Array }> = [];
+    for (const attachment of attachments) {
+      if (attachment.bytes && attachment.bytes.length > 0) {
+        resolved.push({
+          fileName: attachment.fileName,
+          mimeType: attachment.mimeType,
+          bytes: attachment.bytes,
+        });
+        continue;
+      }
+      if (!attachment.path) {
+        throw new Error(`Attachment source missing for ${attachment.fileName}`);
+      }
+      const bytes = await readFile(attachment.path);
+      resolved.push({
+        fileName: attachment.fileName,
+        mimeType: attachment.mimeType,
+        bytes,
+      });
+    }
+    return resolved;
   };
 
   const handleSend = async () => {
@@ -174,6 +312,7 @@ export function ComposeDialog({
     setErrorMessage(null);
     setIsSending(true);
     try {
+      const outboundAttachments = await resolveAttachmentPayloads();
       const response = await sendMail({
         accountId: selectedAccount.id,
         to,
@@ -183,12 +322,16 @@ export function ComposeDialog({
         bodyText,
         mode: initialDraft.mode,
         replyToMessageDbId: initialDraft.replyToMessageDbId ?? undefined,
-        attachments: attachments.map((attachment) => ({
-          fileName: attachment.fileName,
-          mimeType: attachment.mimeType,
-          bytes: attachment.bytes,
-        })),
+        attachments: outboundAttachments,
       });
+      if (draftId) {
+        try {
+          await deleteDraft(draftId);
+          onDraftDeleted?.(draftId);
+        } catch {
+          // Send already succeeded; ignore local draft cleanup failure.
+        }
+      }
       onSendSuccess(response);
       onOpenChange(false);
     } catch (error) {
@@ -224,6 +367,17 @@ export function ComposeDialog({
           <DialogHeader>
             <DialogTitle>{getModeLabel(initialDraft.mode)}</DialogTitle>
             <DialogDescription>Send via Gmail API (MP-PT15).</DialogDescription>
+            {draftPersistenceEnabled && (
+              <p className="pt-1 text-xs text-muted-foreground">
+                {isSavingDraft
+                  ? "Saving draft..."
+                  : draftSaveStatus === "saved"
+                    ? "Saved"
+                    : draftSaveStatus === "error"
+                      ? "Draft save failed"
+                      : "Draft not saved yet"}
+              </p>
+            )}
           </DialogHeader>
 
           <div className="space-y-4">
@@ -232,7 +386,11 @@ export function ComposeDialog({
               <div className="space-y-2">
                 <select
                   className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                  onChange={(event) => setAccountId(event.target.value)}
+                  onChange={(event) => {
+                    setAccountId(event.target.value);
+                    setHasDraftEdits(true);
+                    setDraftSaveStatus("idle");
+                  }}
                   value={accountId}
                 >
                   {gmailAccounts.length === 0 && <option value="">No Gmail accounts</option>}
@@ -261,24 +419,56 @@ export function ComposeDialog({
               <label className="pt-2 text-xs font-medium text-muted-foreground">
                 To {toRequired ? "*" : "(optional)"}
               </label>
-              <Input onChange={(event) => setTo(event.target.value)} placeholder="alice@example.com, bob@example.com" value={to} />
+              <Input
+                onChange={(event) => {
+                  setTo(event.target.value);
+                  setHasDraftEdits(true);
+                  setDraftSaveStatus("idle");
+                }}
+                placeholder="alice@example.com, bob@example.com"
+                value={to}
+              />
             </div>
 
             <div className="grid gap-3 md:grid-cols-[200px_1fr]">
               <label className="pt-2 text-xs font-medium text-muted-foreground">Cc</label>
-              <Input onChange={(event) => setCc(event.target.value)} placeholder="optional" value={cc} />
+              <Input
+                onChange={(event) => {
+                  setCc(event.target.value);
+                  setHasDraftEdits(true);
+                  setDraftSaveStatus("idle");
+                }}
+                placeholder="optional"
+                value={cc}
+              />
             </div>
 
             <div className="grid gap-3 md:grid-cols-[200px_1fr]">
               <label className="pt-2 text-xs font-medium text-muted-foreground">Bcc</label>
-              <Input onChange={(event) => setBcc(event.target.value)} placeholder="optional" value={bcc} />
+              <Input
+                onChange={(event) => {
+                  setBcc(event.target.value);
+                  setHasDraftEdits(true);
+                  setDraftSaveStatus("idle");
+                }}
+                placeholder="optional"
+                value={bcc}
+              />
             </div>
 
             <div className="grid gap-3 md:grid-cols-[200px_1fr]">
               <label className="pt-2 text-xs font-medium text-muted-foreground">
                 Subject {initialDraft.mode === "NEW" ? "*" : "(optional)"}
               </label>
-              <Input onChange={(event) => setSubject(event.target.value)} placeholder="Subject" value={subject} />
+              <Input
+                onChange={(event) => {
+                  setSubject(event.target.value);
+                  setHasDraftEdits(true);
+                  setDraftSaveStatus("idle");
+                }}
+                placeholder="Subject"
+                value={subject}
+              />
             </div>
 
             <div className="grid gap-3 md:grid-cols-[200px_1fr]">
@@ -288,7 +478,11 @@ export function ComposeDialog({
                   "min-h-[180px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 )}
-                onChange={(event) => setBodyText(event.target.value)}
+                onChange={(event) => {
+                  setBodyText(event.target.value);
+                  setHasDraftEdits(true);
+                  setDraftSaveStatus("idle");
+                }}
                 value={bodyText}
               />
             </div>
@@ -346,6 +540,11 @@ export function ComposeDialog({
             <Button onClick={() => onOpenChange(false)} type="button" variant="outline">
               Cancel
             </Button>
+            {draftPersistenceEnabled && draftId && (
+              <Button onClick={() => void handleDiscardDraft()} type="button" variant="destructive">
+                Discard draft
+              </Button>
+            )}
             <Button
               className="gap-2"
               disabled={isSending || !canSubmit}
@@ -393,6 +592,31 @@ function formatBytes(value: number): string {
     return `${(value / 1024).toFixed(1)} KB`;
   }
   return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function toComposeAttachments(attachments: DraftAttachmentRef[] | undefined): DraftAttachment[] {
+  if (!attachments || attachments.length === 0) {
+    return [];
+  }
+  return attachments
+    .filter((attachment) => attachment.name && attachment.path)
+    .map((attachment) => ({
+      id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      fileName: attachment.name,
+      path: attachment.path,
+      mimeType: attachment.mime ?? null,
+      bytes: null,
+      size: attachment.sizeBytes ?? 0,
+    }));
+}
+
+function toDraftAttachmentRef(attachment: DraftAttachment): DraftAttachmentRef {
+  return {
+    name: attachment.fileName,
+    path: attachment.path ?? "",
+    sizeBytes: attachment.size,
+    mime: attachment.mimeType,
+  };
 }
 
 function toErrorMessage(error: unknown): string {

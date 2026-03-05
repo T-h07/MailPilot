@@ -13,6 +13,7 @@ import {
   BarChart3,
   ChevronDown,
   Cog,
+  FileText,
   Gauge,
   LayoutDashboard,
   Mailbox,
@@ -24,6 +25,7 @@ import {
 import { InboxPage } from "@/pages/inbox-page";
 import { DashboardPage } from "@/pages/dashboard-page";
 import { SentPage } from "@/pages/sent-page";
+import { DraftsPage } from "@/pages/drafts-page";
 import { FocusPage } from "@/pages/focus-page";
 import { FocusDrillPage } from "@/pages/focus-drill-page";
 import { ViewPage } from "@/pages/view-page";
@@ -97,6 +99,7 @@ const navItems: SidebarLink[] = [
   { label: "Dashboard", to: "/dashboard", icon: Gauge },
   { label: "Inbox", to: "/inbox", icon: Mailbox },
   { label: "Sent", to: "/sent", icon: Send },
+  { label: "Drafts", to: "/drafts", icon: FileText },
   { label: "Focus", to: "/focus", icon: Target },
   { label: "Insights", to: "/insights", icon: BarChart3 },
 ];
@@ -147,6 +150,8 @@ function resolveHeaderTitle(pathname: string, views: ViewRecord[]): string {
       return "Focus";
     case "/sent":
       return "Sent";
+    case "/drafts":
+      return "Drafts";
     case "/insights":
       return "Insights";
     case "/settings":
@@ -178,6 +183,9 @@ function isSidebarRouteActive(pathname: string, to: string): boolean {
   }
   if (to === "/sent") {
     return pathname === "/sent";
+  }
+  if (to === "/drafts") {
+    return pathname === "/drafts";
   }
   if (to === "/insights") {
     return pathname === "/insights";
@@ -566,6 +574,7 @@ function App() {
             <Route element={<DashboardPage />} path="dashboard" />
             <Route element={<InboxPage />} path="inbox" />
             <Route element={<SentPage />} path="sent" />
+            <Route element={<DraftsPage />} path="drafts" />
             <Route element={<FocusPage />} path="focus" />
             <Route element={<FocusDrillPage />} path="focus/drill/:type" />
             <Route element={<ViewsHubPage />} path="views/manage" />

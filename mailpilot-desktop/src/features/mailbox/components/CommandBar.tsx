@@ -26,6 +26,9 @@ type CommandBarProps = {
   mailboxModeLocked?: boolean;
   sortOrder: MailboxSortOrder;
   onSortOrderChange: (nextValue: MailboxSortOrder) => void;
+  labelFilterValue: string;
+  labelFilterOptions: Array<{ value: string; label: string }>;
+  onLabelFilterChange: (nextValue: string) => void;
   isSearchLoading?: boolean;
   activeFilters: Set<QuickFilterKey>;
   onToggleFilter: (filter: QuickFilterKey) => void;
@@ -48,6 +51,9 @@ export function CommandBar({
   mailboxModeLocked = false,
   sortOrder,
   onSortOrderChange,
+  labelFilterValue,
+  labelFilterOptions,
+  onLabelFilterChange,
   isSearchLoading = false,
   activeFilters,
   onToggleFilter,
@@ -86,7 +92,7 @@ export function CommandBar({
           <Input
             className="pl-9 pr-9"
             onChange={(event) => onSearchQueryChange(event.target.value)}
-            placeholder="Search sender, subject, snippet... use label:boss"
+            placeholder="Search sender, subject, snippet..."
             ref={searchInputRef}
             value={searchQuery}
           />
@@ -147,11 +153,28 @@ export function CommandBar({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-      <FilterChips
-        activeFilters={activeFilters}
-        onReset={onResetFilters}
-        onToggleFilter={onToggleFilter}
-      />
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <FilterChips
+          activeFilters={activeFilters}
+          onReset={onResetFilters}
+          onToggleFilter={onToggleFilter}
+        />
+        <div className="ml-auto flex items-center gap-2">
+          <span className="text-xs font-medium text-muted-foreground">Label</span>
+          <select
+            aria-label="Label filter"
+            className="h-9 min-w-[180px] rounded-md border border-input bg-background px-3 text-sm"
+            onChange={(event) => onLabelFilterChange(event.target.value)}
+            value={labelFilterValue}
+          >
+            {labelFilterOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
     </div>
   );
 }

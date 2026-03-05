@@ -39,6 +39,7 @@ import {
   type ViewLabelRecord,
   type ViewRecord,
 } from "@/lib/api/views";
+import { listSenderRules } from "@/lib/api/sender-rules";
 import { ApiClientError } from "@/lib/api/client";
 import { saveBinaryWithDialog } from "@/lib/files/save-binary";
 import { Badge } from "@/components/ui/badge";
@@ -77,6 +78,7 @@ const ACCOUNT_COLOR_TOKENS: AccountColorToken[] = ["sky", "emerald", "violet", "
 const REQUEST_PAGE_SIZE = 50;
 const OAUTH_POLL_INTERVAL_MS = 2000;
 const OAUTH_POLL_TIMEOUT_MS = 45000;
+const ALL_LABEL_FILTER_VALUE = "__ALL_LABELS__";
 
 function nameFromEmail(email: string): string {
   return email.split("@")[0].replace(/[._]/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
@@ -333,33 +335,6 @@ function summarizeViewRules(view: ViewRecord | null): string[] {
   return chips;
 }
 
-function parseSearchQuery(rawQuery: string): { text: string; labelNames: string[] } {
-  const normalizedInput = rawQuery.trim();
-  if (!normalizedInput) {
-    return { text: "", labelNames: [] };
-  }
-
-  const collectedLabels: string[] = [];
-  const labelTokenPattern = /(?:^|\s)(?:label:|#)(\"[^\"]+\"|'[^']+'|[^\s]+)/gi;
-  const textOnly = normalizedInput.replace(labelTokenPattern, (_match, rawLabelToken: string) => {
-    let label = rawLabelToken.trim();
-    if (
-      (label.startsWith("\"") && label.endsWith("\"")) ||
-      (label.startsWith("'") && label.endsWith("'"))
-    ) {
-      label = label.slice(1, -1).trim();
-    }
-    if (label.length > 0) {
-      collectedLabels.push(label.toLowerCase());
-    }
-    return " ";
-  });
-
-  const text = textOnly.replace(/\s+/g, " ").trim();
-  const dedupedLabels = Array.from(new Set(collectedLabels));
-  return { text, labelNames: dedupedLabels };
-}
-
 function toLabelChips(records: ViewLabelRecord[]): MailViewLabelChip[] {
   return records.map((record) => ({
     id: record.id,
@@ -508,9 +483,11 @@ export function MailboxShell({
   const [activeAttachmentDownloadId, setActiveAttachmentDownloadId] = useState<string | null>(null);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [viewLabelOptions, setViewLabelOptions] = useState<ViewLabelRecord[]>([]);
+  const [senderRuleLabelOptions, setSenderRuleLabelOptions] = useState<string[]>([]);
   const [selectedViewLabels, setSelectedViewLabels] = useState<MailViewLabelChip[]>([]);
   const [isLoadingViewLabels, setIsLoadingViewLabels] = useState(false);
   const [isSavingViewLabels, setIsSavingViewLabels] = useState(false);
+  const [selectedLabelFilter, setSelectedLabelFilter] = useState(ALL_LABEL_FILTER_VALUE);
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeDraft, setComposeDraft] = useState<ComposeDraft>({
     mode: "NEW",
@@ -526,10 +503,50 @@ export function MailboxShell({
   const accountLookup = useMemo(() => {
     return new Map(accounts.map((account) => [account.id, account]));
   }, [accounts]);
+  const hideScope = hideAccountScope || context === "view";
+  const isViewContext = context === "view" && Boolean(view);
 
-  const parsedSearch = useMemo(
-    () => parseSearchQuery(debouncedSearchQuery),
-    [debouncedSearchQuery],
+  const labelFilterOptions = useMemo(() => {
+    const labelMap = new Map<string, string>();
+    for (const senderRuleLabel of senderRuleLabelOptions) {
+      const normalized = senderRuleLabel.trim();
+      if (normalized.length === 0) {
+        continue;
+      }
+      const key = normalized.toLowerCase();
+      if (!labelMap.has(key)) {
+        labelMap.set(key, normalized);
+      }
+    }
+    if (isViewContext) {
+      for (const viewLabel of viewLabelOptions) {
+        const normalized = viewLabel.name.trim();
+        if (normalized.length === 0) {
+          continue;
+        }
+        const key = normalized.toLowerCase();
+        if (!labelMap.has(key)) {
+          labelMap.set(key, normalized);
+        }
+      }
+    }
+
+    const sortedLabels = Array.from(labelMap.values()).sort((left, right) =>
+      left.localeCompare(right, undefined, { sensitivity: "base" }),
+    );
+
+    return [
+      { value: ALL_LABEL_FILTER_VALUE, label: "All labels" },
+      ...sortedLabels.map((label) => ({ value: label, label })),
+    ];
+  }, [isViewContext, senderRuleLabelOptions, viewLabelOptions]);
+
+  const selectedLabelNames = useMemo(
+    () =>
+      selectedLabelFilter === ALL_LABEL_FILTER_VALUE
+        ? []
+        : [selectedLabelFilter],
+    [selectedLabelFilter],
   );
 
   const activeFiltersKey = useMemo(() => Array.from(activeFilters).sort().join("|"), [activeFilters]);
@@ -546,6 +563,7 @@ export function MailboxShell({
         filters: activeFiltersKey,
         forced: forcedFiltersKey,
         q: debouncedSearchQuery,
+        labelFilter: selectedLabelFilter,
         sort: sortOrder,
         mode: mailboxMode,
       }),
@@ -555,13 +573,12 @@ export function MailboxShell({
       context,
       debouncedSearchQuery,
       forcedFiltersKey,
+      selectedLabelFilter,
       mailboxMode,
       sortOrder,
       view?.id,
     ],
   );
-  const hideScope = hideAccountScope || context === "view";
-  const isViewContext = context === "view" && Boolean(view);
   const selectedViewLabelIds = useMemo(
     () => selectedViewLabels.map((label) => label.id),
     [selectedViewLabels],
@@ -655,6 +672,39 @@ export function MailboxShell({
     });
     return () => controller.abort();
   }, [loadAccountRecords]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void listSenderRules(controller.signal)
+      .then((rules) => {
+        const nextLabels = Array.from(
+          new Set(
+            rules
+              .map((rule) => rule.label.trim())
+              .filter((label) => label.length > 0),
+          ),
+        ).sort((left, right) => left.localeCompare(right, undefined, { sensitivity: "base" }));
+        setSenderRuleLabelOptions(nextLabels);
+      })
+      .catch(() => {
+        // Label filter remains available for view labels even if sender rules are unavailable.
+      });
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    setSelectedLabelFilter(ALL_LABEL_FILTER_VALUE);
+  }, [context, view?.id]);
+
+  useEffect(() => {
+    if (selectedLabelFilter === ALL_LABEL_FILTER_VALUE) {
+      return;
+    }
+    const exists = labelFilterOptions.some((option) => option.value === selectedLabelFilter);
+    if (!exists) {
+      setSelectedLabelFilter(ALL_LABEL_FILTER_VALUE);
+    }
+  }, [labelFilterOptions, selectedLabelFilter]);
 
   useEffect(() => {
     viewLabelsAbortRef.current?.abort();
@@ -785,14 +835,14 @@ export function MailboxShell({
         const resolvedAllOpen = forcedFilters?.allOpen ?? false;
         const resolvedSenderDomains = forcedFilters?.senderDomains ?? [];
         const resolvedSenderEmails = forcedFilters?.senderEmails ?? [];
-        const resolvedLabelNames = parsedSearch.labelNames;
+        const resolvedLabelNames = selectedLabelNames;
 
         const response =
           context === "view" && view
-            ? await queryMailboxView(
+              ? await queryMailboxView(
                 {
                   viewId: view.id,
-                  q: parsedSearch.text.length > 0 ? parsedSearch.text : null,
+                  q: debouncedSearchQuery.length > 0 ? debouncedSearchQuery : null,
                   filtersOverride: {
                     unreadOnly: resolvedUnreadOnly,
                     needsReply: resolvedNeedsReply,
@@ -812,7 +862,7 @@ export function MailboxShell({
             : await queryMailbox(
                 {
                   scope: resolvedAccountIds.length > 0 ? { accountIds: resolvedAccountIds } : {},
-                  q: parsedSearch.text.length > 0 ? parsedSearch.text : null,
+                  q: debouncedSearchQuery.length > 0 ? debouncedSearchQuery : null,
                   filters: {
                     unreadOnly: resolvedUnreadOnly,
                     needsReply: resolvedNeedsReply,
@@ -858,7 +908,17 @@ export function MailboxShell({
         }
       }
     },
-    [context, view, parsedSearch, activeFilters, accountScope, forcedFiltersKey, mailboxMode, sortOrder],
+    [
+      context,
+      view,
+      activeFilters,
+      accountScope,
+      forcedFiltersKey,
+      mailboxMode,
+      sortOrder,
+      selectedLabelNames,
+      debouncedSearchQuery,
+    ],
   );
 
   const refreshMailbox = useCallback(
@@ -1645,6 +1705,7 @@ export function MailboxShell({
     setActiveFilters(next);
     setSearchQuery("");
     setDebouncedSearchQuery("");
+    setSelectedLabelFilter(ALL_LABEL_FILTER_VALUE);
     if (context !== "view" && !hideScope) {
       if (forcedFilters?.accountIds && forcedFilters.accountIds.length === 1) {
         setAccountScope(forcedFilters.accountIds[0]);
@@ -1709,6 +1770,9 @@ export function MailboxShell({
         mailboxModeLocked={forcedMailboxMode !== undefined}
         sortOrder={sortOrder}
         onSortOrderChange={setSortOrder}
+        labelFilterValue={selectedLabelFilter}
+        labelFilterOptions={labelFilterOptions}
+        onLabelFilterChange={setSelectedLabelFilter}
         isSearchLoading={isSearchLoading}
         onSettingsShortcut={() => navigate("/settings")}
         onToggleFilter={toggleQuickFilter}
