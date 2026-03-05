@@ -149,11 +149,27 @@ function resolveHeaderTitle(pathname: string, views: ViewRecord[]): string {
 
 function linkClassName(active: boolean): string {
   return cn(
-    "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+    "flex w-full flex-row items-center justify-start gap-2 rounded-lg border border-transparent px-3 py-2.5 text-sm font-medium transition-colors",
     active
-      ? "bg-primary text-primary-foreground shadow-sm"
+      ? "border-border bg-accent text-foreground shadow-sm"
       : "text-muted-foreground hover:bg-muted hover:text-foreground",
   );
+}
+
+function isSidebarRouteActive(pathname: string, to: string): boolean {
+  if (to === "/focus") {
+    return pathname === "/focus" || pathname.startsWith("/focus/");
+  }
+  if (to === "/inbox") {
+    return pathname === "/inbox";
+  }
+  if (to === "/insights") {
+    return pathname === "/insights";
+  }
+  if (to === "/settings") {
+    return pathname === "/settings";
+  }
+  return pathname === to;
 }
 
 function Sidebar({
@@ -178,14 +194,14 @@ function Sidebar({
 
   return (
     <div className="flex h-full flex-col">
-      <div className="border-b px-4 py-5">
+      <div className="flex h-16 items-center border-b border-border px-4">
         <div className="flex items-center gap-2">
           <div className="rounded-lg bg-primary/15 p-2 text-primary">
-            <Sparkles className="h-4 w-4" />
+            <Sparkles className="h-[18px] w-[18px]" />
           </div>
           <div>
             <p className="text-base font-semibold leading-none">MailPilot</p>
-            <p className="pt-1 text-xs text-muted-foreground">Inbox Cockpit</p>
+            <p className="pt-0.5 text-xs text-muted-foreground">Inbox Cockpit</p>
           </div>
         </div>
       </div>
@@ -197,11 +213,11 @@ function Sidebar({
               <Tooltip key={item.to}>
                 <TooltipTrigger asChild>
                   <NavLink
-                    className={({ isActive }) => linkClassName(isActive)}
+                    className={linkClassName(isSidebarRouteActive(location.pathname, item.to))}
                     onClick={onNavigate}
                     to={item.to}
                   >
-                    <item.icon className="h-4 w-4" />
+                    <item.icon className="h-[18px] w-[18px] shrink-0" />
                     <span>{item.label}</span>
                     {item.to === "/inbox" && inboxBadgeCount > 0 && (
                       <Badge className="ml-auto rounded-full px-2 py-0 text-[10px]" variant="secondary">
@@ -217,14 +233,11 @@ function Sidebar({
             <Collapsible onOpenChange={setViewsOpen} open={viewsOpen}>
               <CollapsibleTrigger asChild>
                 <Button
-                  className={cn(
-                    "w-full justify-between px-3 text-muted-foreground hover:text-foreground",
-                    onViewRoute && "bg-muted text-foreground",
-                  )}
+                  className="w-full justify-between px-3 text-muted-foreground hover:bg-muted hover:text-foreground"
                   variant="ghost"
                 >
-                  <span className="flex items-center gap-3">
-                    <LayoutDashboard className="h-4 w-4" />
+                  <span className="flex items-center gap-2">
+                    <LayoutDashboard className="h-[18px] w-[18px] shrink-0" />
                     Views
                     {viewsTotalBadgeCount > 0 && (
                       <Badge className="rounded-full px-2 py-0 text-[10px]" variant="secondary">
@@ -266,9 +279,9 @@ function Sidebar({
                   <NavLink
                     className={({ isActive }) =>
                       cn(
-                        "ml-7 flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm transition-colors",
+                        "ml-7 flex items-center justify-between gap-2 rounded-lg border border-transparent px-3 py-2 text-sm transition-colors",
                         isActive
-                          ? "bg-primary/10 text-primary"
+                          ? "border-border bg-accent text-foreground"
                           : "text-muted-foreground hover:bg-muted hover:text-foreground",
                       )
                     }
@@ -293,16 +306,16 @@ function Sidebar({
                 <NavLink
                   className={({ isActive }) =>
                     cn(
-                      "ml-7 flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors",
+                      "ml-7 flex items-center gap-2 rounded-lg border border-transparent px-3 py-2 text-sm transition-colors",
                       isActive
-                        ? "bg-primary/10 text-primary"
+                        ? "border-border bg-accent text-foreground"
                         : "text-muted-foreground hover:bg-muted hover:text-foreground",
                     )
                   }
                   onClick={onNavigate}
                   to="/views/manage"
                 >
-                  <Cog className="h-3.5 w-3.5" />
+                  <Cog className="h-[18px] w-[18px] shrink-0" />
                   Manage Views
                 </NavLink>
               </CollapsibleContent>
@@ -312,11 +325,11 @@ function Sidebar({
       </ScrollArea>
       <div className="border-t p-3">
         <NavLink
-          className={({ isActive }) => linkClassName(isActive)}
+          className={linkClassName(isSidebarRouteActive(location.pathname, settingsItem.to))}
           onClick={onNavigate}
           to={settingsItem.to}
         >
-          <settingsItem.icon className="h-4 w-4" />
+          <settingsItem.icon className="h-[18px] w-[18px] shrink-0" />
           <span>{settingsItem.label}</span>
         </NavLink>
       </div>

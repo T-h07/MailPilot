@@ -19,6 +19,20 @@
   overflow: hidden;
 }
 
+.mailbox-row-subject {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+  overflow: hidden;
+}
+
+.mailbox-row-snippet {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
 .mailbox-thread-snippet {
   display: -webkit-box;
   -webkit-box-orient: vertical;

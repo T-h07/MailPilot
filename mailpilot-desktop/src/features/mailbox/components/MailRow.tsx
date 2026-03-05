@@ -14,6 +14,13 @@ type MailRowProps = {
   onSelect: (messageId: string) => void;
 };
 
+type FollowupChip = {
+  key: string;
+  label: string;
+  className?: string;
+  variant?: "default" | "secondary" | "destructive" | "outline";
+};
+
 function MailRowComponent({ message, isSelected, onSelect, searchQuery }: MailRowProps) {
   const subjectSegments = useMemo(
     () => highlightText(message.subject, searchQuery),
@@ -28,11 +35,30 @@ function MailRowComponent({ message, isSelected, onSelect, searchQuery }: MailRo
 
   const visibleTags = message.tags.slice(0, 2);
   const overflowTagCount = Math.max(message.tags.length - visibleTags.length, 0);
+  const followupChips: FollowupChip[] = [];
+  if (message.flags.needsReply) {
+    followupChips.push({ key: "needs-reply", label: "NeedsReply", className: "", variant: "secondary" });
+  }
+  if (message.flags.overdue) {
+    followupChips.push({ key: "overdue", label: "Overdue", className: "bg-red-600 text-white hover:bg-red-600/90" });
+  }
+  if (message.flags.dueToday) {
+    followupChips.push({
+      key: "due-today",
+      label: "DueToday",
+      className: "bg-amber-500 text-amber-950 hover:bg-amber-500/90",
+    });
+  }
+  if (message.flags.snoozed) {
+    followupChips.push({ key: "snoozed", label: "Snoozed", className: "bg-slate-500 text-white hover:bg-slate-500/90" });
+  }
+  const visibleFollowupChips = followupChips.slice(0, 3);
+  const overflowFollowupChipCount = Math.max(followupChips.length - visibleFollowupChips.length, 0);
 
   return (
     <button
       className={cn(
-        "relative w-full overflow-hidden rounded-lg border bg-background p-3 text-left transition-colors",
+        "relative h-[116px] w-full overflow-hidden rounded-lg border bg-background p-3 text-left transition-colors",
         isSelected
           ? "border-primary/50 bg-accent ring-1 ring-primary/20 shadow-sm"
           : "border-border hover:bg-accent",
@@ -68,7 +94,7 @@ function MailRowComponent({ message, isSelected, onSelect, searchQuery }: MailRo
               <Paperclip className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             )}
           </div>
-          <p className="mailbox-snippet pt-1 text-sm font-semibold text-foreground">
+          <p className="mailbox-row-subject pt-1 text-sm font-semibold text-foreground">
             {subjectSegments.map((segment, index) => (
               <span
                 className={segment.highlighted ? "mailbox-row-highlight" : undefined}
@@ -81,7 +107,7 @@ function MailRowComponent({ message, isSelected, onSelect, searchQuery }: MailRo
         </div>
         <div className="shrink-0 text-xs text-muted-foreground">{timeLabel}</div>
       </div>
-      <p className="mailbox-snippet pt-1 text-xs text-muted-foreground">
+      <p className="mailbox-row-snippet pt-1 text-xs text-muted-foreground">
         {snippetSegments.map((segment, index) => (
           <span
             className={segment.highlighted ? "mailbox-row-highlight" : undefined}
@@ -91,40 +117,36 @@ function MailRowComponent({ message, isSelected, onSelect, searchQuery }: MailRo
           </span>
         ))}
       </p>
-      <div className="flex flex-wrap items-center gap-1.5 pt-2">
-        <Badge className={cn("border text-[10px]", accountPillClasses(message.accountColorToken))}>
+      <div className="flex items-center gap-1.5 overflow-hidden whitespace-nowrap pt-2">
+        <Badge className={cn("shrink-0 border text-[10px]", accountPillClasses(message.accountColorToken))}>
           {message.accountLabel}
         </Badge>
         {message.highlight && (
-          <Badge className={cn("border text-[10px] uppercase", highlightAccent?.badge)} variant="outline">
+          <Badge className={cn("shrink-0 border text-[10px] uppercase", highlightAccent?.badge)} variant="outline">
             {message.highlight.label}
           </Badge>
         )}
-        {message.flags.needsReply && (
-          <Badge className="text-[10px]" variant="secondary">
-            NeedsReply
+        {visibleFollowupChips.map((chip) => (
+          <Badge
+            className={cn("shrink-0 text-[10px]", chip.className)}
+            key={`${message.id}-${chip.key}`}
+            variant={chip.variant}
+          >
+            {chip.label}
           </Badge>
-        )}
-        {message.flags.overdue && (
-          <Badge className="bg-red-600 text-[10px] text-white hover:bg-red-600/90">Overdue</Badge>
-        )}
-        {message.flags.dueToday && (
-          <Badge className="bg-amber-500 text-[10px] text-amber-950 hover:bg-amber-500/90">
-            DueToday
-          </Badge>
-        )}
-        {message.flags.snoozed && (
-          <Badge className="bg-slate-500 text-[10px] text-white hover:bg-slate-500/90">
-            Snoozed
+        ))}
+        {overflowFollowupChipCount > 0 && (
+          <Badge className="shrink-0 text-[10px]" variant="outline">
+            +{overflowFollowupChipCount}
           </Badge>
         )}
         {visibleTags.map((tag) => (
-          <Badge className="text-[10px]" key={`${message.id}-tag-${tag}`} variant="outline">
+          <Badge className="shrink-0 text-[10px]" key={`${message.id}-tag-${tag}`} variant="outline">
             #{tag}
           </Badge>
         ))}
         {overflowTagCount > 0 && (
-          <Badge className="text-[10px]" variant="outline">
+          <Badge className="shrink-0 text-[10px]" variant="outline">
             +{overflowTagCount}
           </Badge>
         )}

@@ -11,6 +11,8 @@ type MailListProps = {
   onFocusPreview: () => void;
 };
 
+const ROW_HEIGHT_PX = 124;
+
 export function MailList({
   messages,
   selectedMessageId,
@@ -27,7 +29,7 @@ export function MailList({
 
   const rowVirtualizer = useVirtualizer({
     count: messages.length,
-    estimateSize: () => 124,
+    estimateSize: () => ROW_HEIGHT_PX,
     getScrollElement: () => parentRef.current,
     overscan: 12,
   });
@@ -89,8 +91,8 @@ export function MailList({
             <div
               key={virtualItem.key}
               style={{
+                height: `${virtualItem.size}px`,
                 left: 0,
-                paddingBottom: "0.5rem",
                 position: "absolute",
                 top: 0,
                 transform: `translateY(${virtualItem.start}px)`,
