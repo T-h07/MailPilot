@@ -1,9 +1,11 @@
 package com.mailpilot.api.error;
 
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -37,6 +39,20 @@ public class GlobalExceptionHandler {
   public ResponseEntity<Map<String, String>> handleInternal(ApiInternalException exception) {
     LOGGER.error("Internal API error", exception);
     return error(HttpStatus.INTERNAL_SERVER_ERROR, exception.getMessage());
+  }
+
+  @ExceptionHandler(DataAccessException.class)
+  public ResponseEntity<Map<String, String>> handleDataAccess(DataAccessException exception) {
+    LOGGER.error("Database API error", exception);
+    String message = "Internal server error";
+    String details = exception.getMostSpecificCause() == null
+      ? exception.getMessage()
+      : exception.getMostSpecificCause().getMessage();
+    String normalized = details == null ? "" : details.toLowerCase(Locale.ROOT);
+    if (normalized.contains("view_labels") || normalized.contains("message_view_labels")) {
+      message = "View labels storage is unavailable. Restart the backend so latest migrations can run.";
+    }
+    return error(HttpStatus.INTERNAL_SERVER_ERROR, message);
   }
 
   @ExceptionHandler(MethodArgumentNotValidException.class)
