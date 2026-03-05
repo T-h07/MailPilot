@@ -1,0 +1,82 @@
+@layer components {
+  .mailbox-panel {
+    @apply rounded-xl border border-border bg-card shadow-sm;
+  }
+
+  .mailbox-empty-state {
+    @apply rounded-xl border border-border bg-card;
+  }
+}
+
+.mailbox-grid {
+  grid-template-columns: minmax(330px, 44%) minmax(420px, 56%);
+}
+
+.mailbox-snippet {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+  overflow: hidden;
+}
+
+.mailbox-row-subject {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+  overflow: hidden;
+}
+
+.mailbox-row-snippet {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.mailbox-thread-snippet {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.mailbox-row-highlight {
+  background: hsl(var(--accent) / 0.48);
+  border-radius: 0.2rem;
+  padding: 0 0.1rem;
+}
+
+.mailbox-toast {
+  animation: mailbox-toast-in 180ms ease-out;
+}
+
+.mailbox-chip-scroll {
+  scrollbar-width: thin;
+}
+
+.mailbox-chip-scroll::-webkit-scrollbar {
+  height: 6px;
+}
+
+.mailbox-chip-scroll::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 9999px;
+}
+
+@keyframes mailbox-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 1260px) {
+  .mailbox-grid {
+    grid-template-columns: 1fr;
+  }
+}

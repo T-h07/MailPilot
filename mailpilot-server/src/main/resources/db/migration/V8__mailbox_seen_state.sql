@@ -1,0 +1,4 @@
+CREATE TABLE IF NOT EXISTS mailbox_seen (
+  key TEXT PRIMARY KEY,
+  last_opened_at TIMESTAMPTZ NOT NULL
+);
