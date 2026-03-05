@@ -87,6 +87,7 @@ npm run build
 - Smoke test sync, export, and account actions
 - Tag release with SemVer (`vX.Y.Z`)
 - See [docs/release-checklist.md](docs/release-checklist.md)
+- Versioning reference: [docs/versioning.md](docs/versioning.md)
 
 ## Secrets and Local Files
 
@@ -163,4 +164,3 @@ Docker issues:
 Details:
 
 - [docs/dependency-discipline.md](docs/dependency-discipline.md)
-
