@@ -316,3 +316,18 @@ Set `MAILPILOT_HOOK_FAST=1` to run a lighter check set:
 - backend: `spotless:check`
 
 Without fast mode, the hooks run frontend build and backend tests.
+
+## Dependency drift check
+
+Before committing, run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\check-clean.ps1
+```
+
+This detects accidental changes to:
+
+- `mailpilot-desktop/package-lock.json`
+- `mailpilot-desktop/src-tauri/Cargo.toml`
+
+Detailed policy: [`docs/dependency-discipline.md`](docs/dependency-discipline.md)
