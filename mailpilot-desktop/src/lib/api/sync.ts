@@ -24,6 +24,12 @@ export type SyncStatusRecord = {
   lastRunStartedAt: string | null;
 };
 
+export type MessageRepairResponse = {
+  status: string;
+  updated: number;
+  skipped: number;
+};
+
 export function runAccountSync(accountId: string, maxMessages = 500, signal?: AbortSignal) {
   const encodedAccountId = encodeURIComponent(accountId);
   return fetchJson<SyncStartResponse>(`/api/sync/gmail/${encodedAccountId}/run?maxMessages=${maxMessages}`, {
@@ -41,4 +47,11 @@ export function runAllAccountsSync(maxMessages = 500, signal?: AbortSignal) {
 
 export function getSyncStatus(signal?: AbortSignal) {
   return fetchJson<SyncStatusRecord[]>("/api/sync/status", { signal });
+}
+
+export function repairMessageMetadata(days = 30, signal?: AbortSignal) {
+  return fetchJson<MessageRepairResponse>(`/api/dev/repair/messages?days=${days}`, {
+    method: "POST",
+    signal,
+  });
 }

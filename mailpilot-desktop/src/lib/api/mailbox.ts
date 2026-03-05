@@ -1,7 +1,7 @@
 import { fetchJson } from "@/lib/api/client";
 
 export type MailboxSortOrder = "RECEIVED_DESC" | "RECEIVED_ASC";
-export type MailboxMode = "INBOX" | "SENT";
+export type MailboxMode = "INBOX" | "SENT" | "DRAFT";
 
 export type ViewLabelChip = {
   id: string;

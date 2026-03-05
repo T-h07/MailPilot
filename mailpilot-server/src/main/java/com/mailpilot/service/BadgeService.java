@@ -178,7 +178,15 @@ public class BadgeService {
 
   private int countInboxSince(OffsetDateTime seenAt) {
     Integer count = jdbcTemplate.queryForObject(
-      "SELECT COUNT(*) FROM messages WHERE created_at > ?",
+      """
+      SELECT COUNT(*)
+      FROM messages
+      WHERE created_at > ?
+        AND is_inbox = true
+        AND is_sent = false
+        AND is_draft = false
+        AND NOT ('SPAM' = ANY(gmail_label_ids) OR 'TRASH' = ANY(gmail_label_ids))
+      """,
       Integer.class,
       seenAt
     );

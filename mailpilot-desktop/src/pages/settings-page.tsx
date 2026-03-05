@@ -12,7 +12,7 @@ import {
 } from "@/lib/api/accounts";
 import { ApiClientError, getApiHealth, resolveApiBase } from "@/lib/api/client";
 import { configCheck, getGmailOAuthStatus, startGmailOAuth } from "@/lib/api/oauth";
-import { runAccountSync, runAllAccountsSync } from "@/lib/api/sync";
+import { repairMessageMetadata, runAccountSync, runAllAccountsSync } from "@/lib/api/sync";
 import { useLiveEvents } from "@/lib/events/live-events-context";
 import {
   createSenderRule,
@@ -221,6 +221,7 @@ export function SettingsPage() {
   const { themeMode, setThemeMode } = useOutletContext<AppOutletContext>();
   const { refreshSyncStatus, sseConnected, syncByAccountId } = useLiveEvents();
   const showSenderHighlightsInSettings = false;
+  const isDevMode = import.meta.env.DEV;
   const nextTheme = themeMode === "dark" ? "light" : "dark";
   const modeLabel = themeMode === "dark" ? "Dark" : "Light";
   const nextThemeLabel = nextTheme === "dark" ? "Dark" : "Light";
@@ -245,6 +246,7 @@ export function SettingsPage() {
   const [syncError, setSyncError] = useState<string | null>(null);
   const [isSyncingAll, setIsSyncingAll] = useState(false);
   const [syncingAccountId, setSyncingAccountId] = useState<string | null>(null);
+  const [isRepairingMetadata, setIsRepairingMetadata] = useState(false);
   const [labelDraftByAccountId, setLabelDraftByAccountId] = useState<Record<string, AccountLabelDraft>>({});
   const [labelSaveErrorByAccountId, setLabelSaveErrorByAccountId] = useState<Record<string, string>>({});
   const [savingLabelByAccountId, setSavingLabelByAccountId] = useState<Record<string, boolean>>({});
@@ -566,6 +568,21 @@ export function SettingsPage() {
     }
   };
 
+  const handleRepairMetadata = async () => {
+    setSyncError(null);
+    setIsRepairingMetadata(true);
+    try {
+      const response = await repairMessageMetadata(30);
+      showNotice(`Repair finished: updated ${response.updated}, skipped ${response.skipped}`);
+      await refreshSyncStatus();
+      await loadAccounts();
+    } catch (error) {
+      setSyncError(toErrorMessage(error));
+    } finally {
+      setIsRepairingMetadata(false);
+    }
+  };
+
   const persistAccountLabel = useCallback(
     async (accountId: string, draft: AccountLabelDraft) => {
       const normalizedCustomLabel = draft.role === "CUSTOM" ? draft.customLabel.trim() : null;
@@ -834,6 +851,16 @@ export function SettingsPage() {
             >
               {isCheckingHealth ? "Testing..." : "Test connection"}
             </Button>
+            {isDevMode && (
+              <Button
+                disabled={isRepairingMetadata}
+                onClick={() => void handleRepairMetadata()}
+                size="sm"
+                variant="outline"
+              >
+                {isRepairingMetadata ? "Repairing..." : "Repair last 30 days"}
+              </Button>
+            )}
             <Badge variant="secondary">{healthStatus}</Badge>
           </div>
         </CardContent>

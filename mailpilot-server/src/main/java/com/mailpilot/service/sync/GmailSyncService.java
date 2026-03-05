@@ -21,9 +21,6 @@ import com.mailpilot.service.events.AppEventBus;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
-import java.time.ZonedDateTime;
-import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -482,11 +479,15 @@ public class GmailSyncService {
         subject,
         snippet,
         received_at,
+        gmail_internal_date_ms,
+        gmail_label_ids,
         is_read,
+        is_inbox,
         is_sent,
+        is_draft,
         has_attachments
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::text[], ?, ?, ?, ?, ?)
       ON CONFLICT (account_id, provider_message_id)
       DO UPDATE SET
         thread_id = EXCLUDED.thread_id,
@@ -497,8 +498,12 @@ public class GmailSyncService {
         subject = EXCLUDED.subject,
         snippet = EXCLUDED.snippet,
         received_at = EXCLUDED.received_at,
+        gmail_internal_date_ms = EXCLUDED.gmail_internal_date_ms,
+        gmail_label_ids = EXCLUDED.gmail_label_ids,
         is_read = EXCLUDED.is_read,
+        is_inbox = EXCLUDED.is_inbox,
         is_sent = EXCLUDED.is_sent,
+        is_draft = EXCLUDED.is_draft,
         has_attachments = EXCLUDED.has_attachments
       RETURNING id, (xmax = 0) AS inserted
       """,
@@ -517,8 +522,12 @@ public class GmailSyncService {
       metadata.subject(),
       metadata.snippet(),
       metadata.receivedAt(),
+      metadata.gmailInternalDateMs(),
+      metadata.gmailLabelIds().toArray(new String[0]),
       metadata.isRead(),
+      metadata.isInbox(),
       metadata.isSent(),
+      metadata.isDraft(),
       metadata.hasAttachments()
     );
 
@@ -665,9 +674,15 @@ public class GmailSyncService {
     String messageRfc822Id = nullable(headers.get("message-id"));
     String snippet = StringUtils.hasText(message.snippet()) ? message.snippet().trim() : "";
 
-    OffsetDateTime receivedAt = resolveReceivedAt(message.internalDate(), headers.get("date"));
-    boolean isRead = message.labelIds() == null || !message.labelIds().contains("UNREAD");
-    boolean isSent = hasGmailLabel(message.labelIds(), "SENT");
+    long internalDateMs = resolveInternalDateMillis(message.internalDate());
+    OffsetDateTime receivedAt = OffsetDateTime.ofInstant(Instant.ofEpochMilli(internalDateMs), ZoneOffset.UTC);
+    List<String> labelIds = normalizeGmailLabels(message.labelIds());
+    boolean isRead = !hasGmailLabel(labelIds, "UNREAD");
+    boolean hasSpam = hasGmailLabel(labelIds, "SPAM");
+    boolean hasTrash = hasGmailLabel(labelIds, "TRASH");
+    boolean isInbox = hasGmailLabel(labelIds, "INBOX") && !hasSpam && !hasTrash;
+    boolean isSent = hasGmailLabel(labelIds, "SENT");
+    boolean isDraft = hasGmailLabel(labelIds, "DRAFT");
     List<AttachmentMetadata> attachments = extractAttachments(message.payload());
 
     return new GmailMetadata(
@@ -680,11 +695,67 @@ public class GmailSyncService {
       snippet,
       messageRfc822Id,
       receivedAt,
+      internalDateMs,
+      labelIds,
       isRead,
+      isInbox,
       isSent,
+      isDraft,
       !attachments.isEmpty(),
       attachments
     );
+  }
+
+  public RepairResult repairMessageMetadata(int days) {
+    int normalizedDays = normalizeRepairDays(days);
+    List<AccountRow> gmailAccounts = loadAllGmailAccounts();
+    int updated = 0;
+    int skipped = 0;
+
+    for (AccountRow account : gmailAccounts) {
+      if (!"CONNECTED".equalsIgnoreCase(account.status())) {
+        continue;
+      }
+
+      List<String> providerMessageIds = loadRepairCandidateMessageIds(account.id(), normalizedDays);
+      Map<String, UUID> threadCache = new HashMap<>();
+
+      for (String providerMessageId : providerMessageIds) {
+        if (!StringUtils.hasText(providerMessageId)) {
+          skipped += 1;
+          continue;
+        }
+
+        try {
+          GmailMessageResponse message = executeWithTokenRetry(
+            account.id(),
+            (accessToken) -> gmailClient.getMessage(accessToken, providerMessageId)
+          );
+          GmailMetadata metadata = mapMessage(message);
+          upsertMessageMetadata(account.id(), metadata, threadCache);
+          updated += 1;
+        } catch (GmailMessageNotFoundException notFoundException) {
+          skipped += 1;
+        } catch (Exception exception) {
+          skipped += 1;
+          LOGGER.warn(
+            "Repair skipped message {} for account {}: {}",
+            providerMessageId,
+            account.email(),
+            exception.getMessage()
+          );
+        }
+      }
+    }
+
+    return new RepairResult("ok", updated, skipped);
+  }
+
+  private int normalizeRepairDays(int days) {
+    if (days < 1 || days > 365) {
+      throw new ApiBadRequestException("days must be between 1 and 365");
+    }
+    return days;
   }
 
   private Map<String, String> extractHeaders(GmailPayload payload) {
@@ -741,22 +812,13 @@ public class GmailSyncService {
     return new Sender(name, email.toLowerCase(Locale.ROOT), domain);
   }
 
-  private OffsetDateTime resolveReceivedAt(String internalDateMillis, String dateHeader) {
+  private long resolveInternalDateMillis(String internalDateMillis) {
     if (StringUtils.hasText(internalDateMillis)) {
       try {
-        long millis = Long.parseLong(internalDateMillis);
-        return OffsetDateTime.ofInstant(Instant.ofEpochMilli(millis), ZoneOffset.UTC);
+        return Long.parseLong(internalDateMillis);
       } catch (NumberFormatException ignored) {}
     }
-
-    if (StringUtils.hasText(dateHeader)) {
-      try {
-        ZonedDateTime parsed = ZonedDateTime.parse(dateHeader, DateTimeFormatter.RFC_1123_DATE_TIME);
-        return parsed.toOffsetDateTime();
-      } catch (DateTimeParseException ignored) {}
-    }
-
-    return OffsetDateTime.now(ZoneOffset.UTC);
+    return Instant.now().toEpochMilli();
   }
 
   private List<AttachmentMetadata> extractAttachments(GmailPayload rootPayload) {
@@ -826,6 +888,40 @@ public class GmailSyncService {
     ).stream().findFirst().orElseThrow(() -> new ApiBadRequestException("Account not found"));
   }
 
+  private List<AccountRow> loadAllGmailAccounts() {
+    return jdbcTemplate.query(
+      """
+      SELECT id, email, provider, status, gmail_history_id
+      FROM accounts
+      WHERE provider = 'GMAIL'
+      ORDER BY email
+      """,
+      (resultSet, rowNum) ->
+        new AccountRow(
+          resultSet.getObject("id", UUID.class),
+          resultSet.getString("email"),
+          resultSet.getString("provider"),
+          resultSet.getString("status"),
+          resultSet.getString("gmail_history_id")
+        )
+    );
+  }
+
+  private List<String> loadRepairCandidateMessageIds(UUID accountId, int days) {
+    return jdbcTemplate.query(
+      """
+      SELECT provider_message_id
+      FROM messages
+      WHERE account_id = ?
+        AND created_at >= now() - (?::int * interval '1 day')
+      ORDER BY created_at DESC, id DESC
+      """,
+      (resultSet, rowNum) -> resultSet.getString("provider_message_id"),
+      accountId,
+      days
+    );
+  }
+
   private <T> T executeWithTokenRetry(UUID accountId, Function<String, T> request) {
     String accessToken = tokenService.getValidAccessToken(accountId).accessToken();
 
@@ -872,6 +968,21 @@ public class GmailSyncService {
     return false;
   }
 
+  private List<String> normalizeGmailLabels(List<String> labelIds) {
+    if (labelIds == null || labelIds.isEmpty()) {
+      return List.of();
+    }
+
+    LinkedHashSet<String> normalized = new LinkedHashSet<>();
+    for (String labelId : labelIds) {
+      if (!StringUtils.hasText(labelId)) {
+        continue;
+      }
+      normalized.add(labelId.trim().toUpperCase(Locale.ROOT));
+    }
+    return List.copyOf(normalized);
+  }
+
   public record SyncResult(UUID accountId, String email, int upsertedMessages, int deletedMessages) {}
 
   private record SyncCounters(int upserted, int deleted, int processed, int total) {}
@@ -896,8 +1007,12 @@ public class GmailSyncService {
     String snippet,
     String messageRfc822Id,
     OffsetDateTime receivedAt,
+    long gmailInternalDateMs,
+    List<String> gmailLabelIds,
     boolean isRead,
+    boolean isInbox,
     boolean isSent,
+    boolean isDraft,
     boolean hasAttachments,
     List<AttachmentMetadata> attachments
   ) {}
@@ -916,6 +1031,8 @@ public class GmailSyncService {
   ) {}
 
   private record UpsertMessageResult(UUID messageId, boolean inserted) {}
+
+  public record RepairResult(String status, int updated, int skipped) {}
 
   private record Sender(String name, String email, String domain) {}
 }

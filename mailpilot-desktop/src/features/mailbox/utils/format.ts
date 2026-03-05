@@ -9,34 +9,46 @@ const longDateFormatter = new Intl.DateTimeFormat("en", {
   minute: "2-digit",
 });
 
-type RelativeTimeStep = {
-  unit: Intl.RelativeTimeFormatUnit;
-  divisor: number;
-};
-
-const relativeSteps: RelativeTimeStep[] = [
-  { unit: "minute", divisor: 60 },
-  { unit: "hour", divisor: 24 },
-  { unit: "day", divisor: 7 },
-  { unit: "week", divisor: 4.345 },
-  { unit: "month", divisor: 12 },
-];
-
 export function formatRelativeTime(isoDate: string): string {
-  const deltaSeconds = Math.floor((new Date(isoDate).getTime() - Date.now()) / 1000);
-  let value = deltaSeconds;
-  let unit: Intl.RelativeTimeFormatUnit = "second";
-
-  for (const step of relativeSteps) {
-    if (Math.abs(value) < step.divisor) {
-      unit = step.unit;
-      break;
-    }
-    value /= step.divisor;
-    unit = step.unit;
+  const parsedMs = Date.parse(isoDate);
+  if (Number.isNaN(parsedMs)) {
+    return "Unknown time";
   }
 
-  return relativeFormatter.format(Math.round(value), unit);
+  const deltaSeconds = Math.round((parsedMs - Date.now()) / 1000);
+  const absoluteSeconds = Math.abs(deltaSeconds);
+
+  if (absoluteSeconds < 60) {
+    return relativeFormatter.format(deltaSeconds, "second");
+  }
+
+  const deltaMinutes = Math.round(deltaSeconds / 60);
+  if (Math.abs(deltaMinutes) < 60) {
+    return relativeFormatter.format(deltaMinutes, "minute");
+  }
+
+  const deltaHours = Math.round(deltaMinutes / 60);
+  if (Math.abs(deltaHours) < 24) {
+    return relativeFormatter.format(deltaHours, "hour");
+  }
+
+  const deltaDays = Math.round(deltaHours / 24);
+  if (Math.abs(deltaDays) < 7) {
+    return relativeFormatter.format(deltaDays, "day");
+  }
+
+  const deltaWeeks = Math.round(deltaDays / 7);
+  if (Math.abs(deltaWeeks) < 5) {
+    return relativeFormatter.format(deltaWeeks, "week");
+  }
+
+  const deltaMonths = Math.round(deltaDays / 30.4375);
+  if (Math.abs(deltaMonths) < 12) {
+    return relativeFormatter.format(deltaMonths, "month");
+  }
+
+  const deltaYears = Math.round(deltaDays / 365.25);
+  return relativeFormatter.format(deltaYears, "year");
 }
 
 export function formatLongDate(isoDate: string): string {

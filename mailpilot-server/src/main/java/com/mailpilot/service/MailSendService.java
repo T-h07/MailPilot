@@ -452,12 +452,17 @@ public class MailSendService {
         subject,
         snippet,
         received_at,
+        gmail_internal_date_ms,
+        gmail_label_ids,
         is_read,
+        is_inbox,
+        is_sent,
+        is_draft,
         has_attachments,
         body_cache,
         body_cache_mime
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, true, ?, ?, 'text/plain')
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ARRAY['SENT']::text[], true, false, true, false, ?, ?, 'text/plain')
       ON CONFLICT (account_id, provider_message_id)
       DO UPDATE SET
         thread_id = COALESCE(EXCLUDED.thread_id, messages.thread_id),
@@ -468,7 +473,12 @@ public class MailSendService {
         subject = EXCLUDED.subject,
         snippet = EXCLUDED.snippet,
         received_at = EXCLUDED.received_at,
+        gmail_internal_date_ms = EXCLUDED.gmail_internal_date_ms,
+        gmail_label_ids = EXCLUDED.gmail_label_ids,
         is_read = true,
+        is_inbox = false,
+        is_sent = true,
+        is_draft = false,
         has_attachments = EXCLUDED.has_attachments,
         body_cache = COALESCE(EXCLUDED.body_cache, messages.body_cache),
         body_cache_mime = COALESCE(EXCLUDED.body_cache_mime, messages.body_cache_mime)
@@ -485,6 +495,7 @@ public class MailSendService {
       plan.subject(),
       snippet,
       sentAt,
+      sentAt.toInstant().toEpochMilli(),
       hasAttachments,
       bodyCache
     );

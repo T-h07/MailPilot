@@ -71,8 +71,11 @@ public class MailboxQueryService {
 
     if (mailboxMode == MailboxMode.SENT) {
       fromWhere.append(" AND m.is_sent = true");
+    } else if (mailboxMode == MailboxMode.DRAFT) {
+      fromWhere.append(" AND m.is_draft = true");
     } else {
-      fromWhere.append(" AND m.is_sent = false");
+      fromWhere.append(" AND m.is_inbox = true AND m.is_sent = false AND m.is_draft = false");
+      fromWhere.append(" AND NOT ('SPAM' = ANY(m.gmail_label_ids) OR 'TRASH' = ANY(m.gmail_label_ids))");
     }
 
     boolean unreadOnly = filters != null && Boolean.TRUE.equals(filters.unreadOnly());
@@ -639,7 +642,8 @@ public class MailboxQueryService {
     return switch (normalized) {
       case "INBOX" -> MailboxMode.INBOX;
       case "SENT" -> MailboxMode.SENT;
-      default -> throw new ApiBadRequestException("mode must be INBOX or SENT");
+      case "DRAFT" -> MailboxMode.DRAFT;
+      default -> throw new ApiBadRequestException("mode must be INBOX, SENT, or DRAFT");
     };
   }
 
@@ -736,6 +740,7 @@ public class MailboxQueryService {
   private enum MailboxMode {
     INBOX,
     SENT,
+    DRAFT,
   }
 
   private record Cursor(String mode, Double rank, OffsetDateTime receivedAt, UUID id) {}
