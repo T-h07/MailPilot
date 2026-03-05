@@ -21,6 +21,7 @@ function MailListComponent({
   onFocusPreview,
 }: MailListProps) {
   const parentRef = useRef<HTMLDivElement>(null);
+  const showDebugStats = import.meta.env.VITE_DEBUG === "true";
 
   const selectedIndex = useMemo(
     () => messages.findIndex((message) => message.id === selectedMessageId),
@@ -79,6 +80,13 @@ function MailListComponent({
       role="listbox"
       tabIndex={0}
     >
+      {showDebugStats && (
+        <div className="sticky top-0 z-10 mb-1 flex justify-end">
+          <span className="rounded border border-border bg-card px-1.5 py-0.5 text-[10px] text-muted-foreground">
+            rows:{messages.length} visible:{rowVirtualizer.getVirtualItems().length}
+          </span>
+        </div>
+      )}
       <div
         style={{
           height: `${rowVirtualizer.getTotalSize()}px`,
