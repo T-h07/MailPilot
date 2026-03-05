@@ -102,6 +102,69 @@ export async function fetchJson<T>(path: string, options: FetchJsonOptions = {})
   }
 }
 
+export async function fetchFormJson<T>(
+  path: string,
+  formData: FormData,
+  options: Omit<FetchJsonOptions, "body"> = {},
+): Promise<T> {
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const timeoutController = new AbortController();
+  const timeoutId = window.setTimeout(() => timeoutController.abort("timeout"), timeoutMs);
+
+  if (options.signal) {
+    if (options.signal.aborted) {
+      timeoutController.abort(options.signal.reason);
+    } else {
+      options.signal.addEventListener(
+        "abort",
+        () => {
+          timeoutController.abort(options.signal?.reason);
+        },
+        { once: true },
+      );
+    }
+  }
+
+  try {
+    const response = await fetch(`${API_BASE}${path}`, {
+      method: options.method ?? "POST",
+      body: formData,
+      signal: timeoutController.signal,
+    });
+
+    const contentType = response.headers.get("content-type") ?? "";
+    const isJson = contentType.includes("application/json");
+    const payload = isJson ? await response.json() : null;
+
+    if (!response.ok) {
+      const errorMessage =
+        payload && typeof payload.message === "string"
+          ? payload.message
+          : `Request failed with status ${response.status}`;
+      throw new ApiClientError(errorMessage, response.status);
+    }
+
+    if (!isJson) {
+      throw new ApiClientError("API returned non-JSON response", response.status);
+    }
+
+    return payload as T;
+  } catch (error) {
+    if (error instanceof ApiClientError) {
+      throw error;
+    }
+    if (error instanceof DOMException && error.name === "AbortError") {
+      if (options.signal?.aborted) {
+        throw new ApiClientError("Request cancelled", 0);
+      }
+      throw new ApiClientError("Request timed out", 0);
+    }
+    throw new ApiClientError("Unable to reach API", 0);
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
 export async function downloadBinary(path: string, options: FetchJsonOptions = {}): Promise<BinaryResponse> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const timeoutController = new AbortController();
