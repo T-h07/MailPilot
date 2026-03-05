@@ -157,6 +157,10 @@ Docker issues:
 
 - Dependency drift guard:
   - `powershell -ExecutionPolicy Bypass -File .\tools\check-clean.ps1`
+- Dev convenience scripts:
+  - `.\tools\dev-up.ps1`
+  - `.\tools\dev-down.ps1`
+  - `.\tools\reset-db.ps1`
 - Optional pre-commit hooks:
   - `tools/hooks/pre-commit`
   - `tools/hooks/pre-commit.ps1`
