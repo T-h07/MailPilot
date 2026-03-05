@@ -1,6 +1,5 @@
-import { type ComponentType, useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Line, LineChart, ResponsiveContainer } from "recharts";
 import {
   AlertTriangle,
   BellRing,
@@ -11,51 +10,21 @@ import {
   RefreshCw,
   TrendingUp,
 } from "lucide-react";
+import { DashboardDriverList, type DashboardDriverItem } from "@/components/dashboard/DashboardDriverList";
+import { DashboardKpiTile, mapDashboardSparkline } from "@/components/dashboard/DashboardKpiTile";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AccentCard } from "@/components/ui/AccentCard";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { type AccountRecord, listAccounts } from "@/lib/api/accounts";
-import { ApiClientError } from "@/lib/api/client";
 import { getDashboardSummary, type DashboardSummary } from "@/lib/api/dashboard";
 import { runAllAccountsSync } from "@/lib/api/sync";
 import { useLiveEvents } from "@/lib/events/live-events-context";
 import { cn } from "@/lib/utils";
-
-type DriverItem = {
-  key: string;
-  label: string;
-  count: number;
-  onClick: () => void;
-};
-
-type SparklinePoint = {
-  date: string;
-  value: number;
-};
-
-type DrilldownParams = {
-  unread?: boolean;
-  needsReply?: boolean;
-  overdue?: boolean;
-  dueToday?: boolean;
-  snoozed?: boolean;
-  allOpen?: boolean;
-  senderDomains?: string[];
-  senderEmails?: string[];
-  accountIds?: string[];
-};
-
-function toErrorMessage(error: unknown): string {
-  if (error instanceof ApiClientError) {
-    return error.message;
-  }
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return "Request failed";
-}
+import { toApiErrorMessage } from "@/utils/api-error";
+import { buildInboxDrilldownPath, type InboxDrilldownParams } from "@/utils/mailbox-drilldown";
+import { formatPercent, formatSignedDelta } from "@/utils/number-format";
 
 function formatTimestamp(value: string | null): string {
   if (!value) {
@@ -66,200 +35,6 @@ function formatTimestamp(value: string | null): string {
     return "--";
   }
   return date.toLocaleString();
-}
-
-function formatPercent(value: number): string {
-  const rounded = Math.abs(value) >= 10 ? value.toFixed(0) : value.toFixed(1);
-  return `${value >= 0 ? "+" : ""}${rounded}%`;
-}
-
-function formatSignedDelta(value: number): string {
-  return `${value >= 0 ? "+" : ""}${value}`;
-}
-
-function dashboardCardTone(tone: "neutral" | "attention" | "critical" | "calm" | "boss") {
-  switch (tone) {
-    case "critical":
-      return "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-200";
-    case "attention":
-      return "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-200";
-    case "calm":
-      return "border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-200";
-    case "boss":
-      return "border-yellow-500/35 bg-yellow-500/10 text-yellow-800 dark:text-yellow-200";
-    case "neutral":
-    default:
-      return "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-200";
-  }
-}
-
-function sparklineColorForTone(tone: "neutral" | "attention" | "critical" | "calm" | "boss"): string {
-  switch (tone) {
-    case "critical":
-      return "#ef4444";
-    case "attention":
-      return "#f59e0b";
-    case "calm":
-      return "#8b5cf6";
-    case "boss":
-      return "#eab308";
-    case "neutral":
-    default:
-      return "#0ea5e9";
-  }
-}
-
-function MiniSparkline({ data, stroke }: { data: SparklinePoint[]; stroke: string }) {
-  if (data.length === 0) {
-    return <div className="h-14 w-full" />;
-  }
-  return (
-    <div className="h-14 w-full">
-      <ResponsiveContainer height="100%" width="100%">
-        <LineChart data={data} margin={{ left: 0, right: 0, top: 4, bottom: 2 }}>
-          <Line
-            dataKey="value"
-            dot={false}
-            isAnimationActive={false}
-            stroke={stroke}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            type="monotone"
-          />
-        </LineChart>
-      </ResponsiveContainer>
-    </div>
-  );
-}
-
-function sparklineFromSeries(
-  series7d: DashboardSummary["series7d"] | undefined,
-  valueKey: "unreadNow" | "needsReplyOpen" | "overdue" | "dueToday" | "snoozed" | "unreadBoss",
-): SparklinePoint[] {
-  return (series7d ?? []).map((point) => ({
-    date: point.date,
-    value: point[valueKey] ?? 0,
-  }));
-}
-
-function buildInboxDrilldownPath(params: DrilldownParams): string {
-  const searchParams = new URLSearchParams();
-  if (params.unread) {
-    searchParams.set("unread", "1");
-  }
-  if (params.needsReply) {
-    searchParams.set("needsReply", "1");
-  }
-  if (params.overdue) {
-    searchParams.set("overdue", "1");
-  }
-  if (params.dueToday) {
-    searchParams.set("dueToday", "1");
-  }
-  if (params.snoozed) {
-    searchParams.set("snoozed", "1");
-  }
-  if (params.allOpen) {
-    searchParams.set("allOpen", "1");
-  }
-  for (const domain of params.senderDomains ?? []) {
-    searchParams.append("senderDomain", domain);
-  }
-  for (const sender of params.senderEmails ?? []) {
-    searchParams.append("senderEmail", sender);
-  }
-  for (const accountId of params.accountIds ?? []) {
-    searchParams.append("accountId", accountId);
-  }
-  const query = searchParams.toString();
-  return query.length > 0 ? `/inbox?${query}` : "/inbox";
-}
-
-function DriverList({
-  emptyLabel,
-  items,
-  title,
-}: {
-  emptyLabel: string;
-  items: DriverItem[];
-  title: string;
-}) {
-  const maxCount = Math.max(1, ...items.map((item) => item.count));
-
-  return (
-    <div className="space-y-3">
-      <p className="text-sm font-semibold">{title}</p>
-      {items.length === 0 && (
-        <p className="text-sm text-muted-foreground">{emptyLabel}</p>
-      )}
-      {items.map((item) => {
-        const width = Math.max(8, Math.round((item.count / maxCount) * 100));
-        return (
-          <button
-            className="w-full space-y-1 rounded-md p-1 text-left transition-colors hover:bg-muted/70"
-            key={item.key}
-            onClick={item.onClick}
-            type="button"
-          >
-            <div className="flex items-center justify-between gap-2 text-xs">
-              <span className="truncate text-muted-foreground">{item.label}</span>
-              <span className="font-medium text-foreground">{item.count}</span>
-            </div>
-            <div className="h-2 w-full overflow-hidden rounded bg-muted">
-              <div className="h-full rounded bg-primary/70" style={{ width: `${width}%` }} />
-            </div>
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-function KpiTile({
-  icon: Icon,
-  label,
-  subtitle,
-  value,
-  delta,
-  tone,
-  sparkline,
-  onClick,
-}: {
-  icon: ComponentType<{ className?: string }>;
-  label: string;
-  subtitle: string;
-  value: number;
-  delta: string;
-  tone: "neutral" | "attention" | "critical" | "calm" | "boss";
-  sparkline: SparklinePoint[];
-  onClick: () => void;
-}) {
-  const sparklineColor = sparklineColorForTone(tone);
-  return (
-    <button
-      className={cn(
-        "rounded-xl border p-4 text-left transition-all hover:-translate-y-0.5 hover:shadow-sm",
-        dashboardCardTone(tone),
-      )}
-      onClick={onClick}
-      type="button"
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-xs uppercase tracking-wide">{label}</p>
-          <p className="pt-1 text-3xl font-semibold leading-none">{value.toLocaleString()}</p>
-        </div>
-        <Icon className="h-5 w-5" />
-      </div>
-      <p className="pt-2 text-xs opacity-90">{delta}</p>
-      <p className="pt-1 text-xs opacity-70">{subtitle}</p>
-      <div className="mt-2">
-        <MiniSparkline data={sparkline} stroke={sparklineColor} />
-      </div>
-      <p className="pt-2 text-[11px] font-medium opacity-85">Click to open filtered mailbox</p>
-    </button>
-  );
 }
 
 export function DashboardPage() {
@@ -275,7 +50,7 @@ export function DashboardPage() {
   const [autoRefresh, setAutoRefresh] = useState(false);
 
   const openDrilldown = useCallback(
-    (params: DrilldownParams) => {
+    (params: InboxDrilldownParams) => {
       navigate(buildInboxDrilldownPath(params));
     },
     [navigate],
@@ -293,7 +68,7 @@ export function DashboardPage() {
       setSummary(summaryResponse);
       setAccounts(accountsResponse);
     } catch (loadError) {
-      setError(toErrorMessage(loadError));
+      setError(toApiErrorMessage(loadError));
     } finally {
       setIsLoading(false);
     }
@@ -339,7 +114,7 @@ export function DashboardPage() {
       setInfoNotice("Sync started for connected accounts.");
       await loadDashboard();
     } catch (syncError) {
-      setError(toErrorMessage(syncError));
+      setError(toApiErrorMessage(syncError));
     } finally {
       setIsSyncingNow(false);
     }
@@ -352,7 +127,7 @@ export function DashboardPage() {
     }));
   }, [accounts, syncByAccountId]);
 
-  const topDomainsUnread = useMemo<DriverItem[]>(() => {
+  const topDomainsUnread = useMemo<DashboardDriverItem[]>(() => {
     return (summary?.topDomainsUnread ?? []).map((item) => ({
       key: item.domain,
       label: item.domain,
@@ -361,7 +136,7 @@ export function DashboardPage() {
     }));
   }, [openDrilldown, summary]);
 
-  const topSendersUnread = useMemo<DriverItem[]>(() => {
+  const topSendersUnread = useMemo<DashboardDriverItem[]>(() => {
     return (summary?.topSendersUnread ?? []).map((item) => ({
       key: item.email,
       label: item.email,
@@ -370,7 +145,7 @@ export function DashboardPage() {
     }));
   }, [openDrilldown, summary]);
 
-  const unreadByAccount = useMemo<DriverItem[]>(() => {
+  const unreadByAccount = useMemo<DashboardDriverItem[]>(() => {
     return (summary?.unreadByAccount ?? []).map((item) => ({
       key: item.accountId,
       label: item.email,
@@ -379,7 +154,7 @@ export function DashboardPage() {
     }));
   }, [openDrilldown, summary]);
 
-  const topDomainsLast24h = useMemo<DriverItem[]>(() => {
+  const topDomainsLast24h = useMemo<DashboardDriverItem[]>(() => {
     return (summary?.topDomainsReceived24h ?? []).map((item) => ({
       key: item.domain,
       label: item.domain,
@@ -388,7 +163,7 @@ export function DashboardPage() {
     }));
   }, [openDrilldown, summary]);
 
-  const topSendersLast24h = useMemo<DriverItem[]>(() => {
+  const topSendersLast24h = useMemo<DashboardDriverItem[]>(() => {
     return (summary?.topSendersReceived24h ?? []).map((item) => ({
       key: item.email,
       label: item.email,
@@ -398,27 +173,27 @@ export function DashboardPage() {
   }, [openDrilldown, summary]);
 
   const unreadSparkline = useMemo(
-    () => sparklineFromSeries(summary?.series7d, "unreadNow"),
+    () => mapDashboardSparkline(summary?.series7d, "unreadNow"),
     [summary?.series7d],
   );
   const needsReplySparkline = useMemo(
-    () => sparklineFromSeries(summary?.series7d, "needsReplyOpen"),
+    () => mapDashboardSparkline(summary?.series7d, "needsReplyOpen"),
     [summary?.series7d],
   );
   const overdueSparkline = useMemo(
-    () => sparklineFromSeries(summary?.series7d, "overdue"),
+    () => mapDashboardSparkline(summary?.series7d, "overdue"),
     [summary?.series7d],
   );
   const dueTodaySparkline = useMemo(
-    () => sparklineFromSeries(summary?.series7d, "dueToday"),
+    () => mapDashboardSparkline(summary?.series7d, "dueToday"),
     [summary?.series7d],
   );
   const snoozedSparkline = useMemo(
-    () => sparklineFromSeries(summary?.series7d, "snoozed"),
+    () => mapDashboardSparkline(summary?.series7d, "snoozed"),
     [summary?.series7d],
   );
   const unreadBossSparkline = useMemo(
-    () => sparklineFromSeries(summary?.series7d, "unreadBoss"),
+    () => mapDashboardSparkline(summary?.series7d, "unreadBoss"),
     [summary?.series7d],
   );
 
@@ -455,7 +230,7 @@ export function DashboardPage() {
       )}
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        <KpiTile
+        <DashboardKpiTile
           delta={`${formatSignedDelta(summary?.unreadDelta ?? 0)} vs prior 24h`}
           icon={Inbox}
           label="Unread"
@@ -465,7 +240,7 @@ export function DashboardPage() {
           tone={(summary?.unreadTotal ?? 0) > 200 ? "attention" : "neutral"}
           value={summary?.unreadTotal ?? 0}
         />
-        <KpiTile
+        <DashboardKpiTile
           delta={`${formatSignedDelta(summary?.needsReplyDelta ?? 0)} vs prior 24h`}
           icon={MessageSquareReply}
           label="Needs reply"
@@ -475,7 +250,7 @@ export function DashboardPage() {
           tone="attention"
           value={summary?.needsReplyOpen ?? 0}
         />
-        <KpiTile
+        <DashboardKpiTile
           delta={`${formatSignedDelta(summary?.overdueDelta ?? 0)} vs prior 24h`}
           icon={AlertTriangle}
           label="Overdue"
@@ -485,7 +260,7 @@ export function DashboardPage() {
           tone="critical"
           value={summary?.overdue ?? 0}
         />
-        <KpiTile
+        <DashboardKpiTile
           delta="Due before midnight"
           icon={CalendarClock}
           label="Due today"
@@ -495,7 +270,7 @@ export function DashboardPage() {
           tone="attention"
           value={summary?.dueToday ?? 0}
         />
-        <KpiTile
+        <DashboardKpiTile
           delta={`${summary?.snoozedWakingNext24h ?? 0} wake in next 24h`}
           icon={BellRing}
           label="Snoozed"
@@ -505,7 +280,7 @@ export function DashboardPage() {
           tone="calm"
           value={summary?.snoozed ?? 0}
         />
-        <KpiTile
+        <DashboardKpiTile
           delta="Unread from BOSS rule set"
           icon={Crown}
           label="Unread BOSS"
@@ -552,12 +327,12 @@ export function DashboardPage() {
             </div>
             <Separator className="opacity-55" />
             <div className="grid gap-4 md:grid-cols-2">
-              <DriverList
+              <DashboardDriverList
                 emptyLabel="No domains in the last 24h."
                 items={topDomainsLast24h}
                 title="Top domains received (24h)"
               />
-              <DriverList
+              <DashboardDriverList
                 emptyLabel="No senders in the last 24h."
                 items={topSendersLast24h}
                 title="Top senders received (24h)"
@@ -593,7 +368,7 @@ export function DashboardPage() {
       <div className="grid gap-4 lg:grid-cols-3">
         <AccentCard accent="purple" description="Main unread drivers by sender domain." heading="Top Domains (Unread)">
           <div>
-            <DriverList
+            <DashboardDriverList
               emptyLabel="No unread domain concentration."
               items={topDomainsUnread}
               title="Domains"
@@ -603,7 +378,7 @@ export function DashboardPage() {
 
         <AccentCard accent="gold" description="Main unread drivers by sender email." heading="Top Senders (Unread)">
           <div>
-            <DriverList
+            <DashboardDriverList
               emptyLabel="No unread sender concentration."
               items={topSendersUnread}
               title="Senders"
@@ -613,7 +388,7 @@ export function DashboardPage() {
 
         <AccentCard accent="green" description="Where unread load is currently concentrated." heading="Unread by Account">
           <div>
-            <DriverList
+            <DashboardDriverList
               emptyLabel="No unread messages across accounts."
               items={unreadByAccount}
               title="Accounts"
