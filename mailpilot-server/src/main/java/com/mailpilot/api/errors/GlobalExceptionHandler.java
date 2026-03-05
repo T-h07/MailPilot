@@ -49,6 +49,12 @@ public class GlobalExceptionHandler {
     return error(HttpStatus.CONFLICT, "CONFLICT", exception.getMessage(), request);
   }
 
+  @ExceptionHandler(UnauthorizedException.class)
+  public ResponseEntity<ApiErrorResponse> handleUnauthorized(
+      UnauthorizedException exception, HttpServletRequest request) {
+    return error(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", exception.getMessage(), request);
+  }
+
   @ExceptionHandler({UpstreamException.class, GmailClient.GmailApiException.class})
   public ResponseEntity<ApiErrorResponse> handleUpstream(
       RuntimeException exception, HttpServletRequest request) {

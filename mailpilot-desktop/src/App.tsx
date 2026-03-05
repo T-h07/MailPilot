@@ -16,6 +16,8 @@ import {
   FileText,
   Gauge,
   LayoutDashboard,
+  Lock,
+  LogOut,
   Mailbox,
   Menu,
   Send,
@@ -32,6 +34,8 @@ import { ViewPage } from "@/pages/view-page";
 import { InsightsPage } from "@/pages/insights-page";
 import { SettingsPage } from "@/pages/settings-page";
 import { ViewsHubPage } from "@/pages/views-hub-page";
+import { OnboardingPage } from "@/pages/onboarding-page";
+import { LocalLoginPage } from "@/pages/local-login-page";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -40,8 +44,17 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { AppLockOverlay } from "@/components/common/app-lock-overlay";
 import { ApiClientError } from "@/api/client";
 import { listViews, type ViewRecord } from "@/lib/api/views";
+import {
+  getAppState,
+  lockApp,
+  loginApp,
+  logoutApp,
+  type AppStateRecord,
+  unlockApp,
+} from "@/lib/api/app-state";
 import { LiveEventsProvider, useLiveEvents } from "@/lib/events/live-events-context";
 
 type ThemeMode = "light" | "dark";
@@ -71,6 +84,10 @@ type SidebarProps = {
   viewBadgeCounts: Record<string, number>;
   viewsTotalBadgeCount: number;
   onRetryViews: () => void;
+  onLock: () => Promise<void>;
+  onLogout: () => Promise<void>;
+  lockInFlight: boolean;
+  logoutInFlight: boolean;
   onNavigate?: () => void;
 };
 
@@ -189,6 +206,10 @@ function Sidebar({
   viewBadgeCounts,
   viewsTotalBadgeCount,
   onRetryViews,
+  onLock,
+  onLogout,
+  lockInFlight,
+  logoutInFlight,
   onNavigate,
 }: SidebarProps) {
   const location = useLocation();
@@ -351,12 +372,85 @@ function Sidebar({
           <settingsItem.icon className="h-[18px] w-[18px] shrink-0" />
           <span>{settingsItem.label}</span>
         </NavLink>
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          <Button
+            className="justify-start gap-2"
+            disabled={lockInFlight}
+            onClick={() => {
+              void onLock();
+              onNavigate?.();
+            }}
+            size="sm"
+            variant="outline"
+          >
+            <Lock className="h-4 w-4" />
+            {lockInFlight ? "Locking..." : "Lock"}
+          </Button>
+          <Button
+            className="justify-start gap-2"
+            disabled={logoutInFlight}
+            onClick={() => {
+              void onLogout();
+              onNavigate?.();
+            }}
+            size="sm"
+            variant="outline"
+          >
+            <LogOut className="h-4 w-4" />
+            {logoutInFlight ? "Logging out..." : "Logout"}
+          </Button>
+        </div>
       </div>
     </div>
   );
 }
 
-function AppShell() {
+type AppShellProps = {
+  locked: boolean;
+  lockInFlight: boolean;
+  logoutInFlight: boolean;
+  unlockInFlight: boolean;
+  unlockError: string | null;
+  onLock: () => Promise<void>;
+  onLogout: () => Promise<void>;
+  onUnlock: (password: string) => Promise<void>;
+};
+
+type AppRouteGuardProps = {
+  appState: AppStateRecord | null;
+  loggedIn: boolean;
+  lockInFlight: boolean;
+  logoutInFlight: boolean;
+  unlockInFlight: boolean;
+  unlockError: string | null;
+  onLock: () => Promise<void>;
+  onLogout: () => Promise<void>;
+  onUnlock: (password: string) => Promise<void>;
+};
+
+type OnboardingRouteProps = {
+  appState: AppStateRecord | null;
+  loggedIn: boolean;
+};
+
+type LoginRouteProps = {
+  appState: AppStateRecord | null;
+  loggedIn: boolean;
+  loginInFlight: boolean;
+  loginError: string | null;
+  onLogin: (password: string) => Promise<void>;
+};
+
+function AppShell({
+  locked,
+  lockInFlight,
+  logoutInFlight,
+  unlockInFlight,
+  unlockError,
+  onLock,
+  onLogout,
+  onUnlock,
+}: AppShellProps) {
   const location = useLocation();
   const { badges, latestNewMail, newMailSequence, sseConnected, syncByAccountId } = useLiveEvents();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -472,110 +566,341 @@ function AppShell() {
   }, []);
 
   return (
-    <div className="flex h-screen bg-background text-foreground">
-      <aside className="sidebar-panel hidden w-[260px] shrink-0 border-r border-border md:block">
-        <Sidebar
-          inboxBadgeCount={badges.inboxCount}
-          onRetryViews={() => {
-            void refreshViews();
-          }}
-          viewBadgeCounts={badges.viewCounts}
-          views={views}
-          viewsError={viewsError}
-          viewsTotalBadgeCount={badges.viewsTotal}
-          viewsLoading={viewsLoading}
-        />
-      </aside>
-      <div className="app-shell-main flex min-w-0 flex-1 flex-col">
-        <header className="flex h-16 items-center justify-between border-b border-border bg-background px-4 md:px-6">
-          <div className="flex min-w-0 items-center gap-3">
-            <Sheet onOpenChange={setMobileNavOpen} open={mobileNavOpen}>
-              <SheetTrigger asChild>
-                <Button className="md:hidden" size="icon" variant="outline">
-                  <Menu className="h-4 w-4" />
-                </Button>
-              </SheetTrigger>
-              <SheetContent className="w-[280px] p-0" side="left">
-                <SheetHeader className="sr-only">
-                  <SheetTitle>Navigation</SheetTitle>
-                </SheetHeader>
-                <Sidebar
-                  inboxBadgeCount={badges.inboxCount}
-                  onNavigate={() => setMobileNavOpen(false)}
-                  onRetryViews={() => {
-                    void refreshViews();
-                  }}
-                  viewBadgeCounts={badges.viewCounts}
-                  views={views}
-                  viewsError={viewsError}
-                  viewsTotalBadgeCount={badges.viewsTotal}
-                  viewsLoading={viewsLoading}
-                />
-              </SheetContent>
-            </Sheet>
-            <div className="min-w-0">
-              <p className="truncate text-lg font-semibold leading-none">{pageTitle}</p>
-              <p className="pt-1 text-xs text-muted-foreground">Desktop command deck</p>
-            </div>
-          </div>
-          <Badge className="rounded-full px-3 py-1 text-xs" variant={syncPill.variant}>
-            {syncPill.label}
-          </Badge>
-        </header>
-        <main className="flex-1 overflow-auto p-4 md:p-6">
-          <div className="mx-auto max-w-7xl">
-            <Outlet
-              context={{
-                themeMode,
-                setThemeMode,
-                views,
-                viewsLoading,
-                viewsError,
-                refreshViews,
-              }}
-            />
-          </div>
-        </main>
-        {toasts.length > 0 && (
-          <div className="pointer-events-none fixed bottom-5 right-5 z-[80] space-y-2">
-            {toasts.map((toast) => (
-              <div
-                className="w-[320px] rounded-lg border border-border bg-card px-3 py-2 shadow-lg"
-                key={toast.id}
-              >
-                <p className="text-xs font-semibold">{toast.title}</p>
-                <p className="pt-1 text-xs text-muted-foreground">{toast.body}</p>
-              </div>
-            ))}
-          </div>
+    <div className="relative h-screen">
+      <div
+        className={cn(
+          "flex h-full bg-background text-foreground transition duration-200",
+          locked && "pointer-events-none select-none blur-[2px]"
         )}
+      >
+        <aside className="sidebar-panel hidden w-[260px] shrink-0 border-r border-border md:block">
+          <Sidebar
+            inboxBadgeCount={badges.inboxCount}
+            lockInFlight={lockInFlight}
+            logoutInFlight={logoutInFlight}
+            onLock={onLock}
+            onLogout={onLogout}
+            onRetryViews={() => {
+              void refreshViews();
+            }}
+            viewBadgeCounts={badges.viewCounts}
+            views={views}
+            viewsError={viewsError}
+            viewsTotalBadgeCount={badges.viewsTotal}
+            viewsLoading={viewsLoading}
+          />
+        </aside>
+        <div className="app-shell-main flex min-w-0 flex-1 flex-col">
+          <header className="flex h-16 items-center justify-between border-b border-border bg-background px-4 md:px-6">
+            <div className="flex min-w-0 items-center gap-3">
+              <Sheet onOpenChange={setMobileNavOpen} open={mobileNavOpen}>
+                <SheetTrigger asChild>
+                  <Button className="md:hidden" size="icon" variant="outline">
+                    <Menu className="h-4 w-4" />
+                  </Button>
+                </SheetTrigger>
+                <SheetContent className="w-[280px] p-0" side="left">
+                  <SheetHeader className="sr-only">
+                    <SheetTitle>Navigation</SheetTitle>
+                  </SheetHeader>
+                  <Sidebar
+                    inboxBadgeCount={badges.inboxCount}
+                    lockInFlight={lockInFlight}
+                    logoutInFlight={logoutInFlight}
+                    onLock={onLock}
+                    onLogout={onLogout}
+                    onNavigate={() => setMobileNavOpen(false)}
+                    onRetryViews={() => {
+                      void refreshViews();
+                    }}
+                    viewBadgeCounts={badges.viewCounts}
+                    views={views}
+                    viewsError={viewsError}
+                    viewsTotalBadgeCount={badges.viewsTotal}
+                    viewsLoading={viewsLoading}
+                  />
+                </SheetContent>
+              </Sheet>
+              <div className="min-w-0">
+                <p className="truncate text-lg font-semibold leading-none">{pageTitle}</p>
+                <p className="pt-1 text-xs text-muted-foreground">Desktop command deck</p>
+              </div>
+            </div>
+            <Badge className="rounded-full px-3 py-1 text-xs" variant={syncPill.variant}>
+              {syncPill.label}
+            </Badge>
+          </header>
+          <main className="flex-1 overflow-auto p-4 md:p-6">
+            <div className="mx-auto max-w-7xl">
+              <Outlet
+                context={{
+                  themeMode,
+                  setThemeMode,
+                  views,
+                  viewsLoading,
+                  viewsError,
+                  refreshViews,
+                }}
+              />
+            </div>
+          </main>
+          {toasts.length > 0 && (
+            <div className="pointer-events-none fixed bottom-5 right-5 z-[80] space-y-2">
+              {toasts.map((toast) => (
+                <div
+                  className="w-[320px] rounded-lg border border-border bg-card px-3 py-2 shadow-lg"
+                  key={toast.id}
+                >
+                  <p className="text-xs font-semibold">{toast.title}</p>
+                  <p className="pt-1 text-xs text-muted-foreground">{toast.body}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+      {locked && (
+        <AppLockOverlay error={unlockError} isUnlocking={unlockInFlight} onUnlock={onUnlock} />
+      )}
+    </div>
+  );
+}
+
+function BootstrappingScreen({ error, onRetry }: { error: string | null; onRetry: () => void }) {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background p-6">
+      <div className="w-full max-w-md rounded-lg border border-border bg-card p-6">
+        <p className="text-lg font-semibold">Loading MailPilot...</p>
+        {error ? <p className="pt-2 text-sm text-destructive">{error}</p> : null}
+        {error ? (
+          <Button className="mt-4" onClick={onRetry} variant="outline">
+            Retry
+          </Button>
+        ) : null}
       </div>
     </div>
   );
 }
 
-function App() {
+function OnboardingRoute({ appState, loggedIn }: OnboardingRouteProps) {
+  if (!appState) {
+    return <BootstrappingScreen error={null} onRetry={() => undefined} />;
+  }
+  if (appState.onboardingComplete && appState.hasPassword) {
+    return <Navigate replace to={loggedIn ? "/inbox" : "/login"} />;
+  }
+  return (
+    <OnboardingPage
+      onStartSetup={() => {
+        window.alert("Onboarding wizard is coming in MP-PT17.");
+      }}
+    />
+  );
+}
+
+function LoginRoute({ appState, loggedIn, loginInFlight, loginError, onLogin }: LoginRouteProps) {
+  if (!appState) {
+    return <BootstrappingScreen error={null} onRetry={() => undefined} />;
+  }
+  if (!appState.onboardingComplete || !appState.hasPassword) {
+    return <Navigate replace to="/onboarding" />;
+  }
+  if (loggedIn) {
+    return <Navigate replace to="/inbox" />;
+  }
+  return <LocalLoginPage error={loginError} isLoading={loginInFlight} onLogin={onLogin} />;
+}
+
+function ProtectedAppShell({
+  appState,
+  loggedIn,
+  lockInFlight,
+  logoutInFlight,
+  unlockInFlight,
+  unlockError,
+  onLock,
+  onLogout,
+  onUnlock,
+}: AppRouteGuardProps) {
+  if (!appState) {
+    return <BootstrappingScreen error={null} onRetry={() => undefined} />;
+  }
+  if (!appState.onboardingComplete || !appState.hasPassword) {
+    return <Navigate replace to="/onboarding" />;
+  }
+  if (!loggedIn) {
+    return <Navigate replace to="/login" />;
+  }
+
   return (
     <LiveEventsProvider>
-      <BrowserRouter>
-        <Routes>
-          <Route element={<AppShell />} path="/">
-            <Route element={<Navigate replace to="/inbox" />} index />
-            <Route element={<DashboardPage />} path="dashboard" />
-            <Route element={<InboxPage />} path="inbox" />
-            <Route element={<SentPage />} path="sent" />
-            <Route element={<DraftsPage />} path="drafts" />
-            <Route element={<FocusPage />} path="focus" />
-            <Route element={<FocusDrillPage />} path="focus/drill/:type" />
-            <Route element={<ViewsHubPage />} path="views/manage" />
-            <Route element={<ViewPage />} path="views/:viewId" />
-            <Route element={<InsightsPage />} path="insights" />
-            <Route element={<SettingsPage />} path="settings" />
-          </Route>
-          <Route element={<Navigate replace to="/inbox" />} path="*" />
-        </Routes>
-      </BrowserRouter>
+      <AppShell
+        lockInFlight={lockInFlight}
+        locked={appState.locked}
+        logoutInFlight={logoutInFlight}
+        onLock={onLock}
+        onLogout={onLogout}
+        onUnlock={onUnlock}
+        unlockError={unlockError}
+        unlockInFlight={unlockInFlight}
+      />
     </LiveEventsProvider>
+  );
+}
+
+function App() {
+  const [appState, setAppState] = useState<AppStateRecord | null>(null);
+  const [isBootstrapping, setIsBootstrapping] = useState(true);
+  const [bootstrapError, setBootstrapError] = useState<string | null>(null);
+  const [loggedIn, setLoggedIn] = useState(false);
+  const [loginInFlight, setLoginInFlight] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [lockInFlight, setLockInFlight] = useState(false);
+  const [unlockInFlight, setUnlockInFlight] = useState(false);
+  const [unlockError, setUnlockError] = useState<string | null>(null);
+  const [logoutInFlight, setLogoutInFlight] = useState(false);
+
+  const refreshAppState = useCallback(async () => {
+    const state = await getAppState();
+    setAppState(state);
+  }, []);
+
+  const bootstrapAppState = useCallback(async () => {
+    setIsBootstrapping(true);
+    setBootstrapError(null);
+    try {
+      await refreshAppState();
+    } catch (error) {
+      setBootstrapError(toApiErrorMessage(error));
+    } finally {
+      setIsBootstrapping(false);
+    }
+  }, [refreshAppState]);
+
+  useEffect(() => {
+    void bootstrapAppState();
+  }, [bootstrapAppState]);
+
+  const handleLogin = useCallback(
+    async (password: string) => {
+      setLoginInFlight(true);
+      setLoginError(null);
+      try {
+        await loginApp(password);
+        setLoggedIn(true);
+        await refreshAppState();
+      } catch (error) {
+        setLoginError(toApiErrorMessage(error));
+      } finally {
+        setLoginInFlight(false);
+      }
+    },
+    [refreshAppState]
+  );
+
+  const handleLock = useCallback(async () => {
+    setLockInFlight(true);
+    try {
+      await lockApp();
+      setAppState((previous) => (previous ? { ...previous, locked: true } : previous));
+    } finally {
+      setLockInFlight(false);
+    }
+  }, []);
+
+  const handleUnlock = useCallback(async (password: string) => {
+    setUnlockInFlight(true);
+    setUnlockError(null);
+    try {
+      await unlockApp(password);
+      setAppState((previous) => (previous ? { ...previous, locked: false } : previous));
+    } catch (error) {
+      setUnlockError(toApiErrorMessage(error));
+    } finally {
+      setUnlockInFlight(false);
+    }
+  }, []);
+
+  const handleLogout = useCallback(async () => {
+    setLogoutInFlight(true);
+    try {
+      await logoutApp();
+      setLoggedIn(false);
+      await refreshAppState();
+    } finally {
+      setLogoutInFlight(false);
+    }
+  }, [refreshAppState]);
+
+  const wildcardRedirect = useMemo(() => {
+    if (!appState || !appState.onboardingComplete || !appState.hasPassword) {
+      return "/onboarding";
+    }
+    if (!loggedIn) {
+      return "/login";
+    }
+    return "/inbox";
+  }, [appState, loggedIn]);
+
+  if (isBootstrapping) {
+    return <BootstrappingScreen error={bootstrapError} onRetry={() => void bootstrapAppState()} />;
+  }
+  if (!appState) {
+    return (
+      <BootstrappingScreen
+        error={bootstrapError ?? "Unable to load application state."}
+        onRetry={() => void bootstrapAppState()}
+      />
+    );
+  }
+
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route element={<OnboardingRoute appState={appState} loggedIn={loggedIn} />} path="/onboarding" />
+        <Route
+          element={
+            <LoginRoute
+              appState={appState}
+              loggedIn={loggedIn}
+              loginError={loginError}
+              loginInFlight={loginInFlight}
+              onLogin={handleLogin}
+            />
+          }
+          path="/login"
+        />
+        <Route
+          element={
+            <ProtectedAppShell
+              appState={appState}
+              lockInFlight={lockInFlight}
+              loggedIn={loggedIn}
+              logoutInFlight={logoutInFlight}
+              onLock={handleLock}
+              onLogout={handleLogout}
+              onUnlock={handleUnlock}
+              unlockError={unlockError}
+              unlockInFlight={unlockInFlight}
+            />
+          }
+          path="/"
+        >
+          <Route element={<Navigate replace to="/inbox" />} index />
+          <Route element={<DashboardPage />} path="dashboard" />
+          <Route element={<InboxPage />} path="inbox" />
+          <Route element={<SentPage />} path="sent" />
+          <Route element={<DraftsPage />} path="drafts" />
+          <Route element={<FocusPage />} path="focus" />
+          <Route element={<FocusDrillPage />} path="focus/drill/:type" />
+          <Route element={<ViewsHubPage />} path="views/manage" />
+          <Route element={<ViewPage />} path="views/:viewId" />
+          <Route element={<InsightsPage />} path="insights" />
+          <Route element={<SettingsPage />} path="settings" />
+        </Route>
+        <Route element={<Navigate replace to={wildcardRedirect} />} path="*" />
+      </Routes>
+    </BrowserRouter>
   );
 }
 
