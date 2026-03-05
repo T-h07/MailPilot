@@ -37,7 +37,12 @@ public record InsightsSummaryResponse(
     int snoozed
   ) {}
 
-  public record Series(List<VolumePoint> volumePerDay, List<VolumePoint> unreadPerDay) {}
+  public record Series(
+    List<VolumePoint> receivedPerDay,
+    List<VolumePoint> unreadPerDay,
+    List<VolumePoint> bossPerDay,
+    List<VolumePoint> followupsDonePerDay
+  ) {}
 
   public record VolumePoint(String date, int count) {}
 }

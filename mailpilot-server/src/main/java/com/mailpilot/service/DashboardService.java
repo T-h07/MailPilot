@@ -239,6 +239,85 @@ public class DashboardService {
       (resultSet, rowNum) -> resultSet.getString("match_value")
     );
 
+    List<DashboardSummaryResponse.SeriesPoint> series7d = jdbcTemplate.query(
+      """
+      WITH days AS (
+        SELECT generate_series(
+          (date_trunc('day', now()) - interval '6 days')::date,
+          date_trunc('day', now())::date,
+          interval '1 day'
+        )::date AS day
+      )
+      SELECT
+        d.day AS day,
+        (
+          SELECT COUNT(*)
+          FROM messages m
+          WHERE
+            m.is_sent = false
+            AND m.is_read = false
+            AND (m.received_at AT TIME ZONE 'UTC')::date = d.day
+        ) AS unread_now,
+        (
+          SELECT COUNT(*)
+          FROM followups f
+          JOIN messages m ON m.id = f.message_id
+          WHERE
+            m.is_sent = false
+            AND f.status = 'OPEN'
+            AND f.needs_reply = true
+            AND (m.received_at AT TIME ZONE 'UTC')::date = d.day
+        ) AS needs_reply_open,
+        (
+          SELECT COUNT(*)
+          FROM followups f
+          JOIN messages m ON m.id = f.message_id
+          WHERE
+            m.is_sent = false
+            AND f.status = 'OPEN'
+            AND f.due_at IS NOT NULL
+            AND f.due_at < now()
+            AND (f.due_at AT TIME ZONE 'UTC')::date = d.day
+        ) AS overdue,
+        (
+          SELECT COUNT(*)
+          FROM followups f
+          JOIN messages m ON m.id = f.message_id
+          WHERE
+            m.is_sent = false
+            AND f.status = 'OPEN'
+            AND f.due_at IS NOT NULL
+            AND (f.due_at AT TIME ZONE 'UTC')::date = d.day
+        ) AS due_today,
+        (
+          SELECT COUNT(*)
+          FROM followups f
+          JOIN messages m ON m.id = f.message_id
+          WHERE
+            m.is_sent = false
+            AND f.status = 'OPEN'
+            AND f.snoozed_until IS NOT NULL
+            AND (f.snoozed_until AT TIME ZONE 'UTC')::date = d.day
+        ) AS snoozed,
+        (
+          SELECT COUNT(*)
+          FROM messages m
+          LEFT JOIN sender_rules sr_email
+            ON sr_email.match_type = 'EMAIL' AND lower(sr_email.match_value) = lower(m.sender_email)
+          LEFT JOIN sender_rules sr_domain
+            ON sr_domain.match_type = 'DOMAIN' AND lower(sr_domain.match_value) = lower(m.sender_domain)
+          WHERE
+            m.is_sent = false
+            AND m.is_read = false
+            AND (m.received_at AT TIME ZONE 'UTC')::date = d.day
+            AND upper(COALESCE(sr_email.label, sr_domain.label, '')) = 'BOSS'
+        ) AS unread_boss
+      FROM days d
+      ORDER BY d.day ASC
+      """,
+      this::mapSeriesPoint
+    );
+
     return new DashboardSummaryResponse(
       unreadTotal,
       needsReplyOpen,
@@ -261,6 +340,7 @@ public class DashboardService {
       bossSenderEmails,
       openFollowupsTotal,
       snoozedWakingNext24h,
+      series7d,
       OffsetDateTime.now(ZoneOffset.UTC).toString()
     );
   }
@@ -287,6 +367,21 @@ public class DashboardService {
       resultSet.getObject("account_id", UUID.class),
       resultSet.getString("account_email"),
       resultSet.getInt("count")
+    );
+  }
+
+  private DashboardSummaryResponse.SeriesPoint mapSeriesPoint(ResultSet resultSet, int rowNum)
+    throws SQLException {
+    java.sql.Date sqlDate = resultSet.getDate("day");
+    String day = sqlDate == null ? "" : sqlDate.toLocalDate().toString();
+    return new DashboardSummaryResponse.SeriesPoint(
+      day,
+      resultSet.getInt("unread_now"),
+      resultSet.getInt("needs_reply_open"),
+      resultSet.getInt("overdue"),
+      resultSet.getInt("due_today"),
+      resultSet.getInt("snoozed"),
+      resultSet.getInt("unread_boss")
     );
   }
 

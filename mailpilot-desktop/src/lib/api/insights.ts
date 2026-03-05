@@ -24,8 +24,10 @@ export type InsightsSummary = {
     snoozed: number;
   };
   series: {
-    volumePerDay: Array<{ date: string; count: number }>;
+    receivedPerDay: Array<{ date: string; count: number }>;
     unreadPerDay: Array<{ date: string; count: number }>;
+    bossPerDay: Array<{ date: string; count: number }>;
+    followupsDonePerDay: Array<{ date: string; count: number }>;
   };
 };
 

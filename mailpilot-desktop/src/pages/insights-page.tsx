@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Activity, RefreshCw, TrendingUp } from "lucide-react";
+import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Activity, Pin, RefreshCw, TrendingUp, Unplug } from "lucide-react";
 import { AccentCard, type AccentColor } from "@/components/ui/AccentCard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,9 @@ const RANGE_OPTIONS: Array<{ value: InsightsRange; label: string }> = [
   { value: "6m", label: "6m" },
 ];
 
+const AUTO_ROTATE_MS = 4000;
+const RESUME_AFTER_HOVER_MS = 1000;
+
 type RankedItem = {
   key: string;
   label: string;
@@ -31,6 +35,45 @@ type DrilldownParams = {
   senderEmails?: string[];
   accountIds?: string[];
 };
+
+type ChartMetricKey = "unread" | "boss" | "followupsDone";
+
+type ChartMetric = {
+  key: ChartMetricKey;
+  label: string;
+  accent: AccentColor;
+  color: string;
+};
+
+type ChartRow = {
+  date: string;
+  received: number;
+  unread: number;
+  boss: number;
+  followupsDone: number;
+};
+
+type LegacyInsightsSeries = {
+  volumePerDay?: Array<{ date: string; count: number }>;
+};
+
+type TooltipValueEntry = {
+  dataKey?: string | number;
+  value?: number | string;
+};
+
+type ChartTooltipProps = {
+  active?: boolean;
+  payload?: readonly TooltipValueEntry[];
+  label?: string | number;
+  activeMetricLabel: string;
+};
+
+const METRIC_OPTIONS: ChartMetric[] = [
+  { key: "unread", label: "Unread per day", accent: "green", color: "#10b981" },
+  { key: "boss", label: "Boss emails per day", accent: "gold", color: "#eab308" },
+  { key: "followupsDone", label: "Followups done per day", accent: "purple", color: "#8b5cf6" },
+];
 
 function toErrorMessage(error: unknown): string {
   if (error instanceof ApiClientError) {
@@ -66,6 +109,14 @@ function formatPercent(value: number): string {
 }
 
 function formatDateLabel(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function formatShortDate(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
     return value;
@@ -137,102 +188,6 @@ function KpiCard({
   );
 }
 
-function MultiLineChart({
-  leftColorClass,
-  leftLabel,
-  leftPoints,
-  rightColorClass,
-  rightLabel,
-  rightPoints,
-}: {
-  leftColorClass: string;
-  leftLabel: string;
-  leftPoints: Array<{ date: string; count: number }>;
-  rightColorClass: string;
-  rightLabel: string;
-  rightPoints: Array<{ date: string; count: number }>;
-}) {
-  const width = 760;
-  const height = 240;
-  const padding = 24;
-  const maxValue = Math.max(1, ...leftPoints.map((point) => point.count), ...rightPoints.map((point) => point.count));
-  const xStep = leftPoints.length > 1 ? (width - padding * 2) / (leftPoints.length - 1) : 0;
-
-  const leftPolyline = leftPoints
-    .map((point, index) => {
-      const x = padding + index * xStep;
-      const y = height - padding - (point.count / maxValue) * (height - padding * 2);
-      return `${x},${y}`;
-    })
-    .join(" ");
-
-  const rightPolyline = rightPoints
-    .map((point, index) => {
-      const x = padding + index * xStep;
-      const y = height - padding - (point.count / maxValue) * (height - padding * 2);
-      return `${x},${y}`;
-    })
-    .join(" ");
-
-  if (leftPoints.length === 0) {
-    return <p className="text-sm text-muted-foreground">No data in this range.</p>;
-  }
-
-  const firstLabel = formatDateLabel(leftPoints[0]?.date ?? "");
-  const middleLabel = formatDateLabel(leftPoints[Math.max(0, Math.floor(leftPoints.length / 2))]?.date ?? "");
-  const lastLabel = formatDateLabel(leftPoints[leftPoints.length - 1]?.date ?? "");
-
-  return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-        <span className="inline-flex items-center gap-1.5">
-          <span className={cn("h-2.5 w-2.5 rounded-full", leftColorClass)} />
-          {leftLabel}
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <span className={cn("h-2.5 w-2.5 rounded-full", rightColorClass)} />
-          {rightLabel}
-        </span>
-      </div>
-      <svg
-        className="h-[240px] w-full rounded-md border border-border bg-card"
-        preserveAspectRatio="none"
-        viewBox={`0 0 ${width} ${height}`}
-      >
-        <line
-          stroke="hsl(var(--border))"
-          strokeWidth="1"
-          x1={padding}
-          x2={width - padding}
-          y1={height - padding}
-          y2={height - padding}
-        />
-        <polyline
-          fill="none"
-          points={leftPolyline}
-          stroke="hsl(var(--primary))"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth="3"
-        />
-        <polyline
-          fill="none"
-          points={rightPolyline}
-          stroke="hsl(var(--chart-2, 200 90% 45%))"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth="2.5"
-        />
-      </svg>
-      <div className="flex items-center justify-between text-xs text-muted-foreground">
-        <span>{firstLabel}</span>
-        <span>{middleLabel}</span>
-        <span>{lastLabel}</span>
-      </div>
-    </div>
-  );
-}
-
 function RankedBars({
   emptyLabel,
   items,
@@ -273,12 +228,84 @@ function RankedBars({
   );
 }
 
+function toSeriesMap(series: Array<{ date: string; count: number }>): Map<string, number> {
+  const mapped = new Map<string, number>();
+  for (const point of series) {
+    mapped.set(point.date, point.count ?? 0);
+  }
+  return mapped;
+}
+
+function mergeChartData(
+  receivedSeries: Array<{ date: string; count: number }>,
+  unreadSeries: Array<{ date: string; count: number }>,
+  bossSeries: Array<{ date: string; count: number }>,
+  followupsDoneSeries: Array<{ date: string; count: number }>,
+): ChartRow[] {
+  const dates = new Set<string>();
+  for (const point of receivedSeries) {
+    dates.add(point.date);
+  }
+  for (const point of unreadSeries) {
+    dates.add(point.date);
+  }
+  for (const point of bossSeries) {
+    dates.add(point.date);
+  }
+  for (const point of followupsDoneSeries) {
+    dates.add(point.date);
+  }
+
+  const receivedByDate = toSeriesMap(receivedSeries);
+  const unreadByDate = toSeriesMap(unreadSeries);
+  const bossByDate = toSeriesMap(bossSeries);
+  const doneByDate = toSeriesMap(followupsDoneSeries);
+
+  return Array.from(dates)
+    .sort((left, right) => left.localeCompare(right))
+    .map((date) => ({
+      date,
+      received: receivedByDate.get(date) ?? 0,
+      unread: unreadByDate.get(date) ?? 0,
+      boss: bossByDate.get(date) ?? 0,
+      followupsDone: doneByDate.get(date) ?? 0,
+    }));
+}
+
+function ChartTooltip({
+  active,
+  payload,
+  label,
+  activeMetricLabel,
+}: ChartTooltipProps) {
+  if (!active || !payload || payload.length === 0) {
+    return null;
+  }
+  const receivedValue = Number(payload.find((entry) => entry.dataKey === "received")?.value ?? 0);
+  const secondaryEntry = payload.find((entry) => entry.dataKey !== "received");
+  const secondaryValue = Number(secondaryEntry?.value ?? 0);
+
+  return (
+    <div className="rounded-md border border-border bg-card p-2 text-xs shadow-sm">
+      <p className="font-medium">{formatDateLabel(String(label ?? ""))}</p>
+      <p className="pt-1 text-muted-foreground">Received: <span className="font-semibold text-foreground">{receivedValue}</span></p>
+      <p className="text-muted-foreground">
+        {activeMetricLabel}: <span className="font-semibold text-foreground">{secondaryValue}</span>
+      </p>
+    </div>
+  );
+}
+
 export function InsightsPage() {
   const navigate = useNavigate();
   const [range, setRange] = useState<InsightsRange>("7d");
   const [summary, setSummary] = useState<InsightsSummary | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [activeMetricIndex, setActiveMetricIndex] = useState(0);
+  const [isPinned, setIsPinned] = useState(false);
+  const [isHoveringChart, setIsHoveringChart] = useState(false);
+  const [resumeAfterMs, setResumeAfterMs] = useState(0);
 
   const comparison = summary?.comparison ?? {
     receivedPreviousCount: 0,
@@ -292,21 +319,68 @@ export function InsightsPage() {
     dueToday: 0,
     snoozed: 0,
   };
-  const volumeSeries = summary?.series?.volumePerDay ?? [];
+
+  const legacySeries = summary?.series as unknown as LegacyInsightsSeries | undefined;
+  const receivedSeries = summary?.series?.receivedPerDay ?? legacySeries?.volumePerDay ?? [];
   const unreadSeries = summary?.series?.unreadPerDay ?? [];
+  const bossSeries = summary?.series?.bossPerDay ?? [];
+  const followupsDoneSeries = summary?.series?.followupsDonePerDay ?? [];
+
+  const chartRows = useMemo(
+    () => mergeChartData(receivedSeries, unreadSeries, bossSeries, followupsDoneSeries),
+    [bossSeries, followupsDoneSeries, receivedSeries, unreadSeries],
+  );
+
+  const availableMetrics = useMemo(() => {
+    return METRIC_OPTIONS.filter((metric) =>
+      chartRows.some((row) => (row[metric.key] ?? 0) > 0),
+    );
+  }, [chartRows]);
+
+  const effectiveMetrics = useMemo(() => {
+    if (availableMetrics.length > 0) {
+      return availableMetrics;
+    }
+    // Keep unread as a fallback so the carousel still renders on empty datasets.
+    return [METRIC_OPTIONS[0]];
+  }, [availableMetrics]);
+
+  useEffect(() => {
+    setActiveMetricIndex((previous) =>
+      effectiveMetrics.length === 0 ? 0 : previous % effectiveMetrics.length,
+    );
+  }, [effectiveMetrics.length]);
+
+  const activeMetric = effectiveMetrics[Math.min(activeMetricIndex, Math.max(effectiveMetrics.length - 1, 0))];
+
+  useEffect(() => {
+    if (effectiveMetrics.length <= 1) {
+      return;
+    }
+    const intervalId = window.setInterval(() => {
+      if (isPinned || isHoveringChart || Date.now() < resumeAfterMs) {
+        return;
+      }
+      setActiveMetricIndex((previous) => (previous + 1) % effectiveMetrics.length);
+    }, AUTO_ROTATE_MS);
+
+    return () => window.clearInterval(intervalId);
+  }, [effectiveMetrics.length, isHoveringChart, isPinned, resumeAfterMs]);
+
   const peakPoint = useMemo(() => {
-    if (volumeSeries.length === 0) {
+    if (chartRows.length === 0) {
       return null;
     }
-    return volumeSeries.reduce((peak, point) => (point.count > peak.count ? point : peak), volumeSeries[0]);
-  }, [volumeSeries]);
+    return chartRows.reduce((peak, point) => (point.received > peak.received ? point : peak), chartRows[0]);
+  }, [chartRows]);
+
   const averagePerDay = useMemo(() => {
-    if (volumeSeries.length === 0) {
+    if (chartRows.length === 0) {
       return 0;
     }
-    const total = volumeSeries.reduce((sum, point) => sum + point.count, 0);
-    return total / volumeSeries.length;
-  }, [volumeSeries]);
+    const total = chartRows.reduce((sum, point) => sum + point.received, 0);
+    return total / chartRows.length;
+  }, [chartRows]);
 
   const loadSummary = useCallback(async (selectedRange: InsightsRange) => {
     setIsLoading(true);
@@ -387,6 +461,31 @@ export function InsightsPage() {
     [openDrilldown, summary],
   );
 
+  const handleChartMouseEnter = useCallback(() => {
+    setIsHoveringChart(true);
+  }, []);
+
+  const handleChartMouseLeave = useCallback(() => {
+    setIsHoveringChart(false);
+    setResumeAfterMs(Date.now() + RESUME_AFTER_HOVER_MS);
+  }, []);
+
+  const handleMetricClick = useCallback(
+    (metricIndex: number) => {
+      if (metricIndex === activeMetricIndex) {
+        setIsPinned((previous) => !previous);
+        return;
+      }
+      setActiveMetricIndex(metricIndex);
+      setIsPinned(true);
+    },
+    [activeMetricIndex],
+  );
+
+  const activeMetricColor = activeMetric?.color ?? "#06b6d4";
+  const activeMetricKey = activeMetric?.key ?? "unread";
+  const activeMetricLabel = activeMetric?.label ?? "Unread per day";
+
   return (
     <section className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -461,11 +560,11 @@ export function InsightsPage() {
       <AccentCard
         accent="blue"
         className={cn("transition-opacity", isLoading && "animate-pulse opacity-75")}
-        description="Range trend overlay for received volume vs unread messages."
+        description="Primary baseline is Received per day. Secondary metric rotates and pauses on hover."
         heading={(
           <span className="flex items-center gap-2">
             <TrendingUp className="h-4 w-4" />
-            Volume and Unread Per Day
+            Metric Carousel Chart
           </span>
         )}
       >
@@ -474,7 +573,7 @@ export function InsightsPage() {
             <div className="rounded-md border border-border bg-card/70 px-3 py-2">
               Peak day:{" "}
               <span className="font-semibold text-foreground">
-                {peakPoint ? `${formatDateLabel(peakPoint.date)} (${peakPoint.count})` : "--"}
+                {peakPoint ? `${formatDateLabel(peakPoint.date)} (${peakPoint.received})` : "--"}
               </span>
             </div>
             <div className="rounded-md border border-border bg-card/70 px-3 py-2">
@@ -482,15 +581,102 @@ export function InsightsPage() {
               <span className="font-semibold text-foreground">{averagePerDay.toFixed(1)}</span>
             </div>
           </div>
+
           <Separator className="opacity-55" />
-          <MultiLineChart
-            leftColorClass="bg-primary"
-            leftLabel="Received per day"
-            leftPoints={volumeSeries}
-            rightColorClass="bg-cyan-500"
-            rightLabel="Unread per day"
-            rightPoints={unreadSeries}
-          />
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge className="border border-border bg-muted text-foreground" variant="outline">
+              Received baseline
+            </Badge>
+            {effectiveMetrics.map((metric, metricIndex) => {
+              const active = metricIndex === activeMetricIndex;
+              return (
+                <button
+                  className={cn(
+                    "rounded-full border px-2.5 py-1 text-xs transition-colors",
+                    active
+                      ? "border-border bg-accent text-foreground"
+                      : "border-border bg-card text-muted-foreground hover:bg-muted/80",
+                  )}
+                  key={metric.key}
+                  onClick={() => handleMetricClick(metricIndex)}
+                  type="button"
+                >
+                  {metric.label}
+                </button>
+              );
+            })}
+            {!isPinned ? (
+              <Badge className="ml-auto gap-1 border border-border bg-muted text-foreground" variant="outline">
+                <Unplug className="h-3 w-3" />
+                AUTO
+              </Badge>
+            ) : (
+              <button
+                className="ml-auto inline-flex items-center gap-1 rounded-full border border-border bg-accent px-2.5 py-1 text-xs text-foreground transition-colors hover:bg-muted"
+                onClick={() => setIsPinned(false)}
+                type="button"
+              >
+                <Pin className="h-3 w-3" />
+                Unpin
+              </button>
+            )}
+          </div>
+
+          <div
+            className="h-[300px] rounded-md border border-border bg-card/70 p-2"
+            onMouseEnter={handleChartMouseEnter}
+            onMouseLeave={handleChartMouseLeave}
+          >
+            <ResponsiveContainer height="100%" width="100%">
+              <LineChart data={chartRows} margin={{ left: 6, right: 10, top: 10, bottom: 6 }}>
+                <CartesianGrid stroke="hsl(var(--border))" strokeDasharray="3 3" />
+                <XAxis
+                  axisLine={false}
+                  dataKey="date"
+                  minTickGap={24}
+                  tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
+                  tickFormatter={formatShortDate}
+                  tickLine={false}
+                />
+                <YAxis
+                  axisLine={false}
+                  allowDecimals={false}
+                  tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
+                  tickLine={false}
+                  width={32}
+                />
+                <Tooltip
+                  content={(tooltipProps) => (
+                    <ChartTooltip
+                      {...tooltipProps}
+                      activeMetricLabel={activeMetricLabel}
+                    />
+                  )}
+                />
+                <Line
+                  dataKey="received"
+                  dot={false}
+                  name="Received per day"
+                  stroke="hsl(var(--primary))"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={3}
+                  type="monotone"
+                />
+                <Line
+                  dataKey={activeMetricKey}
+                  dot={false}
+                  name={activeMetricLabel}
+                  stroke={activeMetricColor}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2.5}
+                  type="monotone"
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
         </div>
       </AccentCard>
 

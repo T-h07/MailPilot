@@ -1,5 +1,6 @@
 import { type ComponentType, useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { Line, LineChart, ResponsiveContainer } from "recharts";
 import {
   AlertTriangle,
   BellRing,
@@ -27,6 +28,11 @@ type DriverItem = {
   label: string;
   count: number;
   onClick: () => void;
+};
+
+type SparklinePoint = {
+  date: string;
+  value: number;
 };
 
 type DrilldownParams = {
@@ -85,6 +91,56 @@ function dashboardCardTone(tone: "neutral" | "attention" | "critical" | "calm" |
     default:
       return "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-200";
   }
+}
+
+function sparklineColorForTone(tone: "neutral" | "attention" | "critical" | "calm" | "boss"): string {
+  switch (tone) {
+    case "critical":
+      return "#ef4444";
+    case "attention":
+      return "#f59e0b";
+    case "calm":
+      return "#8b5cf6";
+    case "boss":
+      return "#eab308";
+    case "neutral":
+    default:
+      return "#0ea5e9";
+  }
+}
+
+function MiniSparkline({ data, stroke }: { data: SparklinePoint[]; stroke: string }) {
+  if (data.length === 0) {
+    return <div className="h-14 w-full" />;
+  }
+  return (
+    <div className="h-14 w-full">
+      <ResponsiveContainer height="100%" width="100%">
+        <LineChart data={data} margin={{ left: 0, right: 0, top: 4, bottom: 2 }}>
+          <Line
+            dataKey="value"
+            dot={false}
+            isAnimationActive={false}
+            stroke={stroke}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            type="monotone"
+          />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function sparklineFromSeries(
+  series7d: DashboardSummary["series7d"] | undefined,
+  valueKey: "unreadNow" | "needsReplyOpen" | "overdue" | "dueToday" | "snoozed" | "unreadBoss",
+): SparklinePoint[] {
+  return (series7d ?? []).map((point) => ({
+    date: point.date,
+    value: point[valueKey] ?? 0,
+  }));
 }
 
 function buildInboxDrilldownPath(params: DrilldownParams): string {
@@ -167,6 +223,7 @@ function KpiTile({
   value,
   delta,
   tone,
+  sparkline,
   onClick,
 }: {
   icon: ComponentType<{ className?: string }>;
@@ -175,8 +232,10 @@ function KpiTile({
   value: number;
   delta: string;
   tone: "neutral" | "attention" | "critical" | "calm" | "boss";
+  sparkline: SparklinePoint[];
   onClick: () => void;
 }) {
+  const sparklineColor = sparklineColorForTone(tone);
   return (
     <button
       className={cn(
@@ -195,6 +254,9 @@ function KpiTile({
       </div>
       <p className="pt-2 text-xs opacity-90">{delta}</p>
       <p className="pt-1 text-xs opacity-70">{subtitle}</p>
+      <div className="mt-2">
+        <MiniSparkline data={sparkline} stroke={sparklineColor} />
+      </div>
       <p className="pt-2 text-[11px] font-medium opacity-85">Click to open filtered mailbox</p>
     </button>
   );
@@ -335,6 +397,31 @@ export function DashboardPage() {
     }));
   }, [openDrilldown, summary]);
 
+  const unreadSparkline = useMemo(
+    () => sparklineFromSeries(summary?.series7d, "unreadNow"),
+    [summary?.series7d],
+  );
+  const needsReplySparkline = useMemo(
+    () => sparklineFromSeries(summary?.series7d, "needsReplyOpen"),
+    [summary?.series7d],
+  );
+  const overdueSparkline = useMemo(
+    () => sparklineFromSeries(summary?.series7d, "overdue"),
+    [summary?.series7d],
+  );
+  const dueTodaySparkline = useMemo(
+    () => sparklineFromSeries(summary?.series7d, "dueToday"),
+    [summary?.series7d],
+  );
+  const snoozedSparkline = useMemo(
+    () => sparklineFromSeries(summary?.series7d, "snoozed"),
+    [summary?.series7d],
+  );
+  const unreadBossSparkline = useMemo(
+    () => sparklineFromSeries(summary?.series7d, "unreadBoss"),
+    [summary?.series7d],
+  );
+
   return (
     <section className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -373,6 +460,7 @@ export function DashboardPage() {
           icon={Inbox}
           label="Unread"
           onClick={() => openDrilldown({ unread: true })}
+          sparkline={unreadSparkline}
           subtitle="Inbox unread load"
           tone={(summary?.unreadTotal ?? 0) > 200 ? "attention" : "neutral"}
           value={summary?.unreadTotal ?? 0}
@@ -382,6 +470,7 @@ export function DashboardPage() {
           icon={MessageSquareReply}
           label="Needs reply"
           onClick={() => openDrilldown({ needsReply: true })}
+          sparkline={needsReplySparkline}
           subtitle="Open followups"
           tone="attention"
           value={summary?.needsReplyOpen ?? 0}
@@ -391,6 +480,7 @@ export function DashboardPage() {
           icon={AlertTriangle}
           label="Overdue"
           onClick={() => openDrilldown({ overdue: true })}
+          sparkline={overdueSparkline}
           subtitle="Past due followups"
           tone="critical"
           value={summary?.overdue ?? 0}
@@ -400,6 +490,7 @@ export function DashboardPage() {
           icon={CalendarClock}
           label="Due today"
           onClick={() => openDrilldown({ dueToday: true })}
+          sparkline={dueTodaySparkline}
           subtitle="Today due queue"
           tone="attention"
           value={summary?.dueToday ?? 0}
@@ -409,6 +500,7 @@ export function DashboardPage() {
           icon={BellRing}
           label="Snoozed"
           onClick={() => openDrilldown({ snoozed: true })}
+          sparkline={snoozedSparkline}
           subtitle="Paused followups"
           tone="calm"
           value={summary?.snoozed ?? 0}
@@ -418,6 +510,7 @@ export function DashboardPage() {
           icon={Crown}
           label="Unread BOSS"
           onClick={handleBossDrilldown}
+          sparkline={unreadBossSparkline}
           subtitle="Priority sender highlights"
           tone="boss"
           value={summary?.unreadBoss ?? 0}

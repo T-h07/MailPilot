@@ -25,6 +25,7 @@ public record DashboardSummaryResponse(
   List<String> bossSenderEmails,
   int openFollowupsTotal,
   int snoozedWakingNext24h,
+  List<SeriesPoint> series7d,
   String lastUpdatedAt
 ) {
 
@@ -33,4 +34,14 @@ public record DashboardSummaryResponse(
   public record SenderCount(String email, int count) {}
 
   public record AccountCount(UUID accountId, String email, int count) {}
+
+  public record SeriesPoint(
+    String date,
+    int unreadNow,
+    int needsReplyOpen,
+    int overdue,
+    int dueToday,
+    int snoozed,
+    int unreadBoss
+  ) {}
 }

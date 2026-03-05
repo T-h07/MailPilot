@@ -210,6 +210,43 @@ public class InsightsService {
       window.end()
     );
 
+    List<Map<String, Object>> bossRows = jdbcTemplate.queryForList(
+      """
+      SELECT (m.received_at AT TIME ZONE 'UTC')::date AS day, COUNT(*) AS count
+      FROM messages m
+      LEFT JOIN sender_rules sr_email
+        ON sr_email.match_type = 'EMAIL' AND lower(sr_email.match_value) = lower(m.sender_email)
+      LEFT JOIN sender_rules sr_domain
+        ON sr_domain.match_type = 'DOMAIN' AND lower(sr_domain.match_value) = lower(m.sender_domain)
+      WHERE
+        m.is_sent = false
+        AND m.received_at >= ?
+        AND m.received_at < ?
+        AND upper(COALESCE(sr_email.label, sr_domain.label, '')) = 'BOSS'
+      GROUP BY (m.received_at AT TIME ZONE 'UTC')::date
+      ORDER BY day ASC
+      """,
+      window.start(),
+      window.end()
+    );
+
+    List<Map<String, Object>> followupsDoneRows = jdbcTemplate.queryForList(
+      """
+      SELECT (f.updated_at AT TIME ZONE 'UTC')::date AS day, COUNT(*) AS count
+      FROM followups f
+      JOIN messages m ON m.id = f.message_id
+      WHERE
+        m.is_sent = false
+        AND f.status = 'DONE'
+        AND f.updated_at >= ?
+        AND f.updated_at < ?
+      GROUP BY (f.updated_at AT TIME ZONE 'UTC')::date
+      ORDER BY day ASC
+      """,
+      window.start(),
+      window.end()
+    );
+
     Map<LocalDate, Integer> volumeByDay = new HashMap<>();
     for (Map<String, Object> row : volumeRows) {
       LocalDate day = toLocalDate(row.get("day"));
@@ -228,12 +265,32 @@ public class InsightsService {
       unreadByDay.put(day, toInt(row.get("count")));
     }
 
-    List<InsightsSummaryResponse.VolumePoint> volumeSeries = new ArrayList<>();
+    Map<LocalDate, Integer> bossByDay = new HashMap<>();
+    for (Map<String, Object> row : bossRows) {
+      LocalDate day = toLocalDate(row.get("day"));
+      if (day == null) {
+        continue;
+      }
+      bossByDay.put(day, toInt(row.get("count")));
+    }
+
+    Map<LocalDate, Integer> followupsDoneByDay = new HashMap<>();
+    for (Map<String, Object> row : followupsDoneRows) {
+      LocalDate day = toLocalDate(row.get("day"));
+      if (day == null) {
+        continue;
+      }
+      followupsDoneByDay.put(day, toInt(row.get("count")));
+    }
+
+    List<InsightsSummaryResponse.VolumePoint> receivedSeries = new ArrayList<>();
     List<InsightsSummaryResponse.VolumePoint> unreadSeries = new ArrayList<>();
+    List<InsightsSummaryResponse.VolumePoint> bossSeries = new ArrayList<>();
+    List<InsightsSummaryResponse.VolumePoint> followupsDoneSeries = new ArrayList<>();
     LocalDate current = window.start().withOffsetSameInstant(ZoneOffset.UTC).toLocalDate();
     LocalDate lastDay = window.end().minusNanos(1).withOffsetSameInstant(ZoneOffset.UTC).toLocalDate();
     while (!current.isAfter(lastDay)) {
-      volumeSeries.add(
+      receivedSeries.add(
         new InsightsSummaryResponse.VolumePoint(
           current.toString(),
           volumeByDay.getOrDefault(current, 0)
@@ -243,6 +300,18 @@ public class InsightsService {
         new InsightsSummaryResponse.VolumePoint(
           current.toString(),
           unreadByDay.getOrDefault(current, 0)
+        )
+      );
+      bossSeries.add(
+        new InsightsSummaryResponse.VolumePoint(
+          current.toString(),
+          bossByDay.getOrDefault(current, 0)
+        )
+      );
+      followupsDoneSeries.add(
+        new InsightsSummaryResponse.VolumePoint(
+          current.toString(),
+          followupsDoneByDay.getOrDefault(current, 0)
         )
       );
       current = current.plusDays(1);
@@ -269,7 +338,7 @@ public class InsightsService {
         toInt(followupsNowRow.get("due_today")),
         toInt(followupsNowRow.get("snoozed"))
       ),
-      new InsightsSummaryResponse.Series(volumeSeries, unreadSeries)
+      new InsightsSummaryResponse.Series(receivedSeries, unreadSeries, bossSeries, followupsDoneSeries)
     );
   }
 

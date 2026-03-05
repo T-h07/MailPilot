@@ -22,6 +22,15 @@ export type DashboardSummary = {
   bossSenderEmails: string[];
   openFollowupsTotal: number;
   snoozedWakingNext24h: number;
+  series7d: Array<{
+    date: string;
+    unreadNow: number;
+    needsReplyOpen: number;
+    overdue: number;
+    dueToday: number;
+    snoozed: number;
+    unreadBoss: number;
+  }>;
   lastUpdatedAt: string;
 };
 
