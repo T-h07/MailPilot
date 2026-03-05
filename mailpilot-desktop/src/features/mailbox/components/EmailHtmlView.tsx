@@ -142,8 +142,11 @@ export function EmailHtmlView({ html, isDark }: EmailHtmlViewProps) {
 
       event.preventDefault();
       try {
-        const resolvedHref = new URL(rawHref, anchor.baseURI).toString();
-        void openUrl(resolvedHref);
+        const resolvedUrl = new URL(rawHref, anchor.baseURI);
+        const protocol = resolvedUrl.protocol.toLowerCase();
+        if (protocol === "http:" || protocol === "https:" || protocol === "mailto:") {
+          void openUrl(resolvedUrl.toString());
+        }
       } catch {
         // Ignore invalid URLs in malformed emails.
       }
@@ -172,7 +175,7 @@ export function EmailHtmlView({ html, isDark }: EmailHtmlViewProps) {
       className="h-full w-full border-0"
       onLoad={attachLinkHandler}
       ref={iframeRef}
-      sandbox="allow-popups allow-popups-to-escape-sandbox"
+      sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
       srcDoc={srcDoc}
       title="Email HTML body"
     />
