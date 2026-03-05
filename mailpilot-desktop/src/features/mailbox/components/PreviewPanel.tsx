@@ -17,11 +17,14 @@ import type { MessageFollowup } from "@/features/mailbox/model/types";
 
 type PreviewPanelProps = {
   selectedMessage: MailMessage | null;
+  bodyViewMode: "collapsed" | "inline" | "modal";
+  onCollapseBody: () => void;
   onSelectThreadMessage: (messageId: string) => void;
   onRefreshMessage: () => void;
   isRefreshingMessage?: boolean;
   onToggleRead: () => void;
   onLoadFullBody: () => void;
+  onViewFullBody: () => void;
   isLoadingBody?: boolean;
   onOpenInGmail: () => void;
   onComposeAction: (action: "reply" | "reply-all" | "forward") => void;
@@ -62,11 +65,14 @@ export const PreviewPanel = forwardRef<HTMLDivElement, PreviewPanelProps>(
   function PreviewPanel(
     {
       selectedMessage,
+      bodyViewMode,
+      onCollapseBody,
       onSelectThreadMessage,
       onRefreshMessage,
       isRefreshingMessage = false,
       onToggleRead,
       onLoadFullBody,
+      onViewFullBody,
       isLoadingBody = false,
       onOpenInGmail,
       onComposeAction,
@@ -90,12 +96,10 @@ export const PreviewPanel = forwardRef<HTMLDivElement, PreviewPanelProps>(
   ) {
     const [inlineZoom, setInlineZoom] = useState<number>(90);
     const [modalZoom, setModalZoom] = useState<number>(90);
-    const [fullBodyOpen, setFullBodyOpen] = useState(false);
 
     useEffect(() => {
       setInlineZoom(90);
       setModalZoom(90);
-      setFullBodyOpen(false);
     }, [selectedMessage?.id]);
 
     if (!selectedMessage) {
@@ -120,6 +124,7 @@ export const PreviewPanel = forwardRef<HTMLDivElement, PreviewPanelProps>(
     const hasCachedBody = selectedMessage.bodyCache !== null;
     const isHtmlBody = selectedMessage.bodyMime?.toLowerCase().startsWith("text/html") ?? false;
     const bodyText = selectedMessage.bodyCache ?? "";
+    const isModalOpen = bodyViewMode === "modal";
 
     return (
       <ScrollArea className="mailbox-panel h-full" ref={ref}>
@@ -254,45 +259,7 @@ export const PreviewPanel = forwardRef<HTMLDivElement, PreviewPanelProps>(
               />
             </CardHeader>
             <CardContent className="space-y-3 min-h-0">
-              {hasCachedBody ? (
-                isHtmlBody ? (
-                  <div className="space-y-2">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-muted-foreground">Zoom</span>
-                        <select
-                          className="h-8 rounded-md border border-input bg-background px-2 text-xs"
-                          onChange={(event) => setInlineZoom(Number(event.target.value))}
-                          value={inlineZoom}
-                        >
-                          {HTML_ZOOM_LEVELS.map((zoomLevel) => (
-                            <option key={`inline-zoom-${zoomLevel}`} value={zoomLevel}>
-                              {zoomLevel}%
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <Button onClick={() => setFullBodyOpen(true)} size="sm" variant="outline">
-                        View full body
-                      </Button>
-                    </div>
-                    <div className="flex h-[65vh] min-h-0 flex-1 overflow-hidden rounded-lg border border-border bg-background">
-                      <EmailHtmlViewer html={bodyText} zoomPercent={inlineZoom} />
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    <div className="flex justify-end">
-                      <Button onClick={() => setFullBodyOpen(true)} size="sm" variant="outline">
-                        View full body
-                      </Button>
-                    </div>
-                    <div className="rounded-lg border border-border bg-background p-3 text-sm leading-relaxed whitespace-pre-wrap">
-                      {bodyText}
-                    </div>
-                  </div>
-                )
-              ) : (
+              {bodyViewMode === "collapsed" && (
                 <div className="space-y-3 rounded-lg border border-border bg-background p-3">
                   <p className="text-sm text-muted-foreground">{selectedMessage.snippet}</p>
                   <div className="flex flex-wrap gap-2">
@@ -306,16 +273,99 @@ export const PreviewPanel = forwardRef<HTMLDivElement, PreviewPanelProps>(
                       {isLoadingBody && <Loader2 className="h-4 w-4 animate-spin" />}
                       {isLoadingBody ? "Loading..." : "Load full body"}
                     </Button>
-                    <Button onClick={() => setFullBodyOpen(true)} size="sm" variant="outline">
+                    <Button
+                      className="gap-2"
+                      disabled={isLoadingBody}
+                      onClick={onViewFullBody}
+                      size="sm"
+                      variant="outline"
+                    >
+                      {isLoadingBody && <Loader2 className="h-4 w-4 animate-spin" />}
                       View full body
                     </Button>
                   </div>
                 </div>
               )}
+
+              {bodyViewMode === "inline" && (
+                hasCachedBody ? (
+                  isHtmlBody ? (
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-muted-foreground">Zoom</span>
+                          <select
+                            className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+                            onChange={(event) => setInlineZoom(Number(event.target.value))}
+                            value={inlineZoom}
+                          >
+                            {HTML_ZOOM_LEVELS.map((zoomLevel) => (
+                              <option key={`inline-zoom-${zoomLevel}`} value={zoomLevel}>
+                                {zoomLevel}%
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Button onClick={onViewFullBody} size="sm" variant="outline">
+                            View full body
+                          </Button>
+                          <Button onClick={onCollapseBody} size="sm" variant="secondary">
+                            Collapse
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="flex h-[65vh] min-h-0 flex-1 overflow-hidden rounded-lg border border-border bg-background">
+                        <EmailHtmlViewer html={bodyText} zoomPercent={inlineZoom} />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap justify-end gap-2">
+                        <Button onClick={onViewFullBody} size="sm" variant="outline">
+                          View full body
+                        </Button>
+                        <Button onClick={onCollapseBody} size="sm" variant="secondary">
+                          Collapse
+                        </Button>
+                      </div>
+                      <div className="rounded-lg border border-border bg-background p-3 text-sm leading-relaxed whitespace-pre-wrap">
+                        {bodyText}
+                      </div>
+                    </div>
+                  )
+                ) : (
+                  <div className="space-y-3 rounded-lg border border-border bg-background p-3">
+                    <p className="text-sm text-muted-foreground">{selectedMessage.snippet}</p>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        className="gap-2"
+                        disabled={isLoadingBody}
+                        onClick={onLoadFullBody}
+                        size="sm"
+                        variant="outline"
+                      >
+                        {isLoadingBody && <Loader2 className="h-4 w-4 animate-spin" />}
+                        {isLoadingBody ? "Loading..." : "Load full body"}
+                      </Button>
+                      <Button onClick={onCollapseBody} size="sm" variant="secondary">
+                        Collapse
+                      </Button>
+                    </div>
+                  </div>
+                )
+              )}
             </CardContent>
           </Card>
 
-          <Dialog onOpenChange={setFullBodyOpen} open={fullBodyOpen}>
+          <Dialog
+            onOpenChange={(open) => {
+              if (!open) {
+                onCollapseBody();
+              }
+            }}
+            open={isModalOpen}
+          >
             <DialogContent className="flex h-[90vh] w-[90vw] max-w-none flex-col gap-0 overflow-hidden p-0">
               <DialogHeader className="border-b border-border px-4 py-3">
                 <DialogTitle className="pr-8 text-base">{selectedMessage.subject}</DialogTitle>
@@ -357,7 +407,7 @@ export const PreviewPanel = forwardRef<HTMLDivElement, PreviewPanelProps>(
                     <Button
                       className="gap-2"
                       disabled={isLoadingBody}
-                      onClick={onLoadFullBody}
+                      onClick={onViewFullBody}
                       size="sm"
                       variant="outline"
                     >
@@ -365,7 +415,7 @@ export const PreviewPanel = forwardRef<HTMLDivElement, PreviewPanelProps>(
                       {isLoadingBody ? "Loading..." : "Load full body"}
                     </Button>
                   )}
-                  <Button onClick={() => setFullBodyOpen(false)} size="sm" variant="secondary">
+                  <Button onClick={onCollapseBody} size="sm" variant="secondary">
                     Close
                   </Button>
                 </div>

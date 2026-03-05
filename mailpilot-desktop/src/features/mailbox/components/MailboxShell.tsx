@@ -58,6 +58,8 @@ type NoticeState = {
   message: string;
 };
 
+type BodyViewMode = "collapsed" | "inline" | "modal";
+
 const ACCOUNT_COLOR_TOKENS: AccountColorToken[] = ["sky", "emerald", "violet", "amber"];
 const REQUEST_PAGE_SIZE = 50;
 const OAUTH_POLL_INTERVAL_MS = 2000;
@@ -415,6 +417,7 @@ export function MailboxShell({
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
   const [selectedMessageDetail, setSelectedMessageDetail] = useState<MessageDetailResponse | null>(null);
+  const [bodyViewMode, setBodyViewMode] = useState<BodyViewMode>("collapsed");
   const [notice, setNotice] = useState<NoticeState | null>(null);
 
   const [accounts, setAccounts] = useState<MailAccount[]>([]);
@@ -733,6 +736,7 @@ export function MailboxShell({
     if (queryChanged) {
       setSelectedMessageId(null);
       setSelectedMessageDetail(null);
+      setBodyViewMode("collapsed");
       setDetailError(null);
     }
 
@@ -781,12 +785,14 @@ export function MailboxShell({
     if (messages.length === 0) {
       setSelectedMessageId(null);
       setSelectedMessageDetail(null);
+      setBodyViewMode("collapsed");
       return;
     }
 
     const selectedStillVisible = messages.some((message) => message.id === selectedMessageId);
     if (!selectedStillVisible) {
       setSelectedMessageId(messages[0].id);
+      setBodyViewMode("collapsed");
     }
   }, [messages, selectedMessageId]);
 
@@ -795,6 +801,7 @@ export function MailboxShell({
       detailAbortRef.current?.abort();
       detailRequestSequenceRef.current += 1;
       setSelectedMessageDetail(null);
+      setBodyViewMode("collapsed");
       setDetailError(null);
       setIsLoadingDetail(false);
       setIsRefreshingMessage(false);
@@ -969,23 +976,59 @@ export function MailboxShell({
     }
   }, [applyUnreadState, refreshSelectedMessage, selectedMessage, showNotice]);
 
+  const ensureBodyIsLoaded = useCallback(
+    async (messageId: string, hasCachedBody: boolean): Promise<boolean> => {
+      if (hasCachedBody) {
+        return true;
+      }
+
+      setBodyLoadingMessageId(messageId);
+      try {
+        await loadMessageBody(messageId);
+        await refreshMessageDetail(messageId, true);
+        showNotice("Full body loaded");
+        return true;
+      } catch (error) {
+        showNotice(toErrorMessage(error) || "Failed to load full body");
+        return false;
+      } finally {
+        setBodyLoadingMessageId((current) => (current === messageId ? null : current));
+      }
+    },
+    [refreshMessageDetail, showNotice],
+  );
+
   const handleLoadFullBody = useCallback(async () => {
     if (!selectedMessage) {
       return;
     }
 
-    const messageId = selectedMessage.id;
-    setBodyLoadingMessageId(messageId);
-    try {
-      await loadMessageBody(messageId);
-      await refreshMessageDetail(messageId, true);
-      showNotice("Full body loaded");
-    } catch (error) {
-      showNotice(toErrorMessage(error) || "Failed to load full body");
-    } finally {
-      setBodyLoadingMessageId((current) => (current === messageId ? null : current));
+    const loaded = await ensureBodyIsLoaded(
+      selectedMessage.id,
+      selectedMessage.bodyCache !== null,
+    );
+    if (loaded) {
+      setBodyViewMode("inline");
     }
-  }, [refreshMessageDetail, selectedMessage, showNotice]);
+  }, [ensureBodyIsLoaded, selectedMessage]);
+
+  const handleViewFullBody = useCallback(async () => {
+    if (!selectedMessage) {
+      return;
+    }
+
+    const loaded = await ensureBodyIsLoaded(
+      selectedMessage.id,
+      selectedMessage.bodyCache !== null,
+    );
+    if (loaded) {
+      setBodyViewMode("modal");
+    }
+  }, [ensureBodyIsLoaded, selectedMessage]);
+
+  const handleCollapseBody = useCallback(() => {
+    setBodyViewMode("collapsed");
+  }, []);
 
   const handleOpenInGmail = useCallback(async () => {
     if (!selectedMessage?.openInGmailUrl) {
@@ -1176,9 +1219,15 @@ export function MailboxShell({
         return;
       }
       setSelectedMessageId(messageId);
+      setBodyViewMode("collapsed");
     },
     [messages, showNotice],
   );
+
+  const handleSelectMessage = useCallback((messageId: string) => {
+    setSelectedMessageId(messageId);
+    setBodyViewMode("collapsed");
+  }, []);
 
   const openComposeNew = useCallback(() => {
     const accountId = resolvePreferredAccountId(accountRecords, accounts);
@@ -1440,7 +1489,7 @@ export function MailboxShell({
             <MailList
               messages={messages}
               onFocusPreview={() => previewRef.current?.focus()}
-              onSelectMessage={setSelectedMessageId}
+              onSelectMessage={handleSelectMessage}
               searchQuery={debouncedSearchQuery}
               selectedMessageId={selectedMessageId}
             />
@@ -1461,6 +1510,8 @@ export function MailboxShell({
         </div>
 
         <PreviewPanel
+          bodyViewMode={bodyViewMode}
+          onCollapseBody={handleCollapseBody}
           isLoading={isLoadingDetail}
           onRefreshMessage={handleRefreshMessage}
           isRefreshingMessage={isRefreshingMessage}
@@ -1486,6 +1537,9 @@ export function MailboxShell({
           onToggleRead={handleToggleRead}
           onLoadFullBody={() => {
             void handleLoadFullBody();
+          }}
+          onViewFullBody={() => {
+            void handleViewFullBody();
           }}
           isLoadingBody={selectedMessage ? bodyLoadingMessageId === selectedMessage.id : false}
           onOpenInGmail={() => {
