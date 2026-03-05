@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { memo, useEffect, useMemo, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { MailMessage } from "@/features/mailbox/model/types";
 import { MailRow } from "@/features/mailbox/components/MailRow";
@@ -13,7 +13,7 @@ type MailListProps = {
 
 const ROW_HEIGHT_PX = 136;
 
-export function MailList({
+function MailListComponent({
   messages,
   selectedMessageId,
   searchQuery,
@@ -31,6 +31,7 @@ export function MailList({
     count: messages.length,
     estimateSize: () => ROW_HEIGHT_PX,
     getScrollElement: () => parentRef.current,
+    getItemKey: (index) => messages[index]?.id ?? index,
     overscan: 12,
   });
 
@@ -112,3 +113,13 @@ export function MailList({
     </div>
   );
 }
+
+export const MailList = memo(
+  MailListComponent,
+  (previous, next) =>
+    previous.messages === next.messages &&
+    previous.selectedMessageId === next.selectedMessageId &&
+    previous.searchQuery === next.searchQuery &&
+    previous.onSelectMessage === next.onSelectMessage &&
+    previous.onFocusPreview === next.onFocusPreview
+);

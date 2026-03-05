@@ -38,6 +38,7 @@ const RANGE_OPTIONS: Array<{ value: InsightsRange; label: string }> = [
 
 const AUTO_ROTATE_MS = 4000;
 const RESUME_AFTER_HOVER_MS = 1000;
+const EMPTY_SERIES: Array<{ date: string; count: number }> = [];
 
 type ChartMetricKey = "unread" | "boss" | "followupsDone";
 
@@ -193,13 +194,24 @@ export function InsightsPage() {
     snoozed: 0,
   };
 
-  const legacySeries = summary?.series as unknown as LegacyInsightsSeries | undefined;
-  const receivedSeries = summary?.series?.receivedPerDay ?? legacySeries?.volumePerDay ?? [];
-  const unreadSeries = summary?.series?.unreadPerDay ?? [];
-  const bossSeries = summary?.series?.bossPerDay ?? [];
-  const followupsDoneSeries = summary?.series?.followupsDonePerDay ?? [];
-  const hasBossSeries = hasOwnSeriesKey(summary?.series, "bossPerDay");
-  const hasFollowupsDoneSeries = hasOwnSeriesKey(summary?.series, "followupsDonePerDay");
+  const {
+    receivedSeries,
+    unreadSeries,
+    bossSeries,
+    followupsDoneSeries,
+    hasBossSeries,
+    hasFollowupsDoneSeries,
+  } = useMemo(() => {
+    const legacySeries = summary?.series as unknown as LegacyInsightsSeries | undefined;
+    return {
+      receivedSeries: summary?.series?.receivedPerDay ?? legacySeries?.volumePerDay ?? EMPTY_SERIES,
+      unreadSeries: summary?.series?.unreadPerDay ?? EMPTY_SERIES,
+      bossSeries: summary?.series?.bossPerDay ?? EMPTY_SERIES,
+      followupsDoneSeries: summary?.series?.followupsDonePerDay ?? EMPTY_SERIES,
+      hasBossSeries: hasOwnSeriesKey(summary?.series, "bossPerDay"),
+      hasFollowupsDoneSeries: hasOwnSeriesKey(summary?.series, "followupsDonePerDay"),
+    };
+  }, [summary]);
 
   const chartRows = useMemo(
     () => mergeChartData(receivedSeries, unreadSeries, bossSeries, followupsDoneSeries),

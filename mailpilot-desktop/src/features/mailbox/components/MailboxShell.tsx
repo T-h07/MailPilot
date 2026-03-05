@@ -451,6 +451,7 @@ export function MailboxShell({
   const previewRef = useRef<HTMLDivElement>(null);
   const hideNoticeTimeoutRef = useRef<number | null>(null);
   const listAbortRef = useRef<AbortController | null>(null);
+  const listRequestSequenceRef = useRef(0);
   const detailAbortRef = useRef<AbortController | null>(null);
   const viewLabelsAbortRef = useRef<AbortController | null>(null);
   const messageViewLabelsAbortRef = useRef<AbortController | null>(null);
@@ -641,6 +642,8 @@ export function MailboxShell({
 
   useEffect(() => {
     return () => {
+      listRequestSequenceRef.current += 1;
+      detailRequestSequenceRef.current += 1;
       listAbortRef.current?.abort();
       detailAbortRef.current?.abort();
       viewLabelsAbortRef.current?.abort();
@@ -818,6 +821,8 @@ export function MailboxShell({
       listAbortRef.current?.abort();
       const controller = new AbortController();
       listAbortRef.current = controller;
+      const requestSequence = listRequestSequenceRef.current + 1;
+      listRequestSequenceRef.current = requestSequence;
 
       setListError(null);
       if (append) {
@@ -890,6 +895,10 @@ export function MailboxShell({
                 controller.signal
               );
 
+        if (requestSequence !== listRequestSequenceRef.current) {
+          return;
+        }
+
         const incomingMessages = response.items.map((item) => toSummaryMessage(item));
         const incomingAccounts = response.items.map((item) =>
           toMailAccount(item.accountId, item.accountEmail)
@@ -905,17 +914,23 @@ export function MailboxShell({
         if (!message) {
           return;
         }
+        if (requestSequence !== listRequestSequenceRef.current) {
+          return;
+        }
         setListError(message);
         if (!append) {
           setMessages([]);
           setNextCursor(null);
         }
       } finally {
-        if (append) {
-          setIsLoadingMore(false);
-        } else {
-          setIsLoadingList(false);
-          setIsRefreshingMailbox(false);
+        const isLatestRequest = requestSequence === listRequestSequenceRef.current;
+        if (isLatestRequest) {
+          if (append) {
+            setIsLoadingMore(false);
+          } else {
+            setIsLoadingList(false);
+            setIsRefreshingMailbox(false);
+          }
         }
       }
     },
@@ -1540,6 +1555,10 @@ export function MailboxShell({
     setBodyViewMode("collapsed");
   }, []);
 
+  const handleFocusPreview = useCallback(() => {
+    previewRef.current?.focus();
+  }, []);
+
   const openComposeNew = useCallback(() => {
     const accountId = resolvePreferredAccountId(accountRecords, accounts);
     setComposeDraft({
@@ -1821,7 +1840,7 @@ export function MailboxShell({
           ) : (
             <MailList
               messages={messages}
-              onFocusPreview={() => previewRef.current?.focus()}
+              onFocusPreview={handleFocusPreview}
               onSelectMessage={handleSelectMessage}
               searchQuery={debouncedSearchQuery}
               selectedMessageId={selectedMessageId}
