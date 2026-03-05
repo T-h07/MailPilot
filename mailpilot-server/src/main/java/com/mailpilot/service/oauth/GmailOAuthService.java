@@ -5,6 +5,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mailpilot.api.model.GmailOAuthStartResponse;
+import com.mailpilot.service.logging.LogSanitizer;
 import com.mailpilot.service.oauth.OAuthAccountService.EncryptedTokenPayload;
 import com.mailpilot.service.oauth.OAuthStateStore.OAuthFlowStatus;
 import com.mailpilot.service.oauth.OAuthStateStore.PkceState;
@@ -40,16 +41,12 @@ public class GmailOAuthService {
   private static final String AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth";
   private static final String TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
   private static final String GMAIL_PROFILE_ENDPOINT =
-    "https://gmail.googleapis.com/gmail/v1/users/me/profile";
+      "https://gmail.googleapis.com/gmail/v1/users/me/profile";
   private static final String REDIRECT_URI = "http://127.0.0.1:8082/api/oauth/gmail/callback";
 
   private static final String GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
-  private static final List<String> READONLY_SCOPES = List.of(
-    "openid",
-    "email",
-    "profile",
-    "https://www.googleapis.com/auth/gmail.readonly"
-  );
+  private static final List<String> READONLY_SCOPES =
+      List.of("openid", "email", "profile", "https://www.googleapis.com/auth/gmail.readonly");
 
   private final GoogleOAuthClientConfigService googleOAuthClientConfigService;
   private final OAuthStateStore oauthStateStore;
@@ -59,12 +56,11 @@ public class GmailOAuthService {
   private final HttpClient httpClient;
 
   public GmailOAuthService(
-    GoogleOAuthClientConfigService googleOAuthClientConfigService,
-    OAuthStateStore oauthStateStore,
-    OAuthAccountService oauthAccountService,
-    TokenCrypto tokenCrypto,
-    ObjectMapper objectMapper
-  ) {
+      GoogleOAuthClientConfigService googleOAuthClientConfigService,
+      OAuthStateStore oauthStateStore,
+      OAuthAccountService oauthAccountService,
+      TokenCrypto tokenCrypto,
+      ObjectMapper objectMapper) {
     this.googleOAuthClientConfigService = googleOAuthClientConfigService;
     this.oauthStateStore = oauthStateStore;
     this.oauthAccountService = oauthAccountService;
@@ -78,30 +74,26 @@ public class GmailOAuthService {
     GoogleOAuthClientConfig config = googleOAuthClientConfigService.loadRequiredConfig();
     PkceState pkceState = oauthStateStore.create(mode.name());
 
-    String authUrl = UriComponentsBuilder
-      .fromUriString(AUTH_ENDPOINT)
-      .queryParam("response_type", "code")
-      .queryParam("client_id", config.clientId())
-      .queryParam("redirect_uri", REDIRECT_URI)
-      .queryParam("scope", String.join(" ", mode.requestedScopes()))
-      .queryParam("code_challenge", pkceState.codeChallenge())
-      .queryParam("code_challenge_method", "S256")
-      .queryParam("access_type", "offline")
-      .queryParam("prompt", "consent")
-      .queryParam("state", pkceState.state())
-      .build()
-      .encode()
-      .toUriString();
+    String authUrl =
+        UriComponentsBuilder.fromUriString(AUTH_ENDPOINT)
+            .queryParam("response_type", "code")
+            .queryParam("client_id", config.clientId())
+            .queryParam("redirect_uri", REDIRECT_URI)
+            .queryParam("scope", String.join(" ", mode.requestedScopes()))
+            .queryParam("code_challenge", pkceState.codeChallenge())
+            .queryParam("code_challenge_method", "S256")
+            .queryParam("access_type", "offline")
+            .queryParam("prompt", "consent")
+            .queryParam("state", pkceState.state())
+            .build()
+            .encode()
+            .toUriString();
 
     return new GmailOAuthStartResponse(authUrl, pkceState.state());
   }
 
   public OAuthCallbackResult handleCallback(
-    String code,
-    String state,
-    String error,
-    String errorDescription
-  ) {
+      String code, String state, String error, String errorDescription) {
     if (!StringUtils.hasText(state)) {
       return failureResult("Missing OAuth state.", HttpStatus.BAD_REQUEST);
     }
@@ -128,45 +120,51 @@ public class GmailOAuthService {
     try {
       OAuthStartMode mode = OAuthStartMode.fromInput(verification.mode());
       GoogleOAuthClientConfig config = googleOAuthClientConfigService.loadRequiredConfig();
-      GoogleTokenResponse tokenResponse = exchangeCodeForTokens(code, verification.codeVerifier(), config);
+      GoogleTokenResponse tokenResponse =
+          exchangeCodeForTokens(code, verification.codeVerifier(), config);
       String confirmedEmail = confirmEmailIdentity(tokenResponse);
-      String grantedScope = StringUtils.hasText(tokenResponse.scope())
-        ? tokenResponse.scope()
-        : String.join(" ", mode.requestedScopes());
+      String grantedScope =
+          StringUtils.hasText(tokenResponse.scope())
+              ? tokenResponse.scope()
+              : String.join(" ", mode.requestedScopes());
 
       String encryptedAccessToken = tokenCrypto.encrypt(tokenResponse.accessToken());
-      String encryptedRefreshToken = StringUtils.hasText(tokenResponse.refreshToken())
-        ? tokenCrypto.encrypt(tokenResponse.refreshToken())
-        : null;
+      String encryptedRefreshToken =
+          StringUtils.hasText(tokenResponse.refreshToken())
+              ? tokenCrypto.encrypt(tokenResponse.refreshToken())
+              : null;
 
-      OffsetDateTime expiryAt = tokenResponse.expiresIn() == null
-        ? null
-        : OffsetDateTime.now(ZoneOffset.UTC).plusSeconds(tokenResponse.expiresIn());
+      OffsetDateTime expiryAt =
+          tokenResponse.expiresIn() == null
+              ? null
+              : OffsetDateTime.now(ZoneOffset.UTC).plusSeconds(tokenResponse.expiresIn());
 
       oauthAccountService.upsertConnectedGmailAccountAndTokens(
-        confirmedEmail,
-        null,
-        new EncryptedTokenPayload(
-          encryptedAccessToken,
-          encryptedRefreshToken,
-          expiryAt,
-          grantedScope,
-          tokenResponse.tokenType()
-        )
-      );
+          confirmedEmail,
+          null,
+          new EncryptedTokenPayload(
+              encryptedAccessToken,
+              encryptedRefreshToken,
+              expiryAt,
+              grantedScope,
+              tokenResponse.tokenType()));
 
       LOGGER.info("Connected Gmail account: {}", confirmedEmail);
       oauthStateStore.markSuccess(state, "Connected " + confirmedEmail);
       return successResult("Gmail connected. You can close this tab.");
     } catch (OAuthFlowException exception) {
+      LOGGER.warn(
+          "Gmail OAuth callback rejected: {}", LogSanitizer.sanitize(exception.getMessage()));
       oauthStateStore.markError(state, exception.getMessage());
       return failureResult(exception.getMessage(), HttpStatus.BAD_REQUEST);
     } catch (Exception exception) {
+      LOGGER.error(
+          "Unexpected Gmail OAuth callback failure: {}",
+          LogSanitizer.sanitize(exception.getMessage()));
       oauthStateStore.markError(state, "Unexpected error while connecting Gmail.");
       return failureResult(
-        "Unexpected error while connecting Gmail. Please retry.",
-        HttpStatus.INTERNAL_SERVER_ERROR
-      );
+          "Unexpected error while connecting Gmail. Please retry.",
+          HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 
@@ -175,10 +173,7 @@ public class GmailOAuthService {
   }
 
   private GoogleTokenResponse exchangeCodeForTokens(
-    String code,
-    String codeVerifier,
-    GoogleOAuthClientConfig config
-  ) {
+      String code, String codeVerifier, GoogleOAuthClientConfig config) {
     Map<String, String> form = new LinkedHashMap<>();
     form.put("grant_type", "authorization_code");
     form.put("code", code);
@@ -187,24 +182,21 @@ public class GmailOAuthService {
     form.put("redirect_uri", REDIRECT_URI);
     form.put("code_verifier", codeVerifier);
 
-    HttpRequest request = HttpRequest
-      .newBuilder(URI.create(TOKEN_ENDPOINT))
-      .header("Content-Type", "application/x-www-form-urlencoded")
-      .POST(HttpRequest.BodyPublishers.ofString(buildFormBody(form)))
-      .build();
+    HttpRequest request =
+        HttpRequest.newBuilder(URI.create(TOKEN_ENDPOINT))
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .POST(HttpRequest.BodyPublishers.ofString(buildFormBody(form)))
+            .build();
 
     try {
-      HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+      HttpResponse<String> response =
+          httpClient.send(request, HttpResponse.BodyHandlers.ofString());
       if (response.statusCode() < 200 || response.statusCode() > 299) {
-        throw new OAuthFlowException(
-          mapTokenExchangeError(response.statusCode(), response.body())
-        );
+        throw new OAuthFlowException(mapTokenExchangeError(response.statusCode(), response.body()));
       }
 
-      GoogleTokenResponse tokenResponse = objectMapper.readValue(
-        response.body(),
-        GoogleTokenResponse.class
-      );
+      GoogleTokenResponse tokenResponse =
+          objectMapper.readValue(response.body(), GoogleTokenResponse.class);
       if (!StringUtils.hasText(tokenResponse.accessToken())) {
         throw new OAuthFlowException("Token exchange failed: missing access token.");
       }
@@ -230,19 +222,19 @@ public class GmailOAuthService {
     }
 
     throw new OAuthFlowException(
-      "Unable to confirm Gmail email identity from Google OAuth response."
-    );
+        "Unable to confirm Gmail email identity from Google OAuth response.");
   }
 
   private String fetchEmailFromGmailProfile(String accessToken) {
-    HttpRequest request = HttpRequest
-      .newBuilder(URI.create(GMAIL_PROFILE_ENDPOINT))
-      .header("Authorization", "Bearer " + accessToken)
-      .GET()
-      .build();
+    HttpRequest request =
+        HttpRequest.newBuilder(URI.create(GMAIL_PROFILE_ENDPOINT))
+            .header("Authorization", "Bearer " + accessToken)
+            .GET()
+            .build();
 
     try {
-      HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+      HttpResponse<String> response =
+          httpClient.send(request, HttpResponse.BodyHandlers.ofString());
       if (response.statusCode() < 200 || response.statusCode() > 299) {
         return null;
       }
@@ -270,9 +262,8 @@ public class GmailOAuthService {
 
     try {
       String payloadPart = parts[1];
-      byte[] decoded = Base64
-        .getUrlDecoder()
-        .decode(padBase64Url(payloadPart).getBytes(StandardCharsets.UTF_8));
+      byte[] decoded =
+          Base64.getUrlDecoder().decode(padBase64Url(payloadPart).getBytes(StandardCharsets.UTF_8));
       JsonNode payload = objectMapper.readTree(decoded);
       String email = payload.path("email").asText("");
       return StringUtils.hasText(email) ? email : null;
@@ -283,11 +274,10 @@ public class GmailOAuthService {
 
   private String mapTokenExchangeError(int statusCode, String responseBody) {
     try {
-      GoogleTokenErrorResponse errorResponse = objectMapper.readValue(
-        responseBody,
-        GoogleTokenErrorResponse.class
-      );
-      return mapGoogleError(errorResponse.error(), errorResponse.errorDescription());
+      GoogleTokenErrorResponse errorResponse =
+          objectMapper.readValue(responseBody, GoogleTokenErrorResponse.class);
+      return LogSanitizer.sanitize(
+          mapGoogleError(errorResponse.error(), errorResponse.errorDescription()));
     } catch (IOException ignored) {
       return "Token exchange failed with HTTP " + statusCode + ".";
     }
@@ -300,11 +290,9 @@ public class GmailOAuthService {
       return "Google OAuth redirect URI mismatch. Configure redirect URI as http://127.0.0.1:8082/api/oauth/gmail/callback.";
     }
 
-    if (
-      normalized.contains("access_denied") ||
-      normalized.contains("test users") ||
-      normalized.contains("not authorized")
-    ) {
+    if (normalized.contains("access_denied")
+        || normalized.contains("test users")
+        || normalized.contains("not authorized")) {
       return "Google consent failed. If OAuth consent is in Testing mode, add this Gmail account as a Test user.";
     }
 
@@ -317,7 +305,7 @@ public class GmailOAuthService {
     }
 
     if (StringUtils.hasText(description)) {
-      return description.trim();
+      return LogSanitizer.sanitize(description.trim());
     }
 
     if (StringUtils.hasText(error)) {
@@ -328,16 +316,15 @@ public class GmailOAuthService {
   }
 
   private String buildFormBody(Map<String, String> form) {
-    return form
-      .entrySet()
-      .stream()
-      .map((entry) ->
-        URLEncoder.encode(entry.getKey(), StandardCharsets.UTF_8) +
-        "=" +
-        URLEncoder.encode(Objects.toString(entry.getValue(), ""), StandardCharsets.UTF_8)
-      )
-      .reduce((left, right) -> left + "&" + right)
-      .orElse("");
+    return form.entrySet().stream()
+        .map(
+            (entry) ->
+                URLEncoder.encode(entry.getKey(), StandardCharsets.UTF_8)
+                    + "="
+                    + URLEncoder.encode(
+                        Objects.toString(entry.getValue(), ""), StandardCharsets.UTF_8))
+        .reduce((left, right) -> left + "&" + right)
+        .orElse("");
   }
 
   private String normalizeEmail(String rawEmail) {
@@ -359,16 +346,12 @@ public class GmailOAuthService {
 
   private OAuthCallbackResult successResult(String message) {
     return new OAuthCallbackResult(
-      HttpStatus.OK.value(),
-      htmlPage("Gmail connected", message, true)
-    );
+        HttpStatus.OK.value(), htmlPage("Gmail connected", message, true));
   }
 
   private OAuthCallbackResult failureResult(String message, HttpStatus status) {
     return new OAuthCallbackResult(
-      status.value(),
-      htmlPage("Gmail connection failed", message, false)
-    );
+        status.value(), htmlPage("Gmail connection failed", message, false));
   }
 
   private String htmlPage(String title, String message, boolean success) {
@@ -392,7 +375,7 @@ public class GmailOAuthService {
       </body>
       </html>
       """
-      .formatted(safeTitle, accent, safeTitle, safeMessage);
+        .formatted(safeTitle, accent, safeTitle, safeMessage);
   }
 
   public record OAuthCallbackResult(int httpStatusCode, String html) {}
@@ -412,12 +395,11 @@ public class GmailOAuthService {
     private List<String> requestedScopes() {
       if (this == SEND) {
         return List.of(
-          READONLY_SCOPES.get(0),
-          READONLY_SCOPES.get(1),
-          READONLY_SCOPES.get(2),
-          READONLY_SCOPES.get(3),
-          GMAIL_SEND_SCOPE
-        );
+            READONLY_SCOPES.get(0),
+            READONLY_SCOPES.get(1),
+            READONLY_SCOPES.get(2),
+            READONLY_SCOPES.get(3),
+            GMAIL_SEND_SCOPE);
       }
       return READONLY_SCOPES;
     }
@@ -436,17 +418,15 @@ public class GmailOAuthService {
 
   @JsonIgnoreProperties(ignoreUnknown = true)
   private record GoogleTokenResponse(
-    @JsonProperty("access_token") String accessToken,
-    @JsonProperty("refresh_token") String refreshToken,
-    @JsonProperty("expires_in") Long expiresIn,
-    @JsonProperty("scope") String scope,
-    @JsonProperty("token_type") String tokenType,
-    @JsonProperty("id_token") String idToken
-  ) {}
+      @JsonProperty("access_token") String accessToken,
+      @JsonProperty("refresh_token") String refreshToken,
+      @JsonProperty("expires_in") Long expiresIn,
+      @JsonProperty("scope") String scope,
+      @JsonProperty("token_type") String tokenType,
+      @JsonProperty("id_token") String idToken) {}
 
   @JsonIgnoreProperties(ignoreUnknown = true)
   private record GoogleTokenErrorResponse(
-    @JsonProperty("error") String error,
-    @JsonProperty("error_description") String errorDescription
-  ) {}
+      @JsonProperty("error") String error,
+      @JsonProperty("error_description") String errorDescription) {}
 }

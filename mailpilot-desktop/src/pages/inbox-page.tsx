@@ -42,16 +42,16 @@ export function InboxPage() {
 
   const hasDrilldown = useMemo(
     () =>
-      forcedFilters.unreadOnly
-      || forcedFilters.needsReply
-      || forcedFilters.overdue
-      || forcedFilters.dueToday
-      || forcedFilters.snoozed
-      || forcedFilters.allOpen
-      || forcedFilters.senderDomains.length > 0
-      || forcedFilters.senderEmails.length > 0
-      || forcedFilters.accountIds.length > 0,
-    [forcedFilters],
+      forcedFilters.unreadOnly ||
+      forcedFilters.needsReply ||
+      forcedFilters.overdue ||
+      forcedFilters.dueToday ||
+      forcedFilters.snoozed ||
+      forcedFilters.allOpen ||
+      forcedFilters.senderDomains.length > 0 ||
+      forcedFilters.senderEmails.length > 0 ||
+      forcedFilters.accountIds.length > 0,
+    [forcedFilters]
   );
 
   return (

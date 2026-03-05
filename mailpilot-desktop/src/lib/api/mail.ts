@@ -1,4 +1,4 @@
-import { API_BASE, ApiClientError } from "@/lib/api/client";
+import { fetchFormJson } from "@/api/client";
 
 export type MailSendMode = "NEW" | "REPLY" | "REPLY_ALL" | "FORWARD";
 
@@ -28,7 +28,10 @@ export type SendMailResponse = {
   sentAt: string;
 };
 
-export async function sendMail(payload: SendMailRequest, signal?: AbortSignal): Promise<SendMailResponse> {
+export async function sendMail(
+  payload: SendMailRequest,
+  signal?: AbortSignal
+): Promise<SendMailResponse> {
   const formData = new FormData();
   formData.set("accountId", payload.accountId);
   formData.set("to", payload.to ?? "");
@@ -60,36 +63,8 @@ export async function sendMail(payload: SendMailRequest, signal?: AbortSignal): 
     formData.append("attachments", blob, attachment.fileName);
   }
 
-  let response: Response;
-  try {
-    response = await fetch(`${API_BASE}/api/mail/send`, {
-      method: "POST",
-      body: formData,
-      signal,
-    });
-  } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") {
-      throw new ApiClientError("Request cancelled", 0);
-    }
-    throw new ApiClientError("Unable to reach API", 0);
-  }
-
-  if (!response.ok) {
-    let message = `Request failed with status ${response.status}`;
-    const contentType = response.headers.get("content-type") ?? "";
-    if (contentType.includes("application/json")) {
-      const payload = (await response.json()) as { message?: string };
-      if (typeof payload.message === "string" && payload.message.trim().length > 0) {
-        message = payload.message;
-      }
-    }
-    throw new ApiClientError(message, response.status);
-  }
-
-  const contentType = response.headers.get("content-type") ?? "";
-  if (!contentType.includes("application/json")) {
-    throw new ApiClientError("API returned non-JSON response", response.status);
-  }
-
-  return (await response.json()) as SendMailResponse;
+  return fetchFormJson<SendMailResponse>("/api/mail/send", formData, {
+    method: "POST",
+    signal,
+  });
 }

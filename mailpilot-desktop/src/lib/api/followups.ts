@@ -1,4 +1,4 @@
-import { fetchJson } from "@/lib/api/client";
+import { fetchJson } from "@/api/client";
 
 export type FollowupStatus = "OPEN" | "DONE";
 
@@ -29,7 +29,7 @@ export function getFollowup(messageId: string, signal?: AbortSignal) {
 export function updateFollowup(
   messageId: string,
   payload: FollowupUpdatePayload,
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ) {
   return fetchJson<{ status: string; followup: FollowupState }>(`/api/followups/${messageId}`, {
     method: "PUT",
@@ -41,11 +41,14 @@ export function updateFollowup(
 export function runFollowupAction(
   messageId: string,
   payload: FollowupActionPayload,
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ) {
-  return fetchJson<{ status: string; followup: FollowupState }>(`/api/followups/${messageId}/actions`, {
-    method: "POST",
-    body: payload,
-    signal,
-  });
+  return fetchJson<{ status: string; followup: FollowupState }>(
+    `/api/followups/${messageId}/actions`,
+    {
+      method: "POST",
+      body: payload,
+      signal,
+    }
+  );
 }

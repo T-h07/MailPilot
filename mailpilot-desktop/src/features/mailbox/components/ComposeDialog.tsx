@@ -1,15 +1,10 @@
 import { Loader2, Paperclip, Send, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { readFile } from "@tauri-apps/plugin-fs";
-import { ApiClientError } from "@/lib/api/client";
+import { ApiClientError } from "@/api/client";
 import { sendMail, type MailSendMode, type SendMailResponse } from "@/lib/api/mail";
 import type { AccountRecord } from "@/lib/api/accounts";
-import {
-  createDraft,
-  deleteDraft,
-  updateDraft,
-  type DraftAttachmentRef,
-} from "@/lib/api/drafts";
+import { createDraft, deleteDraft, updateDraft, type DraftAttachmentRef } from "@/lib/api/drafts";
 import { pickFilesForUpload } from "@/lib/files/pick-files";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -84,7 +79,7 @@ export function ComposeDialog({
 }: ComposeDialogProps) {
   const gmailAccounts = useMemo(
     () => accounts.filter((account) => account.provider === "GMAIL"),
-    [accounts],
+    [accounts]
   );
 
   const [accountId, setAccountId] = useState(initialDraft.accountId);
@@ -95,7 +90,7 @@ export function ComposeDialog({
   const [subject, setSubject] = useState(initialDraft.subject);
   const [bodyText, setBodyText] = useState(initialDraft.bodyText);
   const [attachments, setAttachments] = useState<DraftAttachment[]>(() =>
-    toComposeAttachments(initialDraft.attachments),
+    toComposeAttachments(initialDraft.attachments)
   );
   const [hasDraftEdits, setHasDraftEdits] = useState(false);
   const [isSavingDraft, setIsSavingDraft] = useState(false);
@@ -134,7 +129,7 @@ export function ComposeDialog({
   const draftPersistenceEnabled = initialDraft.mode === "NEW";
   const draftAttachments = useMemo(
     () => attachments.map((attachment) => toDraftAttachmentRef(attachment)),
-    [attachments],
+    [attachments]
   );
 
   const canSubmit = useMemo(() => {
@@ -153,25 +148,28 @@ export function ComposeDialog({
     return true;
   }, [accountId, canSend, initialDraft.mode, selectedAccount, subject, to, toRequired]);
 
-  const draftPayload = useMemo(() => ({
-    accountId,
-    to,
-    cc,
-    bcc,
-    subject,
-    bodyText,
-    bodyHtml: null,
-    attachments: draftAttachments,
-  }), [accountId, bcc, bodyText, cc, draftAttachments, subject, to]);
+  const draftPayload = useMemo(
+    () => ({
+      accountId,
+      to,
+      cc,
+      bcc,
+      subject,
+      bodyText,
+      bodyHtml: null,
+      attachments: draftAttachments,
+    }),
+    [accountId, bcc, bodyText, cc, draftAttachments, subject, to]
+  );
 
   const hasMeaningfulDraftContent = useMemo(() => {
     return (
-      to.trim().length > 0
-      || cc.trim().length > 0
-      || bcc.trim().length > 0
-      || subject.trim().length > 0
-      || bodyText.trim().length > 0
-      || draftAttachments.length > 0
+      to.trim().length > 0 ||
+      cc.trim().length > 0 ||
+      bcc.trim().length > 0 ||
+      subject.trim().length > 0 ||
+      bodyText.trim().length > 0 ||
+      draftAttachments.length > 0
     );
   }, [bcc, bodyText, cc, draftAttachments.length, subject, to]);
 
@@ -476,7 +474,7 @@ export function ComposeDialog({
               <textarea
                 className={cn(
                   "min-h-[180px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 )}
                 onChange={(event) => {
                   setBodyText(event.target.value);
@@ -509,7 +507,10 @@ export function ComposeDialog({
                 {attachments.length > 0 && (
                   <div className="space-y-1 rounded-md border border-border bg-card p-2">
                     {attachments.map((attachment) => (
-                      <div className="flex items-center justify-between gap-2 text-xs" key={attachment.id}>
+                      <div
+                        className="flex items-center justify-between gap-2 text-xs"
+                        key={attachment.id}
+                      >
                         <span className="truncate">
                           {attachment.fileName} ({formatBytes(attachment.size)})
                         </span>
@@ -551,7 +552,11 @@ export function ComposeDialog({
               onClick={() => void handleSend()}
               type="button"
             >
-              {isSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              {isSending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Send className="h-4 w-4" />
+              )}
               {isSending ? "Sending..." : "Send"}
             </Button>
           </DialogFooter>
@@ -563,18 +568,15 @@ export function ComposeDialog({
           <DialogHeader>
             <DialogTitle>Re-auth required to send email</DialogTitle>
             <DialogDescription>
-              This account is missing the `gmail.send` scope. Re-authenticate with SEND mode to continue.
+              This account is missing the `gmail.send` scope. Re-authenticate with SEND mode to
+              continue.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button onClick={() => setShowReauthDialog(false)} type="button" variant="outline">
               Close
             </Button>
-            <Button
-              disabled={isReauthing}
-              onClick={() => void handleReauthNow()}
-              type="button"
-            >
+            <Button disabled={isReauthing} onClick={() => void handleReauthNow()} type="button">
               {isReauthing ? "Starting..." : "Re-auth now"}
             </Button>
           </DialogFooter>

@@ -1,7 +1,24 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { getBadgeSummary, markInboxOpened as apiMarkInboxOpened, markViewOpened as apiMarkViewOpened } from "@/lib/api/badges";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  getBadgeSummary,
+  markInboxOpened as apiMarkInboxOpened,
+  markViewOpened as apiMarkViewOpened,
+} from "@/lib/api/badges";
 import { getSyncStatus } from "@/lib/api/sync";
-import { sseClient, type BadgeUpdateEvent, type NewMailEvent, type SyncStatusEvent } from "@/lib/events/sse";
+import {
+  sseClient,
+  type BadgeUpdateEvent,
+  type NewMailEvent,
+  type SyncStatusEvent,
+} from "@/lib/events/sse";
 
 const DISCONNECT_FALLBACK_DELAY_MS = 10000;
 const FALLBACK_POLL_INTERVAL_MS = 15000;
@@ -59,7 +76,7 @@ function applyOptimisticViewReset(previous: BadgeState, viewId: string): BadgeSt
 
 function mergeSyncEvent(
   previous: Record<string, LiveSyncState>,
-  event: SyncStatusEvent,
+  event: SyncStatusEvent
 ): Record<string, LiveSyncState> {
   return {
     ...previous,
@@ -120,7 +137,10 @@ export function LiveEventsProvider({ children }: { children: React.ReactNode }) 
   }, []);
 
   const refreshFallbackSnapshots = useCallback(async () => {
-    const [badgesResult, syncResult] = await Promise.allSettled([refreshBadges(), refreshSyncStatus()]);
+    const [badgesResult, syncResult] = await Promise.allSettled([
+      refreshBadges(),
+      refreshSyncStatus(),
+    ]);
     if (badgesResult.status === "rejected" || syncResult.status === "rejected") {
       // Ignore transient fallback polling errors; SSE reconnect will reconcile state.
     }
@@ -149,7 +169,7 @@ export function LiveEventsProvider({ children }: { children: React.ReactNode }) 
         void refreshBadges();
       }
     },
-    [refreshBadges],
+    [refreshBadges]
   );
 
   useEffect(() => {
@@ -256,7 +276,7 @@ export function LiveEventsProvider({ children }: { children: React.ReactNode }) 
       refreshSyncStatus,
       sseConnected,
       syncByAccountId,
-    ],
+    ]
   );
 
   return <LiveEventsContext.Provider value={value}>{children}</LiveEventsContext.Provider>;

@@ -82,9 +82,4 @@ export type MailboxDataset = {
 
 export type AccountScope = "ALL" | string;
 
-export type QuickFilterKey =
-  | "UNREAD"
-  | "NEEDS_REPLY"
-  | "OVERDUE"
-  | "DUE_TODAY"
-  | "SNOOZED";
+export type QuickFilterKey = "UNREAD" | "NEEDS_REPLY" | "OVERDUE" | "DUE_TODAY" | "SNOOZED";

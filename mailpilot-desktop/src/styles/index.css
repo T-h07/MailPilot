@@ -1,0 +1,15 @@
+@import "./tokens.css";
+@import "./base.css";
+@import "./layout.css";
+@import "./sidebar.css";
+@import "./components.cards.css";
+@import "./components.buttons.css";
+@import "./components.badges.css";
+@import "./mailbox.css";
+@import "./dashboard.css";
+@import "./insights.css";
+@import "./modals.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

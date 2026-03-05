@@ -35,7 +35,12 @@ export function MailActions({
 }: MailActionsProps) {
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <Button className="gap-2" onClick={() => onPrimaryAction("reply")} size="sm" variant="outline">
+      <Button
+        className="gap-2"
+        onClick={() => onPrimaryAction("reply")}
+        size="sm"
+        variant="outline"
+      >
         <Reply className="h-4 w-4" />
         Reply
       </Button>
@@ -48,7 +53,12 @@ export function MailActions({
         <ReplyAll className="h-4 w-4" />
         Reply all
       </Button>
-      <Button className="gap-2" onClick={() => onPrimaryAction("forward")} size="sm" variant="outline">
+      <Button
+        className="gap-2"
+        onClick={() => onPrimaryAction("forward")}
+        size="sm"
+        variant="outline"
+      >
         <Send className="h-4 w-4" />
         Forward
       </Button>
@@ -74,12 +84,13 @@ export function MailActions({
           <DropdownMenuItem disabled={isExportingPdf} onClick={onExportMessagePdf}>
             {isExportingPdf ? "Exporting..." : "Export Email to PDF"}
           </DropdownMenuItem>
-          <DropdownMenuItem disabled={!canExportThread || isExportingPdf} onClick={onExportThreadPdf}>
+          <DropdownMenuItem
+            disabled={!canExportThread || isExportingPdf}
+            onClick={onExportThreadPdf}
+          >
             Export Thread to PDF
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={onOpenInGmail}>
-            Open in Gmail
-          </DropdownMenuItem>
+          <DropdownMenuItem onClick={onOpenInGmail}>Open in Gmail</DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
     </div>

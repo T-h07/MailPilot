@@ -1,6 +1,8 @@
 package com.mailpilot.api.error;
 
-public class ApiConflictException extends RuntimeException {
+import com.mailpilot.api.errors.ConflictException;
+
+public class ApiConflictException extends ConflictException {
 
   public ApiConflictException(String message) {
     super(message);

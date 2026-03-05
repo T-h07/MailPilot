@@ -24,11 +24,11 @@ type FollowupChip = {
 function MailRowComponent({ message, isSelected, onSelect, searchQuery }: MailRowProps) {
   const subjectSegments = useMemo(
     () => highlightText(message.subject, searchQuery),
-    [message.subject, searchQuery],
+    [message.subject, searchQuery]
   );
   const snippetSegments = useMemo(
     () => highlightText(message.snippet, searchQuery),
-    [message.snippet, searchQuery],
+    [message.snippet, searchQuery]
   );
   const timeLabel = useMemo(() => formatRelativeTime(message.receivedAt), [message.receivedAt]);
   const highlightAccent = message.highlight ? getAccentClasses(message.highlight.accent) : null;
@@ -39,10 +39,19 @@ function MailRowComponent({ message, isSelected, onSelect, searchQuery }: MailRo
   const overflowViewLabelCount = Math.max(message.viewLabels.length - visibleViewLabels.length, 0);
   const followupChips: FollowupChip[] = [];
   if (message.flags.needsReply) {
-    followupChips.push({ key: "needs-reply", label: "NeedsReply", className: "", variant: "secondary" });
+    followupChips.push({
+      key: "needs-reply",
+      label: "NeedsReply",
+      className: "",
+      variant: "secondary",
+    });
   }
   if (message.flags.overdue) {
-    followupChips.push({ key: "overdue", label: "Overdue", className: "bg-red-600 text-white hover:bg-red-600/90" });
+    followupChips.push({
+      key: "overdue",
+      label: "Overdue",
+      className: "bg-red-600 text-white hover:bg-red-600/90",
+    });
   }
   if (message.flags.dueToday) {
     followupChips.push({
@@ -52,7 +61,11 @@ function MailRowComponent({ message, isSelected, onSelect, searchQuery }: MailRo
     });
   }
   if (message.flags.snoozed) {
-    followupChips.push({ key: "snoozed", label: "Snoozed", className: "bg-slate-500 text-white hover:bg-slate-500/90" });
+    followupChips.push({
+      key: "snoozed",
+      label: "Snoozed",
+      className: "bg-slate-500 text-white hover:bg-slate-500/90",
+    });
   }
   const visibleFollowupChips = followupChips.slice(0, 3);
   const overflowFollowupChipCount = Math.max(followupChips.length - visibleFollowupChips.length, 0);
@@ -64,7 +77,7 @@ function MailRowComponent({ message, isSelected, onSelect, searchQuery }: MailRo
         isSelected
           ? "border-primary/50 bg-accent ring-1 ring-primary/20 shadow-sm"
           : "border-border hover:bg-accent",
-        message.highlight && !isSelected && highlightAccent?.border,
+        message.highlight && !isSelected && highlightAccent?.border
       )}
       onClick={() => onSelect(message.id)}
       type="button"
@@ -80,14 +93,16 @@ function MailRowComponent({ message, isSelected, onSelect, searchQuery }: MailRo
             <span
               className={cn(
                 "h-2.5 w-2.5 shrink-0 rounded-full",
-                message.isUnread ? "bg-sky-500" : "bg-muted",
+                message.isUnread ? "bg-sky-500" : "bg-muted"
               )}
             />
             <p
               className={cn(
                 "truncate text-sm",
-                message.isUnread ? "font-semibold text-foreground" : "font-medium text-foreground/90",
-                message.highlight && highlightAccent?.text,
+                message.isUnread
+                  ? "font-semibold text-foreground"
+                  : "font-medium text-foreground/90",
+                message.highlight && highlightAccent?.text
               )}
             >
               {message.senderName}
@@ -122,11 +137,19 @@ function MailRowComponent({ message, isSelected, onSelect, searchQuery }: MailRo
       <div className="space-y-1 pt-2">
         <div className="mailbox-chip-scroll overflow-x-auto">
           <div className="flex min-w-max items-center gap-1.5 pr-1">
-            <Badge className={cn("max-w-none shrink-0 border text-[10px]", accountPillClasses(message.accountColorToken))}>
+            <Badge
+              className={cn(
+                "max-w-none shrink-0 border text-[10px]",
+                accountPillClasses(message.accountColorToken)
+              )}
+            >
               {message.accountLabel}
             </Badge>
             {message.highlight && (
-              <Badge className={cn("shrink-0 border text-[10px] uppercase", highlightAccent?.badge)} variant="outline">
+              <Badge
+                className={cn("shrink-0 border text-[10px] uppercase", highlightAccent?.badge)}
+                variant="outline"
+              >
                 {message.highlight.label}
               </Badge>
             )}
@@ -166,7 +189,11 @@ function MailRowComponent({ message, isSelected, onSelect, searchQuery }: MailRo
         {(visibleTags.length > 0 || overflowTagCount > 0) && (
           <div className="flex items-center gap-1.5 overflow-hidden whitespace-nowrap">
             {visibleTags.map((tag) => (
-              <Badge className="shrink-0 text-[10px]" key={`${message.id}-tag-${tag}`} variant="outline">
+              <Badge
+                className="shrink-0 text-[10px]"
+                key={`${message.id}-tag-${tag}`}
+                variant="outline"
+              >
                 #{tag}
               </Badge>
             ))}

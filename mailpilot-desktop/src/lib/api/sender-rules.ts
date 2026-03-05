@@ -1,4 +1,4 @@
-import { fetchJson } from "@/lib/api/client";
+import { fetchJson } from "@/api/client";
 import type { AccentToken } from "@/features/mailbox/utils/accent";
 
 export type SenderRuleMatchType = "EMAIL" | "DOMAIN";
@@ -34,7 +34,7 @@ export function createSenderRule(payload: SenderRuleUpsertPayload, signal?: Abor
 export function updateSenderRule(
   ruleId: string,
   payload: SenderRuleUpsertPayload,
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ) {
   return fetchJson<SenderRuleRecord>(`/api/sender-rules/${ruleId}`, {
     method: "PUT",

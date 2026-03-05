@@ -1,4 +1,4 @@
-import { fetchJson } from "@/lib/api/client";
+import { fetchJson } from "@/api/client";
 
 export type FocusQueueType = "NEEDS_REPLY" | "OVERDUE" | "DUE_TODAY" | "SNOOZED" | "ALL_OPEN";
 
@@ -43,7 +43,7 @@ export function getFocusQueue(
   type: FocusQueueType,
   pageSize = 50,
   cursor: string | null = null,
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ) {
   const params = new URLSearchParams();
   params.set("type", type);
