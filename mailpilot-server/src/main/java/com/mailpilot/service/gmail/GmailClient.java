@@ -96,6 +96,23 @@ public class GmailClient {
     );
   }
 
+  public GmailMessageResponse getMessageFull(String accessToken, String messageId) {
+    URI uri = UriComponentsBuilder
+      .fromUriString(MESSAGE_URL)
+      .queryParam("format", "full")
+      .buildAndExpand(messageId)
+      .encode()
+      .toUri();
+
+    return executeWithRetry(
+      "getMessageFull",
+      uri,
+      accessToken,
+      GmailMessageResponse.class,
+      ErrorSemantics.MESSAGE_FETCH
+    );
+  }
+
   public GmailProfileResponse getProfile(String accessToken) {
     URI uri = UriComponentsBuilder.fromUriString(PROFILE_URL).build(true).toUri();
     return executeWithRetry(

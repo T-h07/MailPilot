@@ -1,4 +1,5 @@
 import { forwardRef } from "react";
+import { Loader2 } from "lucide-react";
 import { accountPillClasses, formatLongDate } from "@/features/mailbox/utils/format";
 import type { MailMessage } from "@/features/mailbox/model/types";
 import { getAccentClasses } from "@/features/mailbox/utils/accent";
@@ -16,7 +17,9 @@ type PreviewPanelProps = {
   selectedMessage: MailMessage | null;
   onSelectThreadMessage: (messageId: string) => void;
   onToggleRead: () => void;
-  onActionPlaceholder: (label: string) => void;
+  onLoadFullBody: () => void;
+  isLoadingBody?: boolean;
+  onOpenInGmail: () => void;
   onComposeAction: (action: "reply" | "reply-all" | "forward") => void;
   isLoading?: boolean;
   statusMessage?: string | null;
@@ -49,13 +52,24 @@ function formatFollowupLine(followup: MessageFollowup): string {
   return parts.join(" • ");
 }
 
+function htmlToPlainText(value: string): string {
+  if (typeof window === "undefined") {
+    return value.replace(/<[^>]+>/g, " ").trim();
+  }
+  const element = window.document.createElement("div");
+  element.innerHTML = value;
+  return (element.textContent ?? "").trim();
+}
+
 export const PreviewPanel = forwardRef<HTMLDivElement, PreviewPanelProps>(
   function PreviewPanel(
     {
       selectedMessage,
       onSelectThreadMessage,
       onToggleRead,
-      onActionPlaceholder,
+      onLoadFullBody,
+      isLoadingBody = false,
+      onOpenInGmail,
       onComposeAction,
       isLoading = false,
       statusMessage = null,
@@ -94,6 +108,13 @@ export const PreviewPanel = forwardRef<HTMLDivElement, PreviewPanelProps>(
     const highlightAccent = selectedMessage.highlight
       ? getAccentClasses(selectedMessage.highlight.accent)
       : null;
+    const hasCachedBody = selectedMessage.bodyCache !== null;
+    const isHtmlBody = selectedMessage.bodyMime?.toLowerCase().startsWith("text/html") ?? false;
+    const resolvedBody = selectedMessage.bodyCache
+      ? isHtmlBody
+        ? htmlToPlainText(selectedMessage.bodyCache)
+        : selectedMessage.bodyCache
+      : "";
 
     return (
       <ScrollArea className="mailbox-panel h-full" ref={ref}>
@@ -221,14 +242,19 @@ export const PreviewPanel = forwardRef<HTMLDivElement, PreviewPanelProps>(
                 onExportThreadPdf={onExportThreadPdf}
                 canExportThread={Boolean(selectedMessage.threadId)}
                 isExportingPdf={isExportingPdf}
-                onOpenGmailPlaceholder={() => onActionPlaceholder("Open in Gmail is not implemented yet")}
+                onOpenInGmail={onOpenInGmail}
                 onToggleRead={onToggleRead}
               />
             </CardHeader>
             <CardContent className="space-y-3">
-              {selectedMessage.bodyCache ? (
+              {hasCachedBody ? (
                 <div className="rounded-lg border border-border bg-background p-3 text-sm leading-relaxed">
-                  {selectedMessage.bodyCache.split("\n").map((line, index) => (
+                  {isHtmlBody && (
+                    <p className="pb-2 text-xs text-muted-foreground">
+                      HTML body (rendering simplified)
+                    </p>
+                  )}
+                  {resolvedBody.split("\n").map((line, index) => (
                     <p className="pt-2 first:pt-0" key={`${selectedMessage.id}-line-${index}`}>
                       {line}
                     </p>
@@ -238,11 +264,14 @@ export const PreviewPanel = forwardRef<HTMLDivElement, PreviewPanelProps>(
                 <div className="space-y-3 rounded-lg border border-border bg-background p-3">
                   <p className="text-sm text-muted-foreground">{selectedMessage.snippet}</p>
                   <Button
-                    onClick={() => onActionPlaceholder("Load full body is not implemented yet")}
+                    className="gap-2"
+                    disabled={isLoadingBody}
+                    onClick={onLoadFullBody}
                     size="sm"
                     variant="outline"
                   >
-                    Load full body
+                    {isLoadingBody && <Loader2 className="h-4 w-4 animate-spin" />}
+                    {isLoadingBody ? "Loading..." : "Load full body"}
                   </Button>
                 </div>
               )}

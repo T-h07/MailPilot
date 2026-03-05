@@ -45,7 +45,7 @@ public class MailboxQueryService {
 
   public MailboxQueryResponse query(MailboxQueryRequest request) {
     int pageSize = resolvePageSize(request.pageSize());
-    validateSort(request.sort());
+    SortDirection sortDirection = resolveSort(request.sort());
     Cursor cursor = decodeCursor(request.cursor());
 
     MailboxQueryRequest.Filters filters = request.filters();
@@ -113,8 +113,8 @@ public class MailboxQueryService {
     }
 
     QueryExecutionResult queryExecutionResult = searchText.isBlank()
-      ? runChronologicalQuery(fromWhere.toString(), baseParams, cursor, pageSize)
-      : runRankedQuery(fromWhere.toString(), baseParams, cursor, pageSize, searchText);
+      ? runChronologicalQuery(fromWhere.toString(), baseParams, cursor, pageSize, sortDirection)
+      : runRankedQuery(fromWhere.toString(), baseParams, cursor, pageSize, searchText, sortDirection);
 
     List<MailboxRow> rows = queryExecutionResult.rows();
 
@@ -239,7 +239,8 @@ public class MailboxQueryService {
     String fromWhere,
     List<Object> baseParams,
     Cursor cursor,
-    int pageSize
+    int pageSize,
+    SortDirection sortDirection
   ) {
     if (cursor != null && CURSOR_MODE_SEARCH.equals(cursor.mode())) {
       throw new ApiBadRequestException("Invalid cursor for non-search query");
@@ -270,13 +271,21 @@ public class MailboxQueryService {
 
     List<Object> params = new ArrayList<>(baseParams);
     if (cursor != null) {
-      sql.append(" AND (m.received_at < ? OR (m.received_at = ? AND m.id < ?))");
+      String comparisonOperator = sortDirection == SortDirection.RECEIVED_ASC ? ">" : "<";
+      sql.append(
+        " AND (m.received_at "
+          + comparisonOperator
+          + " ? OR (m.received_at = ? AND m.id "
+          + comparisonOperator
+          + " ?))"
+      );
       params.add(cursor.receivedAt());
       params.add(cursor.receivedAt());
       params.add(cursor.id());
     }
 
-    sql.append(" ORDER BY m.received_at DESC, m.id DESC LIMIT ?");
+    String orderDirection = sortDirection == SortDirection.RECEIVED_ASC ? "ASC" : "DESC";
+    sql.append(" ORDER BY m.received_at ").append(orderDirection).append(", m.id ").append(orderDirection).append(" LIMIT ?");
     params.add(pageSize + 1);
 
     List<MailboxRow> rows = jdbcTemplate.query(
@@ -293,7 +302,8 @@ public class MailboxQueryService {
     List<Object> baseParams,
     Cursor cursor,
     int pageSize,
-    String searchText
+    String searchText,
+    SortDirection sortDirection
   ) {
     if (cursor != null && CURSOR_MODE_TIME.equals(cursor.mode())) {
       throw new ApiBadRequestException("Invalid cursor for ranked search query");
@@ -307,7 +317,7 @@ public class MailboxQueryService {
 
     for (SearchExecutionStrategy strategy : strategies) {
       try {
-        return executeRankedQuery(fromWhere, baseParams, cursor, pageSize, searchText, strategy);
+        return executeRankedQuery(fromWhere, baseParams, cursor, pageSize, searchText, strategy, sortDirection);
       } catch (DataAccessException exception) {
         if (strategy == SearchExecutionStrategy.ILIKE) {
           throw exception;
@@ -329,7 +339,8 @@ public class MailboxQueryService {
     Cursor cursor,
     int pageSize,
     String searchText,
-    SearchExecutionStrategy strategy
+    SearchExecutionStrategy strategy,
+    SortDirection sortDirection
   ) {
     String rankExpression;
     String searchPredicate;
@@ -409,24 +420,46 @@ public class MailboxQueryService {
     }
 
     if (cursor != null) {
-      sql.append(
-        """
-         AND (
-           ranked.search_rank < ?
-           OR (ranked.search_rank = ? AND ranked.received_at < ?)
-           OR (ranked.search_rank = ? AND ranked.received_at = ? AND ranked.id < ?)
-         )
-        """
-      );
-      params.add(cursor.rank());
-      params.add(cursor.rank());
-      params.add(cursor.receivedAt());
-      params.add(cursor.rank());
-      params.add(cursor.receivedAt());
-      params.add(cursor.id());
+      if (sortDirection == SortDirection.RECEIVED_ASC) {
+        sql.append(
+          """
+           AND (
+             ranked.search_rank < ?
+             OR (ranked.search_rank = ? AND ranked.received_at > ?)
+             OR (ranked.search_rank = ? AND ranked.received_at = ? AND ranked.id > ?)
+           )
+          """
+        );
+        params.add(cursor.rank());
+        params.add(cursor.rank());
+        params.add(cursor.receivedAt());
+        params.add(cursor.rank());
+        params.add(cursor.receivedAt());
+        params.add(cursor.id());
+      } else {
+        sql.append(
+          """
+           AND (
+             ranked.search_rank < ?
+             OR (ranked.search_rank = ? AND ranked.received_at < ?)
+             OR (ranked.search_rank = ? AND ranked.received_at = ? AND ranked.id < ?)
+           )
+          """
+        );
+        params.add(cursor.rank());
+        params.add(cursor.rank());
+        params.add(cursor.receivedAt());
+        params.add(cursor.rank());
+        params.add(cursor.receivedAt());
+        params.add(cursor.id());
+      }
     }
 
-    sql.append(" ORDER BY ranked.search_rank DESC, ranked.received_at DESC, ranked.id DESC LIMIT ?");
+    if (sortDirection == SortDirection.RECEIVED_ASC) {
+      sql.append(" ORDER BY ranked.search_rank DESC, ranked.received_at ASC, ranked.id ASC LIMIT ?");
+    } else {
+      sql.append(" ORDER BY ranked.search_rank DESC, ranked.received_at DESC, ranked.id DESC LIMIT ?");
+    }
     params.add(pageSize + 1);
 
     List<MailboxRow> rows = jdbcTemplate.query(
@@ -536,11 +569,13 @@ public class MailboxQueryService {
     return rawPageSize;
   }
 
-  private void validateSort(String sort) {
+  private SortDirection resolveSort(String sort) {
     String normalized = sort == null ? "RECEIVED_DESC" : sort.trim().toUpperCase(Locale.ROOT);
-    if (!"RECEIVED_DESC".equals(normalized)) {
-      throw new ApiBadRequestException("Only RECEIVED_DESC sort is supported");
-    }
+    return switch (normalized) {
+      case "RECEIVED_DESC" -> SortDirection.RECEIVED_DESC;
+      case "RECEIVED_ASC" -> SortDirection.RECEIVED_ASC;
+      default -> throw new ApiBadRequestException("sort must be RECEIVED_DESC or RECEIVED_ASC");
+    };
   }
 
   private Cursor decodeCursor(String cursor) {
@@ -626,6 +661,11 @@ public class MailboxQueryService {
     FTS_WEBSEARCH,
     FTS_PLAINTO,
     ILIKE
+  }
+
+  private enum SortDirection {
+    RECEIVED_DESC,
+    RECEIVED_ASC,
   }
 
   private record Cursor(String mode, Double rank, OffsetDateTime receivedAt, UUID id) {}

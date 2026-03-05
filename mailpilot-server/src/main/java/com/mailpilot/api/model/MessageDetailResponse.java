@@ -13,6 +13,7 @@ public record MessageDetailResponse(
   String senderEmail,
   String subject,
   String receivedAt,
+  String openInGmailUrl,
   boolean isUnread,
   Body body,
   List<Attachment> attachments,

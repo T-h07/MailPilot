@@ -51,6 +51,8 @@ export type MailMessage = {
   subject: string;
   snippet: string;
   bodyCache: string | null;
+  bodyMime: string | null;
+  openInGmailUrl: string | null;
   receivedAt: string;
   isUnread: boolean;
   flags: MailFlags;

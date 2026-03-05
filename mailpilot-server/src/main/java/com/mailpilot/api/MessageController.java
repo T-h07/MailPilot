@@ -1,6 +1,7 @@
 package com.mailpilot.api;
 
 import com.mailpilot.api.model.MessageDetailResponse;
+import com.mailpilot.api.model.MessageBodyLoadResponse;
 import com.mailpilot.api.model.MessageReadRequest;
 import com.mailpilot.api.model.StatusResponse;
 import com.mailpilot.service.MessageService;
@@ -18,6 +19,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -61,6 +63,14 @@ public class MessageController {
   ) {
     messageService.setUnread(id, request.isUnread());
     return new StatusResponse("ok");
+  }
+
+  @PostMapping("/{id}/body/load")
+  public MessageBodyLoadResponse loadBody(
+    @PathVariable("id") UUID id,
+    @RequestParam(name = "force", defaultValue = "false") boolean force
+  ) {
+    return messageService.loadBody(id, force);
   }
 
   private String sanitizeDispositionFilename(String value) {

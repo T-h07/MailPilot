@@ -48,7 +48,7 @@ public class ViewExecutionService {
       scope,
       request.q(),
       filters,
-      "RECEIVED_DESC",
+      request.sort(),
       request.pageSize(),
       request.cursor()
     );

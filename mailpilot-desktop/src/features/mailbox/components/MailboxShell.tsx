@@ -19,6 +19,8 @@ import { downloadAttachmentFile, exportMessagePdf, exportThreadPdf } from "@/lib
 import { configCheck, getGmailOAuthStatus, startGmailOAuth } from "@/lib/api/oauth";
 import {
   getMessage,
+  loadMessageBody,
+  type MailboxSortOrder,
   queryMailbox,
   queryMailboxView,
   setRead,
@@ -148,6 +150,8 @@ function toSummaryMessage(item: MailboxListItem): MailMessage {
     subject: item.subject,
     snippet: item.snippet,
     bodyCache: null,
+    bodyMime: null,
+    openInGmailUrl: null,
     receivedAt: item.receivedAt,
     isUnread: item.isUnread,
     flags: inferredFlags,
@@ -231,6 +235,8 @@ function buildPreviewMessage(
     receivedAt: detail.receivedAt,
     isUnread: detail.isUnread,
     bodyCache: detail.body.content,
+    bodyMime: detail.body.mime,
+    openInGmailUrl: detail.openInGmailUrl,
     hasAttachments: detail.attachments.length > 0 || summary.hasAttachments,
     attachments: detail.attachments.map((attachment) => ({
       id: attachment.id,
@@ -399,6 +405,7 @@ export function MailboxShell({
   const viewSummaryChips = useMemo(() => summarizeViewRules(view), [view]);
 
   const [accountScope, setAccountScope] = useState<AccountScope>("ALL");
+  const [sortOrder, setSortOrder] = useState<MailboxSortOrder>("RECEIVED_DESC");
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [activeFilters, setActiveFilters] = useState<Set<QuickFilterKey>>(new Set());
@@ -415,6 +422,7 @@ export function MailboxShell({
 
   const [detailsById, setDetailsById] = useState<Map<string, MessageDetailResponse>>(new Map());
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
+  const [bodyLoadingMessageId, setBodyLoadingMessageId] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [isUpdatingFollowup, setIsUpdatingFollowup] = useState(false);
   const [activeAttachmentDownloadId, setActiveAttachmentDownloadId] = useState<string | null>(null);
@@ -506,6 +514,18 @@ export function MailboxShell({
     return () => controller.abort();
   }, [loadAccountRecords]);
 
+  const cacheMessageDetail = useCallback((detail: MessageDetailResponse) => {
+    setDetailsById((previous) => {
+      const next = new Map(previous);
+      next.set(detail.id, detail);
+      return next;
+    });
+
+    setAccounts((previous) =>
+      mergeAccounts(previous, [toMailAccount(detail.accountId, detail.accountEmail)]),
+    );
+  }, []);
+
   const fetchMailbox = useCallback(
     async (append: boolean, cursor: string | null) => {
       if (append && !cursor) {
@@ -551,6 +571,7 @@ export function MailboxShell({
                     snoozed: resolvedSnoozed,
                     allOpen: resolvedAllOpen,
                   },
+                  sort: sortOrder,
                   pageSize: REQUEST_PAGE_SIZE,
                   cursor,
                 },
@@ -571,7 +592,7 @@ export function MailboxShell({
                     senderEmails: [],
                     keywords: [],
                   },
-                  sort: "RECEIVED_DESC",
+                  sort: sortOrder,
                   pageSize: REQUEST_PAGE_SIZE,
                   cursor,
                 },
@@ -602,7 +623,7 @@ export function MailboxShell({
         }
       }
     },
-    [context, view, debouncedSearchQuery, activeFilters, accountScope, forcedFiltersKey],
+    [context, view, debouncedSearchQuery, activeFilters, accountScope, forcedFiltersKey, sortOrder],
   );
 
   useEffect(() => {
@@ -668,15 +689,7 @@ export function MailboxShell({
 
     getMessage(selectedMessageId, controller.signal)
       .then((detail) => {
-        setDetailsById((previous) => {
-          const next = new Map(previous);
-          next.set(detail.id, detail);
-          return next;
-        });
-
-        setAccounts((previous) =>
-          mergeAccounts(previous, [toMailAccount(detail.accountId, detail.accountEmail)]),
-        );
+        cacheMessageDetail(detail);
       })
       .catch((error) => {
         const message = toErrorMessage(error);
@@ -688,7 +701,7 @@ export function MailboxShell({
       .finally(() => {
         setIsLoadingDetail(false);
       });
-  }, [detailsById, selectedMessageId]);
+  }, [cacheMessageDetail, detailsById, selectedMessageId]);
 
   const selectedSummary = useMemo(
     () => messages.find((message) => message.id === selectedMessageId) ?? null,
@@ -854,6 +867,38 @@ export function MailboxShell({
       showNotice(toErrorMessage(error) || "Failed to update read state");
     }
   }, [applyUnreadState, selectedMessage, showNotice]);
+
+  const handleLoadFullBody = useCallback(async () => {
+    if (!selectedMessage) {
+      return;
+    }
+
+    const messageId = selectedMessage.id;
+    setBodyLoadingMessageId(messageId);
+    try {
+      await loadMessageBody(messageId);
+      const detail = await getMessage(messageId);
+      cacheMessageDetail(detail);
+      showNotice("Full body loaded");
+    } catch (error) {
+      showNotice(toErrorMessage(error) || "Failed to load full body");
+    } finally {
+      setBodyLoadingMessageId((current) => (current === messageId ? null : current));
+    }
+  }, [cacheMessageDetail, selectedMessage, showNotice]);
+
+  const handleOpenInGmail = useCallback(async () => {
+    if (!selectedMessage?.openInGmailUrl) {
+      showNotice("Open in Gmail is unavailable for this message.");
+      return;
+    }
+
+    try {
+      await openUrl(selectedMessage.openInGmailUrl);
+    } catch (error) {
+      showNotice(toErrorMessage(error) || "Failed to open Gmail");
+    }
+  }, [selectedMessage, showNotice]);
 
   const handleDownloadAttachment = useCallback(
     async (attachmentId: string, attachmentFilename: string) => {
@@ -1245,6 +1290,8 @@ export function MailboxShell({
         onAccountScopeChange={setAccountScope}
         onResetFilters={resetFilters}
         onSearchQueryChange={setSearchQuery}
+        sortOrder={sortOrder}
+        onSortOrderChange={setSortOrder}
         isSearchLoading={isSearchLoading}
         onSettingsShortcut={() => navigate("/settings")}
         onToggleFilter={toggleQuickFilter}
@@ -1313,7 +1360,6 @@ export function MailboxShell({
 
         <PreviewPanel
           isLoading={isLoadingDetail}
-          onActionPlaceholder={showNotice}
           onComposeAction={openComposeFromPreview}
           onClearDueDate={handleClearDueDate}
           onClearSnooze={handleClearSnooze}
@@ -1334,6 +1380,13 @@ export function MailboxShell({
             void handleToggleNeedsReply();
           }}
           onToggleRead={handleToggleRead}
+          onLoadFullBody={() => {
+            void handleLoadFullBody();
+          }}
+          isLoadingBody={selectedMessage ? bodyLoadingMessageId === selectedMessage.id : false}
+          onOpenInGmail={() => {
+            void handleOpenInGmail();
+          }}
           onDownloadAttachment={(attachmentId, filename) => {
             void handleDownloadAttachment(attachmentId, filename);
           }}

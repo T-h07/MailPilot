@@ -16,7 +16,7 @@ type MailActionsProps = {
   onExportThreadPdf: () => void;
   canExportThread: boolean;
   isExportingPdf?: boolean;
-  onOpenGmailPlaceholder: () => void;
+  onOpenInGmail: () => void;
 };
 
 export function MailActions({
@@ -27,7 +27,7 @@ export function MailActions({
   onExportThreadPdf,
   canExportThread,
   isExportingPdf = false,
-  onOpenGmailPlaceholder,
+  onOpenInGmail,
 }: MailActionsProps) {
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -69,8 +69,8 @@ export function MailActions({
           <DropdownMenuItem disabled={!canExportThread || isExportingPdf} onClick={onExportThreadPdf}>
             Export Thread to PDF
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={onOpenGmailPlaceholder}>
-            Open in Gmail (placeholder)
+          <DropdownMenuItem onClick={onOpenInGmail}>
+            Open in Gmail
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

@@ -3,6 +3,7 @@ import { EllipsisVertical, Loader2, MessageSquarePlus, Search, Settings2 } from 
 import type { AccountScope, MailAccount, QuickFilterKey } from "@/features/mailbox/model/types";
 import { AccountScopeDropdown } from "@/features/mailbox/components/AccountScopeDropdown";
 import { FilterChips } from "@/features/mailbox/components/FilterChips";
+import type { MailboxSortOrder } from "@/lib/api/mailbox";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -20,6 +21,8 @@ type CommandBarProps = {
   onAccountScopeChange: (scope: AccountScope) => void;
   searchQuery: string;
   onSearchQueryChange: (nextValue: string) => void;
+  sortOrder: MailboxSortOrder;
+  onSortOrderChange: (nextValue: MailboxSortOrder) => void;
   isSearchLoading?: boolean;
   activeFilters: Set<QuickFilterKey>;
   onToggleFilter: (filter: QuickFilterKey) => void;
@@ -35,6 +38,8 @@ export function CommandBar({
   onAccountScopeChange,
   searchQuery,
   onSearchQueryChange,
+  sortOrder,
+  onSortOrderChange,
   isSearchLoading = false,
   activeFilters,
   onToggleFilter,
@@ -79,6 +84,15 @@ export function CommandBar({
             <Loader2 className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
           )}
         </div>
+        <select
+          aria-label="Sort order"
+          className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+          onChange={(event) => onSortOrderChange(event.target.value as MailboxSortOrder)}
+          value={sortOrder}
+        >
+          <option value="RECEIVED_DESC">Newest first</option>
+          <option value="RECEIVED_ASC">Oldest first</option>
+        </select>
         <Button className="gap-2" onClick={onCompose}>
           <MessageSquarePlus className="h-4 w-4" />
           Compose

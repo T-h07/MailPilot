@@ -1,5 +1,7 @@
 import { fetchJson } from "@/lib/api/client";
 
+export type MailboxSortOrder = "RECEIVED_DESC" | "RECEIVED_ASC";
+
 export type MailboxQueryRequest = {
   scope?: {
     accountIds?: string[];
@@ -16,7 +18,7 @@ export type MailboxQueryRequest = {
     senderEmails?: string[];
     keywords?: string[];
   };
-  sort: "RECEIVED_DESC";
+  sort: MailboxSortOrder;
   pageSize: number;
   cursor: string | null;
 };
@@ -32,6 +34,7 @@ export type ViewMailboxQueryRequest = {
     snoozed?: boolean;
     allOpen?: boolean;
   };
+  sort: MailboxSortOrder;
   pageSize: number;
   cursor: string | null;
 };
@@ -70,6 +73,7 @@ export type MessageDetailResponse = {
   senderEmail: string;
   subject: string;
   receivedAt: string;
+  openInGmailUrl: string | null;
   isUnread: boolean;
   body: {
     mime: string;
@@ -104,6 +108,14 @@ export type MessageDetailResponse = {
   } | null;
 };
 
+export type MessageBodyLoadResponse = {
+  status: "ok";
+  messageId: string;
+  mime: string;
+  cachedAt: string;
+  contentLength: number;
+};
+
 export function queryMailbox(payload: MailboxQueryRequest, signal?: AbortSignal) {
   return fetchJson<MailboxQueryResponse>("/api/mailbox/query", {
     method: "POST",
@@ -128,6 +140,14 @@ export function setRead(id: string, isUnread: boolean, signal?: AbortSignal) {
   return fetchJson<{ status: string }>(`/api/messages/${id}/read`, {
     method: "POST",
     body: { isUnread },
+    signal,
+  });
+}
+
+export function loadMessageBody(id: string, force = false, signal?: AbortSignal) {
+  const suffix = force ? "?force=true" : "";
+  return fetchJson<MessageBodyLoadResponse>(`/api/messages/${id}/body/load${suffix}`, {
+    method: "POST",
     signal,
   });
 }
