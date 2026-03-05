@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+FAST_MODE="${MAILPILOT_HOOK_FAST:-0}"
+
+echo "[mailpilot] running frontend checks..."
+cd "$ROOT_DIR/mailpilot-desktop"
+npm run lint
+npm run format:check
+if [[ "$FAST_MODE" != "1" ]]; then
+  npm run build
+fi
+
+echo "[mailpilot] running backend checks..."
+cd "$ROOT_DIR/mailpilot-server"
+if [[ "$FAST_MODE" == "1" ]]; then
+  ./mvnw -q spotless:check
+else
+  ./mvnw -q test
+fi
+
+echo "[mailpilot] pre-commit checks passed."

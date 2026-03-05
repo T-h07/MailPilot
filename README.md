@@ -282,3 +282,37 @@ docker compose up -d
 ```
 
 Then rerun server + desktop and sync Gmail again.
+
+## Optional pre-commit hooks
+
+MailPilot includes optional git hooks under `tools/hooks/`:
+
+- `tools/hooks/pre-commit` (bash)
+- `tools/hooks/pre-commit.ps1` (PowerShell)
+
+They run frontend and backend checks before commit.
+
+### Install (PowerShell)
+
+```powershell
+Copy-Item .\tools\hooks\pre-commit.ps1 .\.git\hooks\pre-commit.ps1 -Force
+@'
+powershell -NoProfile -ExecutionPolicy Bypass -File "$(git rev-parse --show-toplevel)\.git\hooks\pre-commit.ps1"
+'@ | Set-Content .\.git\hooks\pre-commit
+```
+
+### Install (bash)
+
+```bash
+cp tools/hooks/pre-commit .git/hooks/pre-commit
+chmod +x .git/hooks/pre-commit
+```
+
+### Fast mode
+
+Set `MAILPILOT_HOOK_FAST=1` to run a lighter check set:
+
+- frontend: `lint` + `format:check`
+- backend: `spotless:check`
+
+Without fast mode, the hooks run frontend build and backend tests.
