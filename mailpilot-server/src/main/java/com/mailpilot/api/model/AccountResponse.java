@@ -9,5 +9,7 @@ public record AccountResponse(
   String provider,
   String status,
   boolean canSend,
-  OffsetDateTime lastSyncAt
+  OffsetDateTime lastSyncAt,
+  String role,
+  String customLabel
 ) {}

@@ -3,7 +3,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import type { AppOutletContext } from "@/App";
 import { cn } from "@/lib/utils";
-import { listAccounts, type AccountRecord } from "@/lib/api/accounts";
+import {
+  detachAccount,
+  listAccounts,
+  updateAccountLabel,
+  type AccountRecord,
+  type AccountRole,
+} from "@/lib/api/accounts";
 import { ApiClientError, getApiHealth, resolveApiBase } from "@/lib/api/client";
 import { configCheck, getGmailOAuthStatus, startGmailOAuth } from "@/lib/api/oauth";
 import { runAccountSync, runAllAccountsSync } from "@/lib/api/sync";
@@ -48,6 +54,11 @@ type NoticeState = {
   message: string;
 };
 
+type AccountLabelDraft = {
+  role: AccountRole;
+  customLabel: string;
+};
+
 const EMPTY_RULE_FORM: RuleForm = {
   matchType: "EMAIL",
   matchValue: "",
@@ -59,6 +70,7 @@ const WINDOWS_OAUTH_JSON_PATH = "C:\\Users\\taulanth\\AppData\\Local\\MailPilot\
 const OAUTH_POLL_INTERVAL_MS = 2000;
 const OAUTH_POLL_TIMEOUT_MS = 45000;
 const DEFAULT_SYNC_MAX_MESSAGES = 500;
+const ACCOUNT_ROLE_SAVE_DEBOUNCE_MS = 400;
 
 function toErrorMessage(error: unknown): string {
   if (error instanceof ApiClientError) {
@@ -155,6 +167,56 @@ function syncStatusBadgeVariant(status: "RUNNING" | "IDLE" | "ERROR"): "default"
   return "secondary";
 }
 
+function toAccountLabelDraft(account: AccountRecord): AccountLabelDraft {
+  return {
+    role: account.role,
+    customLabel: account.customLabel ?? "",
+  };
+}
+
+function applyRoleLabelToAccounts(
+  accounts: AccountRecord[],
+  accountId: string,
+  role: AccountRole,
+  customLabel: string | null,
+): AccountRecord[] {
+  return accounts.map((account) => {
+    if (account.id === accountId) {
+      return {
+        ...account,
+        role,
+        customLabel: role === "CUSTOM" ? customLabel : null,
+      };
+    }
+
+    if (role === "PRIMARY" && account.role === "PRIMARY") {
+      return {
+        ...account,
+        role: "SECONDARY",
+        customLabel: null,
+      };
+    }
+
+    return account;
+  });
+}
+
+function roleBadgeLabel(account: AccountRecord): string {
+  if (account.role === "PRIMARY") {
+    return "Primary";
+  }
+  if (account.role === "SECONDARY") {
+    return "Secondary";
+  }
+  return account.customLabel?.trim() || "Custom";
+}
+
+function withoutRecordKey<T extends Record<string, unknown>>(record: T, keyToRemove: string): T {
+  const next = { ...record };
+  delete next[keyToRemove];
+  return next;
+}
+
 export function SettingsPage() {
   const { themeMode, setThemeMode } = useOutletContext<AppOutletContext>();
   const { refreshSyncStatus, sseConnected, syncByAccountId } = useLiveEvents();
@@ -164,6 +226,7 @@ export function SettingsPage() {
   const apiBase = useMemo(() => resolveApiBase(), []);
 
   const noticeTimeoutRef = useRef<number | null>(null);
+  const labelSaveTimeoutsRef = useRef<Map<string, number>>(new Map());
   const hadRunningSyncRef = useRef(false);
 
   const [healthStatus, setHealthStatus] = useState<string>("Unknown");
@@ -181,6 +244,13 @@ export function SettingsPage() {
   const [syncError, setSyncError] = useState<string | null>(null);
   const [isSyncingAll, setIsSyncingAll] = useState(false);
   const [syncingAccountId, setSyncingAccountId] = useState<string | null>(null);
+  const [labelDraftByAccountId, setLabelDraftByAccountId] = useState<Record<string, AccountLabelDraft>>({});
+  const [labelSaveErrorByAccountId, setLabelSaveErrorByAccountId] = useState<Record<string, string>>({});
+  const [savingLabelByAccountId, setSavingLabelByAccountId] = useState<Record<string, boolean>>({});
+  const [detachDialogAccount, setDetachDialogAccount] = useState<AccountRecord | null>(null);
+  const [detachConfirmInput, setDetachConfirmInput] = useState("");
+  const [detachError, setDetachError] = useState<string | null>(null);
+  const [detachingAccountId, setDetachingAccountId] = useState<string | null>(null);
 
   const [senderRules, setSenderRules] = useState<SenderRuleRecord[]>([]);
   const [isLoadingRules, setIsLoadingRules] = useState(false);
@@ -214,18 +284,35 @@ export function SettingsPage() {
     }, 2400);
   }, []);
 
+  const applyAccountSnapshot = useCallback((nextAccounts: AccountRecord[]) => {
+    setAccounts(nextAccounts);
+    setLabelDraftByAccountId(() =>
+      Object.fromEntries(nextAccounts.map((account) => [account.id, toAccountLabelDraft(account)])),
+    );
+    setLabelSaveErrorByAccountId((previous) =>
+      Object.fromEntries(
+        Object.entries(previous).filter(([accountId]) => nextAccounts.some((account) => account.id === accountId)),
+      ),
+    );
+    setSavingLabelByAccountId((previous) =>
+      Object.fromEntries(
+        Object.entries(previous).filter(([accountId]) => nextAccounts.some((account) => account.id === accountId)),
+      ),
+    );
+  }, []);
+
   const loadAccounts = useCallback(async () => {
     setIsLoadingAccounts(true);
     setAccountsError(null);
     try {
       const response = await listAccounts();
-      setAccounts(response);
+      applyAccountSnapshot(response);
     } catch (error) {
       setAccountsError(toErrorMessage(error));
     } finally {
       setIsLoadingAccounts(false);
     }
-  }, []);
+  }, [applyAccountSnapshot]);
 
   const loadSenderRules = useCallback(async () => {
     setIsLoadingRules(true);
@@ -249,6 +336,10 @@ export function SettingsPage() {
       if (noticeTimeoutRef.current !== null) {
         window.clearTimeout(noticeTimeoutRef.current);
       }
+      labelSaveTimeoutsRef.current.forEach((timeoutId) => {
+        window.clearTimeout(timeoutId);
+      });
+      labelSaveTimeoutsRef.current.clear();
     };
   }, [loadAccounts, loadSenderRules, refreshSyncStatus]);
 
@@ -289,7 +380,7 @@ export function SettingsPage() {
         let latestAccounts: AccountRecord[] = accounts;
         if (accountsResult.status === "fulfilled") {
           latestAccounts = accountsResult.value;
-          setAccounts(latestAccounts);
+          applyAccountSnapshot(latestAccounts);
           setAccountsError(null);
         } else {
           setAccountsError(toErrorMessage(accountsResult.reason));
@@ -318,7 +409,7 @@ export function SettingsPage() {
 
       return timeoutConnectMessage();
     },
-    [accounts],
+    [accounts, applyAccountSnapshot],
   );
 
   const pollForSendCapability = useCallback(
@@ -336,7 +427,7 @@ export function SettingsPage() {
         let latestAccounts: AccountRecord[] = accounts;
         if (accountsResult.status === "fulfilled") {
           latestAccounts = accountsResult.value;
-          setAccounts(latestAccounts);
+          applyAccountSnapshot(latestAccounts);
           setAccountsError(null);
         } else {
           setAccountsError(toErrorMessage(accountsResult.reason));
@@ -354,7 +445,7 @@ export function SettingsPage() {
 
       return timeoutReauthMessage();
     },
-    [accounts],
+    [accounts, applyAccountSnapshot],
   );
 
   const handleConnectGmail = async () => {
@@ -474,6 +565,169 @@ export function SettingsPage() {
     }
   };
 
+  const persistAccountLabel = useCallback(
+    async (accountId: string, draft: AccountLabelDraft) => {
+      const normalizedCustomLabel = draft.role === "CUSTOM" ? draft.customLabel.trim() : null;
+
+      if (draft.role === "CUSTOM" && (normalizedCustomLabel ?? "").length === 0) {
+        setLabelSaveErrorByAccountId((previous) => ({
+          ...previous,
+          [accountId]: "Custom label is required for CUSTOM role.",
+        }));
+        return;
+      }
+
+      if (draft.role === "CUSTOM" && (normalizedCustomLabel ?? "").length > 30) {
+        setLabelSaveErrorByAccountId((previous) => ({
+          ...previous,
+          [accountId]: "Custom label must be at most 30 characters.",
+        }));
+        return;
+      }
+
+      setSavingLabelByAccountId((previous) => ({
+        ...previous,
+        [accountId]: true,
+      }));
+
+      try {
+        await updateAccountLabel(accountId, {
+          role: draft.role,
+          customLabel: normalizedCustomLabel,
+        });
+
+        setAccounts((previous) =>
+          applyRoleLabelToAccounts(previous, accountId, draft.role, normalizedCustomLabel),
+        );
+        setLabelDraftByAccountId((previous) => {
+          const next: Record<string, AccountLabelDraft> = {
+            ...previous,
+            [accountId]: {
+              role: draft.role,
+              customLabel: normalizedCustomLabel ?? "",
+            },
+          };
+
+          if (draft.role === "PRIMARY") {
+            Object.entries(next).forEach(([candidateId, candidateDraft]) => {
+              if (candidateId !== accountId && candidateDraft.role === "PRIMARY") {
+                next[candidateId] = {
+                  role: "SECONDARY",
+                  customLabel: "",
+                };
+              }
+            });
+          }
+
+          return next;
+        });
+        setLabelSaveErrorByAccountId((previous) => withoutRecordKey(previous, accountId));
+      } catch (error) {
+        setLabelSaveErrorByAccountId((previous) => ({
+          ...previous,
+          [accountId]: toErrorMessage(error),
+        }));
+      } finally {
+        setSavingLabelByAccountId((previous) => withoutRecordKey(previous, accountId));
+      }
+    },
+    [setAccounts],
+  );
+
+  const scheduleAccountLabelSave = useCallback(
+    (accountId: string, draft: AccountLabelDraft) => {
+      const existingTimeoutId = labelSaveTimeoutsRef.current.get(accountId);
+      if (existingTimeoutId !== undefined) {
+        window.clearTimeout(existingTimeoutId);
+      }
+
+      const timeoutId = window.setTimeout(() => {
+        labelSaveTimeoutsRef.current.delete(accountId);
+        void persistAccountLabel(accountId, draft);
+      }, ACCOUNT_ROLE_SAVE_DEBOUNCE_MS);
+
+      labelSaveTimeoutsRef.current.set(accountId, timeoutId);
+    },
+    [persistAccountLabel],
+  );
+
+  const handleAccountRoleChange = useCallback(
+    (accountId: string, nextRole: AccountRole) => {
+      const currentDraft = labelDraftByAccountId[accountId];
+      const customLabel = nextRole === "CUSTOM" ? (currentDraft?.customLabel ?? "") : "";
+      const nextDraft: AccountLabelDraft = {
+        role: nextRole,
+        customLabel,
+      };
+
+      setLabelDraftByAccountId((previous) => ({
+        ...previous,
+        [accountId]: nextDraft,
+      }));
+      setLabelSaveErrorByAccountId((previous) => withoutRecordKey(previous, accountId));
+      scheduleAccountLabelSave(accountId, nextDraft);
+    },
+    [labelDraftByAccountId, scheduleAccountLabelSave],
+  );
+
+  const handleAccountCustomLabelChange = useCallback(
+    (accountId: string, value: string) => {
+      const nextDraft: AccountLabelDraft = {
+        role: "CUSTOM",
+        customLabel: value,
+      };
+      setLabelDraftByAccountId((previous) => ({
+        ...previous,
+        [accountId]: nextDraft,
+      }));
+      setLabelSaveErrorByAccountId((previous) => withoutRecordKey(previous, accountId));
+      scheduleAccountLabelSave(accountId, nextDraft);
+    },
+    [scheduleAccountLabelSave],
+  );
+
+  const openDetachDialog = useCallback((account: AccountRecord) => {
+    setDetachDialogAccount(account);
+    setDetachConfirmInput("");
+    setDetachError(null);
+  }, []);
+
+  const closeDetachDialog = useCallback((open: boolean) => {
+    if (!open) {
+      setDetachDialogAccount(null);
+      setDetachConfirmInput("");
+      setDetachError(null);
+    }
+  }, []);
+
+  const handleDetachAccount = useCallback(async () => {
+    if (!detachDialogAccount) {
+      return;
+    }
+
+    if (detachConfirmInput !== detachDialogAccount.email) {
+      setDetachError("Typed email does not match.");
+      return;
+    }
+
+    setDetachingAccountId(detachDialogAccount.id);
+    setDetachError(null);
+    setAccountsError(null);
+
+    try {
+      await detachAccount(detachDialogAccount.id);
+      showNotice("Account detached and data deleted");
+      setDetachDialogAccount(null);
+      setDetachConfirmInput("");
+      await loadAccounts();
+      await refreshSyncStatus();
+    } catch (error) {
+      setDetachError(toErrorMessage(error));
+    } finally {
+      setDetachingAccountId(null);
+    }
+  }, [detachConfirmInput, detachDialogAccount, loadAccounts, refreshSyncStatus, showNotice]);
+
   const openCreateRuleDialog = () => {
     setEditingRuleId(null);
     setRuleForm(EMPTY_RULE_FORM);
@@ -537,6 +791,8 @@ export function SettingsPage() {
       setDeletingRuleId(null);
     }
   };
+
+  const detachEmailMatches = detachDialogAccount !== null && detachConfirmInput === detachDialogAccount.email;
 
   return (
     <section className="space-y-6">
@@ -658,6 +914,10 @@ export function SettingsPage() {
                 const statusLabel = syncStatus?.state ?? "IDLE";
                 const effectiveLastSyncAt = syncStatus?.lastSyncAt ?? account.lastSyncAt;
                 const isRunning = statusLabel === "RUNNING";
+                const labelDraft = labelDraftByAccountId[account.id] ?? toAccountLabelDraft(account);
+                const roleSaveError = labelSaveErrorByAccountId[account.id] ?? null;
+                const isSavingLabel = savingLabelByAccountId[account.id] ?? false;
+                const isDetaching = detachingAccountId === account.id;
 
                 return (
                   <div
@@ -673,6 +933,9 @@ export function SettingsPage() {
                         </Badge>
                         <Badge variant={account.canSend ? "secondary" : "outline"}>
                           {account.canSend ? "Can send" : "Send disabled"}
+                        </Badge>
+                        <Badge variant={account.role === "PRIMARY" ? "secondary" : "outline"}>
+                          {roleBadgeLabel(account)}
                         </Badge>
                         <Badge variant={syncStatusBadgeVariant(statusLabel)}>{statusLabel}</Badge>
                       </div>
@@ -691,25 +954,63 @@ export function SettingsPage() {
                         <p className="pt-1 text-xs text-destructive">{syncStatus.message}</p>
                       )}
                     </div>
-                    <div className="flex items-center gap-2">
-                      {!account.canSend && account.provider === "GMAIL" && (
+                    <div className="flex w-full min-w-[280px] flex-col items-stretch gap-2 sm:w-auto sm:min-w-0 sm:items-end">
+                      <div className="flex flex-wrap items-center justify-end gap-2">
+                        <select
+                          className="h-8 min-w-[132px] rounded-md border border-input bg-background px-2 text-xs"
+                          disabled={isSavingLabel || isDetaching}
+                          onChange={(event) => handleAccountRoleChange(account.id, event.target.value as AccountRole)}
+                          value={labelDraft.role}
+                        >
+                          <option value="PRIMARY">PRIMARY</option>
+                          <option value="SECONDARY">SECONDARY</option>
+                          <option value="CUSTOM">CUSTOM</option>
+                        </select>
+                        {labelDraft.role === "CUSTOM" && (
+                          <Input
+                            className="h-8 w-[180px] text-xs"
+                            disabled={isSavingLabel || isDetaching}
+                            maxLength={30}
+                            onChange={(event) => handleAccountCustomLabelChange(account.id, event.target.value)}
+                            placeholder="Custom label"
+                            value={labelDraft.customLabel}
+                          />
+                        )}
+                        {isSavingLabel && (
+                          <span className="text-xs text-muted-foreground">Saving...</span>
+                        )}
+                      </div>
+                      {roleSaveError && (
+                        <p className="text-xs text-destructive sm:text-right">{roleSaveError}</p>
+                      )}
+                      <div className="flex flex-wrap items-center justify-end gap-2">
+                        {!account.canSend && account.provider === "GMAIL" && (
+                          <Button
+                            disabled={isConnectingGmail || isDetaching}
+                            onClick={() => void handleReauthForSending(account.id)}
+                            size="sm"
+                            variant="outline"
+                          >
+                            {isConnectingGmail ? "Starting..." : "Re-auth for sending"}
+                          </Button>
+                        )}
                         <Button
-                          disabled={isConnectingGmail}
-                          onClick={() => void handleReauthForSending(account.id)}
+                          disabled={isDetaching || isRunning || syncingAccountId === account.id}
+                          onClick={() => void handleSyncAccount(account.id)}
                           size="sm"
                           variant="outline"
                         >
-                          {isConnectingGmail ? "Starting..." : "Re-auth for sending"}
+                          {syncingAccountId === account.id ? "Starting..." : "Sync"}
                         </Button>
-                      )}
-                      <Button
-                        disabled={isRunning || syncingAccountId === account.id}
-                        onClick={() => void handleSyncAccount(account.id)}
-                        size="sm"
-                        variant="outline"
-                      >
-                        {syncingAccountId === account.id ? "Starting..." : "Sync"}
-                      </Button>
+                        <Button
+                          disabled={isDetaching || isSavingLabel}
+                          onClick={() => openDetachDialog(account)}
+                          size="sm"
+                          variant="destructive"
+                        >
+                          {isDetaching ? "Detaching..." : "Detach"}
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 );
@@ -816,6 +1117,54 @@ export function SettingsPage() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog onOpenChange={closeDetachDialog} open={detachDialogAccount !== null}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Detach account?</DialogTitle>
+            <DialogDescription>
+              {detachDialogAccount
+                ? `This permanently deletes all stored mail data for ${detachDialogAccount.email} from MailPilot.`
+                : "This permanently deletes all stored mail data from MailPilot."}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2 text-sm">
+            <p className="text-muted-foreground">
+              Type the account email to confirm:
+            </p>
+            <Input
+              autoComplete="off"
+              autoFocus
+              onChange={(event) => {
+                setDetachConfirmInput(event.target.value);
+                setDetachError(null);
+              }}
+              placeholder={detachDialogAccount?.email ?? "name@example.com"}
+              value={detachConfirmInput}
+            />
+            {detachError && <p className="text-xs text-destructive">{detachError}</p>}
+          </div>
+
+          <DialogFooter>
+            <Button
+              onClick={() => closeDetachDialog(false)}
+              type="button"
+              variant="outline"
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={!detachEmailMatches || detachingAccountId !== null}
+              onClick={() => void handleDetachAccount()}
+              type="button"
+              variant="destructive"
+            >
+              {detachingAccountId !== null ? "Detaching..." : "Detach & delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog onOpenChange={setOauthConfigDialogOpen} open={oauthConfigDialogOpen}>
         <DialogContent className="max-w-xl">
