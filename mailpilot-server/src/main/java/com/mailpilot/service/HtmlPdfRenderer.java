@@ -6,8 +6,10 @@ import java.io.ByteArrayOutputStream;
 import java.util.Locale;
 import java.util.Set;
 import org.jsoup.Jsoup;
-import org.jsoup.nodes.Attribute;
 import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Document.OutputSettings.Syntax;
+import org.jsoup.nodes.Entities;
+import org.jsoup.nodes.Attribute;
 import org.jsoup.nodes.Element;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,12 +29,13 @@ public class HtmlPdfRenderer {
   );
 
   public byte[] render(String html, String baseUri) {
+    String normalizedMarkup = normalizeMarkupForRenderer(html, baseUri);
     try {
-      return renderInternal(html, baseUri);
+      return renderInternal(normalizedMarkup, baseUri);
     } catch (Exception firstFailure) {
       LOGGER.warn("Primary HTML to PDF render failed; retrying without external assets", firstFailure);
       try {
-        String strippedHtml = stripExternalAssets(html, baseUri);
+        String strippedHtml = stripExternalAssets(normalizedMarkup, baseUri);
         return renderInternal(strippedHtml, baseUri);
       } catch (Exception secondFailure) {
         LOGGER.error("Failed to render HTML as PDF", secondFailure);
@@ -52,8 +55,22 @@ public class HtmlPdfRenderer {
     }
   }
 
+  private String normalizeMarkupForRenderer(String html, String baseUri) {
+    String source = html == null ? "" : html.replace("\uFEFF", "");
+    // Remove leading non-whitespace control chars that break XML parser startup.
+    source = source.replaceFirst("^[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F]+", "");
+
+    Document document = Jsoup.parse(source, baseUri);
+    document.outputSettings().syntax(Syntax.xml);
+    document.outputSettings().escapeMode(Entities.EscapeMode.xhtml);
+    document.outputSettings().prettyPrint(false);
+    return document.outerHtml();
+  }
+
   private String stripExternalAssets(String html, String baseUri) {
     Document document = Jsoup.parse(html == null ? "" : html, baseUri);
+    document.outputSettings().syntax(Syntax.xml);
+    document.outputSettings().escapeMode(Entities.EscapeMode.xhtml);
     document.outputSettings().prettyPrint(false);
 
     for (Element element : document.getAllElements()) {
