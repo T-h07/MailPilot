@@ -180,34 +180,7 @@ public class MessageService {
   }
 
   public MessageBodyLoadResponse loadBody(UUID messageId, boolean force) {
-    BodyLoadRow message = jdbcTemplate.query(
-      """
-      SELECT
-        m.id,
-        m.account_id,
-        a.email AS account_email,
-        a.provider AS account_provider,
-        m.provider_message_id,
-        m.body_cache,
-        m.body_cache_mime,
-        m.body_cached_at
-      FROM messages m
-      JOIN accounts a ON a.id = m.account_id
-      WHERE m.id = ?
-      """,
-      (resultSet, rowNum) ->
-        new BodyLoadRow(
-          resultSet.getObject("id", UUID.class),
-          resultSet.getObject("account_id", UUID.class),
-          resultSet.getString("account_email"),
-          resultSet.getString("account_provider"),
-          resultSet.getString("provider_message_id"),
-          resultSet.getString("body_cache"),
-          resultSet.getString("body_cache_mime"),
-          resultSet.getObject("body_cached_at", OffsetDateTime.class)
-        ),
-      messageId
-    ).stream().findFirst().orElseThrow(() -> new ApiNotFoundException("Message not found"));
+    BodyLoadRow message = loadBodyRow(messageId);
 
     if (!GMAIL_PROVIDER.equalsIgnoreCase(message.accountProvider())) {
       throw new ApiBadRequestException("Message body loading is only supported for GMAIL accounts.");
@@ -216,8 +189,8 @@ public class MessageService {
       throw new ApiBadRequestException("provider_message_id is missing for this message.");
     }
 
-    if (!force && StringUtils.hasText(message.bodyCache())) {
-      String existingMime = StringUtils.hasText(message.bodyCacheMime()) ? message.bodyCacheMime().trim() : "text/plain";
+    if (!force && StringUtils.hasText(message.bodyCache()) && StringUtils.hasText(message.bodyCacheMime())) {
+      String existingMime = message.bodyCacheMime().trim();
       OffsetDateTime cachedAt = message.bodyCachedAt() == null
         ? OffsetDateTime.now(ZoneOffset.UTC)
         : message.bodyCachedAt();
@@ -263,6 +236,22 @@ public class MessageService {
       extractedBody.mime(),
       cachedAt.toString(),
       contentLength
+    );
+  }
+
+  public BodyCacheSnapshot ensureBodyCached(UUID messageId) {
+    BodyLoadRow message = loadBodyRow(messageId);
+    boolean missingCache = !StringUtils.hasText(message.bodyCache()) || !StringUtils.hasText(message.bodyCacheMime());
+    if (missingCache && GMAIL_PROVIDER.equalsIgnoreCase(message.accountProvider())) {
+      loadBody(messageId, true);
+      message = loadBodyRow(messageId);
+    }
+
+    return new BodyCacheSnapshot(
+      message.id(),
+      message.accountProvider(),
+      message.bodyCache(),
+      message.bodyCacheMime()
     );
   }
 
@@ -451,6 +440,39 @@ public class MessageService {
   ) {}
 
   private record CachedBody(String mime, String content) {}
+
+  private BodyLoadRow loadBodyRow(UUID messageId) {
+    return jdbcTemplate.query(
+      """
+      SELECT
+        m.id,
+        m.account_id,
+        a.email AS account_email,
+        a.provider AS account_provider,
+        m.provider_message_id,
+        m.body_cache,
+        m.body_cache_mime,
+        m.body_cached_at
+      FROM messages m
+      JOIN accounts a ON a.id = m.account_id
+      WHERE m.id = ?
+      """,
+      (resultSet, rowNum) ->
+        new BodyLoadRow(
+          resultSet.getObject("id", UUID.class),
+          resultSet.getObject("account_id", UUID.class),
+          resultSet.getString("account_email"),
+          resultSet.getString("account_provider"),
+          resultSet.getString("provider_message_id"),
+          resultSet.getString("body_cache"),
+          resultSet.getString("body_cache_mime"),
+          resultSet.getObject("body_cached_at", OffsetDateTime.class)
+        ),
+      messageId
+    ).stream().findFirst().orElseThrow(() -> new ApiNotFoundException("Message not found"));
+  }
+
+  public record BodyCacheSnapshot(UUID messageId, String accountProvider, String bodyCache, String bodyCacheMime) {}
 
   private static final class BodyCollector {
 
