@@ -119,6 +119,54 @@ public class MailboxQueryService {
       baseParams.addAll(senderEmails);
     }
 
+    List<String> labelNames = normalizeList(filters == null ? null : filters.labelNames());
+    if (!labelNames.isEmpty()) {
+      String labelPlaceholders = placeholders(labelNames.size());
+      fromWhere.append(" AND (");
+      fromWhere.append(
+        "EXISTS ("
+          + "SELECT 1 FROM sender_rules sr "
+          + "WHERE lower(sr.label) IN ("
+          + labelPlaceholders
+          + ") "
+          + "AND ("
+          + "(sr.match_type = 'EMAIL' AND lower(sr.match_value) = lower(m.sender_email)) "
+          + "OR (sr.match_type = 'DOMAIN' AND lower(sr.match_value) = lower(m.sender_domain))"
+          + ")"
+          + ")"
+      );
+      baseParams.addAll(labelNames);
+
+      if (request.viewId() != null) {
+        fromWhere.append(
+          " OR EXISTS ("
+            + "SELECT 1 FROM message_view_labels mvl "
+            + "JOIN view_labels vl ON vl.id = mvl.label_id "
+            + "WHERE mvl.message_id = m.id "
+            + "AND mvl.view_id = ? "
+            + "AND lower(vl.name) IN ("
+            + labelPlaceholders
+            + ")"
+            + ")"
+        );
+        baseParams.add(request.viewId());
+        baseParams.addAll(labelNames);
+      }
+
+      fromWhere.append(
+        " OR EXISTS ("
+          + "SELECT 1 FROM message_tags mt "
+          + "JOIN tags t ON t.id = mt.tag_id "
+          + "WHERE mt.message_id = m.id "
+          + "AND lower(t.name) IN ("
+          + labelPlaceholders
+          + ")"
+          + ")"
+      );
+      baseParams.addAll(labelNames);
+      fromWhere.append(")");
+    }
+
     QueryExecutionResult queryExecutionResult = searchText.isBlank()
       ? runChronologicalQuery(fromWhere.toString(), baseParams, cursor, pageSize, sortDirection)
       : runRankedQuery(fromWhere.toString(), baseParams, cursor, pageSize, searchText, sortDirection);

@@ -24,6 +24,7 @@ export type MailboxQueryRequest = {
     senderDomains?: string[];
     senderEmails?: string[];
     keywords?: string[];
+    labelNames?: string[];
   };
   sort: MailboxSortOrder;
   mode: MailboxMode;
@@ -41,6 +42,7 @@ export type ViewMailboxQueryRequest = {
     dueToday?: boolean;
     snoozed?: boolean;
     allOpen?: boolean;
+    labelNames?: string[];
   };
   sort: MailboxSortOrder;
   mode: MailboxMode;

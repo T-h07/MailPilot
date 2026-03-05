@@ -333,6 +333,33 @@ function summarizeViewRules(view: ViewRecord | null): string[] {
   return chips;
 }
 
+function parseSearchQuery(rawQuery: string): { text: string; labelNames: string[] } {
+  const normalizedInput = rawQuery.trim();
+  if (!normalizedInput) {
+    return { text: "", labelNames: [] };
+  }
+
+  const collectedLabels: string[] = [];
+  const labelTokenPattern = /(?:^|\s)(?:label:|#)(\"[^\"]+\"|'[^']+'|[^\s]+)/gi;
+  const textOnly = normalizedInput.replace(labelTokenPattern, (_match, rawLabelToken: string) => {
+    let label = rawLabelToken.trim();
+    if (
+      (label.startsWith("\"") && label.endsWith("\"")) ||
+      (label.startsWith("'") && label.endsWith("'"))
+    ) {
+      label = label.slice(1, -1).trim();
+    }
+    if (label.length > 0) {
+      collectedLabels.push(label.toLowerCase());
+    }
+    return " ";
+  });
+
+  const text = textOnly.replace(/\s+/g, " ").trim();
+  const dedupedLabels = Array.from(new Set(collectedLabels));
+  return { text, labelNames: dedupedLabels };
+}
+
 function toLabelChips(records: ViewLabelRecord[]): MailViewLabelChip[] {
   return records.map((record) => ({
     id: record.id,
@@ -499,6 +526,11 @@ export function MailboxShell({
   const accountLookup = useMemo(() => {
     return new Map(accounts.map((account) => [account.id, account]));
   }, [accounts]);
+
+  const parsedSearch = useMemo(
+    () => parseSearchQuery(debouncedSearchQuery),
+    [debouncedSearchQuery],
+  );
 
   const activeFiltersKey = useMemo(() => Array.from(activeFilters).sort().join("|"), [activeFilters]);
   const forcedFiltersKey = useMemo(
@@ -753,13 +785,14 @@ export function MailboxShell({
         const resolvedAllOpen = forcedFilters?.allOpen ?? false;
         const resolvedSenderDomains = forcedFilters?.senderDomains ?? [];
         const resolvedSenderEmails = forcedFilters?.senderEmails ?? [];
+        const resolvedLabelNames = parsedSearch.labelNames;
 
         const response =
           context === "view" && view
             ? await queryMailboxView(
                 {
                   viewId: view.id,
-                  q: debouncedSearchQuery.length > 0 ? debouncedSearchQuery : null,
+                  q: parsedSearch.text.length > 0 ? parsedSearch.text : null,
                   filtersOverride: {
                     unreadOnly: resolvedUnreadOnly,
                     needsReply: resolvedNeedsReply,
@@ -767,6 +800,7 @@ export function MailboxShell({
                     dueToday: resolvedDueToday,
                     snoozed: resolvedSnoozed,
                     allOpen: resolvedAllOpen,
+                    labelNames: resolvedLabelNames,
                   },
                   sort: sortOrder,
                   mode: mailboxMode,
@@ -778,7 +812,7 @@ export function MailboxShell({
             : await queryMailbox(
                 {
                   scope: resolvedAccountIds.length > 0 ? { accountIds: resolvedAccountIds } : {},
-                  q: debouncedSearchQuery.length > 0 ? debouncedSearchQuery : null,
+                  q: parsedSearch.text.length > 0 ? parsedSearch.text : null,
                   filters: {
                     unreadOnly: resolvedUnreadOnly,
                     needsReply: resolvedNeedsReply,
@@ -789,6 +823,7 @@ export function MailboxShell({
                     senderDomains: resolvedSenderDomains,
                     senderEmails: resolvedSenderEmails,
                     keywords: [],
+                    labelNames: resolvedLabelNames,
                   },
                   sort: sortOrder,
                   mode: mailboxMode,
@@ -823,7 +858,7 @@ export function MailboxShell({
         }
       }
     },
-    [context, view, debouncedSearchQuery, activeFilters, accountScope, forcedFiltersKey, mailboxMode, sortOrder],
+    [context, view, parsedSearch, activeFilters, accountScope, forcedFiltersKey, mailboxMode, sortOrder],
   );
 
   const refreshMailbox = useCallback(
@@ -1619,31 +1654,6 @@ export function MailboxShell({
     }
   }, [context, forcedFilters, hideScope]);
 
-  const handleToggleSelectedViewLabel = useCallback(
-    (labelId: string) => {
-      if (!isViewContext || !selectedMessageId) {
-        showNotice("Select a message first.");
-        return;
-      }
-      const currentlySelected = new Set(selectedViewLabelIds);
-      if (currentlySelected.has(labelId)) {
-        currentlySelected.delete(labelId);
-      } else {
-        currentlySelected.add(labelId);
-      }
-      void handleSaveViewLabels(Array.from(currentlySelected));
-    },
-    [handleSaveViewLabels, isViewContext, selectedMessageId, selectedViewLabelIds, showNotice],
-  );
-
-  const handleClearSelectedViewLabels = useCallback(() => {
-    if (!isViewContext || !selectedMessageId) {
-      showNotice("Select a message first.");
-      return;
-    }
-    void handleSaveViewLabels([]);
-  }, [handleSaveViewLabels, isViewContext, selectedMessageId, showNotice]);
-
   const heading = titleOverride ?? (
     context === "view" ? `View: ${view?.name ?? "Missing"}` : context === "sent" ? "Sent" : "Inbox"
   );
@@ -1706,12 +1716,6 @@ export function MailboxShell({
         onRefresh={handleRefreshMailbox}
         isRefreshing={isRefreshingMailbox || isLoadingList}
         searchQuery={searchQuery}
-        showViewLabelsQuickAssign={isViewContext}
-        viewLabelOptions={viewLabelOptions.map((label) => ({ id: label.id, name: label.name }))}
-        selectedViewLabelIds={selectedViewLabelIds}
-        onToggleSelectedViewLabel={handleToggleSelectedViewLabel}
-        onClearSelectedViewLabels={handleClearSelectedViewLabels}
-        viewLabelsActionDisabled={!selectedMessageId || isSavingViewLabels || isLoadingViewLabels}
       />
 
       <div className="mailbox-grid grid min-h-[560px] gap-4">

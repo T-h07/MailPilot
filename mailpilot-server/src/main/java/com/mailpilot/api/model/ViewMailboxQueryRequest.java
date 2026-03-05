@@ -18,6 +18,7 @@ public record ViewMailboxQueryRequest(
     Boolean overdue,
     Boolean dueToday,
     Boolean snoozed,
-    Boolean allOpen
+    Boolean allOpen,
+    java.util.List<String> labelNames
   ) {}
 }

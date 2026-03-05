@@ -11,6 +11,7 @@ public record MailboxQueryRequest(
   Filters filters,
   String sort,
   String mode,
+  UUID viewId,
   @Min(value = 10, message = "pageSize must be between 10 and 200")
   @Max(value = 200, message = "pageSize must be between 10 and 200")
   Integer pageSize,
@@ -28,6 +29,7 @@ public record MailboxQueryRequest(
     Boolean allOpen,
     List<String> senderDomains,
     List<String> senderEmails,
-    List<String> keywords
+    List<String> keywords,
+    List<String> labelNames
   ) {}
 }

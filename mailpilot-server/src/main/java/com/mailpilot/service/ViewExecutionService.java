@@ -49,7 +49,8 @@ public class ViewExecutionService {
       overrides != null && Boolean.TRUE.equals(overrides.allOpen()),
       view.senderDomains(),
       view.senderEmails(),
-      view.keywords()
+      view.keywords(),
+      overrides != null && overrides.labelNames() != null ? overrides.labelNames() : List.of()
     );
 
     MailboxQueryRequest mailboxQueryRequest = new MailboxQueryRequest(
@@ -58,6 +59,7 @@ public class ViewExecutionService {
       filters,
       request.sort(),
       request.mode(),
+      view.id(),
       request.pageSize(),
       request.cursor()
     );
