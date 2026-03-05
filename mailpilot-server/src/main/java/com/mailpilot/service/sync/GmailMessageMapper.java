@@ -23,11 +23,13 @@ public class GmailMessageMapper {
 
   private static final Pattern ANGLE_BRACKET_EMAIL = Pattern.compile("<([^>]+)>");
   private static final Pattern SIMPLE_EMAIL =
-    Pattern.compile("([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})");
+      Pattern.compile("([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})");
 
   public GmailMetadata mapCoreFields(GmailMessageResponse message) {
-    String providerMessageId = requireText(message.id(), "Message id is missing from Gmail response");
-    String providerThreadId = StringUtils.hasText(message.threadId()) ? message.threadId() : providerMessageId;
+    String providerMessageId =
+        requireText(message.id(), "Message id is missing from Gmail response");
+    String providerThreadId =
+        StringUtils.hasText(message.threadId()) ? message.threadId() : providerMessageId;
 
     Map<String, String> headers = parseHeaders(message.payload());
     Sender sender = parseSender(headers.get("from"));
@@ -37,30 +39,30 @@ public class GmailMessageMapper {
     String snippet = StringUtils.hasText(message.snippet()) ? message.snippet().trim() : "";
 
     long internalDateMs = toInternalDateMillis(message.internalDate());
-    OffsetDateTime receivedAt = OffsetDateTime.ofInstant(Instant.ofEpochMilli(internalDateMs), ZoneOffset.UTC);
+    OffsetDateTime receivedAt =
+        OffsetDateTime.ofInstant(Instant.ofEpochMilli(internalDateMs), ZoneOffset.UTC);
     List<String> normalizedLabelIds = normalizeGmailLabels(message.labelIds());
     Flags flags = computeFlags(normalizedLabelIds);
     List<AttachmentMetadata> attachments = extractBodyParts(message.payload());
 
     return new GmailMetadata(
-      providerMessageId,
-      providerThreadId,
-      sender.name(),
-      sender.email(),
-      sender.domain(),
-      subject,
-      snippet,
-      messageRfc822Id,
-      receivedAt,
-      internalDateMs,
-      normalizedLabelIds,
-      flags.isRead(),
-      flags.isInbox(),
-      flags.isSent(),
-      flags.isDraft(),
-      !attachments.isEmpty(),
-      attachments
-    );
+        providerMessageId,
+        providerThreadId,
+        sender.name(),
+        sender.email(),
+        sender.domain(),
+        subject,
+        snippet,
+        messageRfc822Id,
+        receivedAt,
+        internalDateMs,
+        normalizedLabelIds,
+        flags.isRead(),
+        flags.isInbox(),
+        flags.isSent(),
+        flags.isDraft(),
+        !attachments.isEmpty(),
+        attachments);
   }
 
   public Flags computeFlags(List<String> normalizedLabelIds) {
@@ -77,7 +79,8 @@ public class GmailMessageMapper {
     if (StringUtils.hasText(internalDateMillis)) {
       try {
         return Long.parseLong(internalDateMillis);
-      } catch (NumberFormatException ignored) {}
+      } catch (NumberFormatException ignored) {
+      }
     }
     return Instant.now().toEpochMilli();
   }
@@ -89,7 +92,9 @@ public class GmailMessageMapper {
     }
 
     for (GmailHeader header : payload.headers()) {
-      if (header == null || !StringUtils.hasText(header.name()) || !StringUtils.hasText(header.value())) {
+      if (header == null
+          || !StringUtils.hasText(header.name())
+          || !StringUtils.hasText(header.value())) {
         continue;
       }
       headers.put(header.name().trim().toLowerCase(Locale.ROOT), header.value().trim());
@@ -160,9 +165,10 @@ public class GmailMessageMapper {
     }
 
     String[] parts = email.split("@", 2);
-    String domain = parts.length == 2 && StringUtils.hasText(parts[1])
-      ? parts[1].toLowerCase(Locale.ROOT)
-      : "unknown.invalid";
+    String domain =
+        parts.length == 2 && StringUtils.hasText(parts[1])
+            ? parts[1].toLowerCase(Locale.ROOT)
+            : "unknown.invalid";
 
     return new Sender(name, email.toLowerCase(Locale.ROOT), domain);
   }
@@ -180,13 +186,11 @@ public class GmailMessageMapper {
       String filename = hasFilename ? payload.filename().trim() : "(unnamed)";
       long sizeBytes = body != null && body.size() != null ? Math.max(body.size(), 0L) : 0L;
       attachments.add(
-        new AttachmentMetadata(
-          filename,
-          nullable(payload.mimeType()),
-          sizeBytes,
-          hasAttachmentId ? body.attachmentId().trim() : null
-        )
-      );
+          new AttachmentMetadata(
+              filename,
+              nullable(payload.mimeType()),
+              sizeBytes,
+              hasAttachmentId ? body.attachmentId().trim() : null));
     }
 
     List<GmailPayload> parts = payload.parts();
@@ -232,29 +236,24 @@ public class GmailMessageMapper {
   public record Sender(String name, String email, String domain) {}
 
   public record AttachmentMetadata(
-    String filename,
-    String mimeType,
-    long sizeBytes,
-    String providerAttachmentId
-  ) {}
+      String filename, String mimeType, long sizeBytes, String providerAttachmentId) {}
 
   public record GmailMetadata(
-    String providerMessageId,
-    String providerThreadId,
-    String senderName,
-    String senderEmail,
-    String senderDomain,
-    String subject,
-    String snippet,
-    String messageRfc822Id,
-    OffsetDateTime receivedAt,
-    long gmailInternalDateMs,
-    List<String> gmailLabelIds,
-    boolean isRead,
-    boolean isInbox,
-    boolean isSent,
-    boolean isDraft,
-    boolean hasAttachments,
-    List<AttachmentMetadata> attachments
-  ) {}
+      String providerMessageId,
+      String providerThreadId,
+      String senderName,
+      String senderEmail,
+      String senderDomain,
+      String subject,
+      String snippet,
+      String messageRfc822Id,
+      OffsetDateTime receivedAt,
+      long gmailInternalDateMs,
+      List<String> gmailLabelIds,
+      boolean isRead,
+      boolean isInbox,
+      boolean isSent,
+      boolean isDraft,
+      boolean hasAttachments,
+      List<AttachmentMetadata> attachments) {}
 }

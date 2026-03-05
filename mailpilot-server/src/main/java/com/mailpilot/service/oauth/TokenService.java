@@ -33,18 +33,18 @@ public class TokenService {
   private final RestTemplate restTemplate;
 
   public TokenService(
-    JdbcTemplate jdbcTemplate,
-    TokenCrypto tokenCrypto,
-    GoogleOAuthClientConfigService googleOAuthClientConfigService,
-    RestTemplateBuilder restTemplateBuilder
-  ) {
+      JdbcTemplate jdbcTemplate,
+      TokenCrypto tokenCrypto,
+      GoogleOAuthClientConfigService googleOAuthClientConfigService,
+      RestTemplateBuilder restTemplateBuilder) {
     this.jdbcTemplate = jdbcTemplate;
     this.tokenCrypto = tokenCrypto;
     this.googleOAuthClientConfigService = googleOAuthClientConfigService;
-    this.restTemplate = restTemplateBuilder
-      .setConnectTimeout(Duration.ofSeconds(10))
-      .setReadTimeout(Duration.ofSeconds(20))
-      .build();
+    this.restTemplate =
+        restTemplateBuilder
+            .setConnectTimeout(Duration.ofSeconds(10))
+            .setReadTimeout(Duration.ofSeconds(20))
+            .build();
   }
 
   public AccessToken getValidAccessToken(UUID accountId) {
@@ -81,31 +81,33 @@ public class TokenService {
 
     GoogleRefreshTokenResponse responseBody;
     try {
-      ResponseEntity<GoogleRefreshTokenResponse> response = restTemplate.postForEntity(
-        URI.create(GOOGLE_TOKEN_ENDPOINT),
-        requestEntity,
-        GoogleRefreshTokenResponse.class
-      );
+      ResponseEntity<GoogleRefreshTokenResponse> response =
+          restTemplate.postForEntity(
+              URI.create(GOOGLE_TOKEN_ENDPOINT), requestEntity, GoogleRefreshTokenResponse.class);
       responseBody = response.getBody();
     } catch (HttpStatusCodeException exception) {
-      throw new IllegalStateException("Failed to refresh Google OAuth token: " + safeError(exception));
+      throw new IllegalStateException(
+          "Failed to refresh Google OAuth token: " + safeError(exception));
     }
 
     if (responseBody == null || !StringUtils.hasText(responseBody.accessToken())) {
-      throw new IllegalStateException("Google token refresh response did not include an access token.");
+      throw new IllegalStateException(
+          "Google token refresh response did not include an access token.");
     }
 
-    OffsetDateTime nextExpiryAt = responseBody.expiresIn() == null
-      ? null
-      : OffsetDateTime.now(ZoneOffset.UTC).plusSeconds(responseBody.expiresIn());
+    OffsetDateTime nextExpiryAt =
+        responseBody.expiresIn() == null
+            ? null
+            : OffsetDateTime.now(ZoneOffset.UTC).plusSeconds(responseBody.expiresIn());
 
     String accessTokenEncrypted = tokenCrypto.encrypt(responseBody.accessToken());
-    String refreshTokenEncrypted = StringUtils.hasText(responseBody.refreshToken())
-      ? tokenCrypto.encrypt(responseBody.refreshToken())
-      : null;
+    String refreshTokenEncrypted =
+        StringUtils.hasText(responseBody.refreshToken())
+            ? tokenCrypto.encrypt(responseBody.refreshToken())
+            : null;
 
     jdbcTemplate.update(
-      """
+        """
       UPDATE oauth_tokens
       SET
         access_token_enc = ?,
@@ -116,46 +118,47 @@ public class TokenService {
         updated_at = now()
       WHERE account_id = ?
       """,
-      accessTokenEncrypted,
-      refreshTokenEncrypted,
-      nextExpiryAt,
-      responseBody.scope(),
-      responseBody.tokenType(),
-      accountId
-    );
+        accessTokenEncrypted,
+        refreshTokenEncrypted,
+        nextExpiryAt,
+        responseBody.scope(),
+        responseBody.tokenType(),
+        accountId);
 
-    TokenRow refreshed = new TokenRow(
-      accountId,
-      responseBody.accessToken(),
-      StringUtils.hasText(responseBody.refreshToken())
-        ? responseBody.refreshToken()
-        : existing.refreshToken(),
-      nextExpiryAt,
-      firstNonBlank(responseBody.scope(), existing.scope()),
-      firstNonBlank(responseBody.tokenType(), existing.tokenType())
-    );
+    TokenRow refreshed =
+        new TokenRow(
+            accountId,
+            responseBody.accessToken(),
+            StringUtils.hasText(responseBody.refreshToken())
+                ? responseBody.refreshToken()
+                : existing.refreshToken(),
+            nextExpiryAt,
+            firstNonBlank(responseBody.scope(), existing.scope()),
+            firstNonBlank(responseBody.tokenType(), existing.tokenType()));
 
     return toAccessToken(refreshed);
   }
 
   private TokenRow loadTokenRow(UUID accountId) {
-    return jdbcTemplate.query(
-      """
+    return jdbcTemplate
+        .query(
+            """
       SELECT account_id, access_token_enc, refresh_token_enc, expiry_at, scope, token_type
       FROM oauth_tokens
       WHERE account_id = ?
       """,
-      (resultSet, rowNum) ->
-        new TokenRow(
-          resultSet.getObject("account_id", UUID.class),
-          tokenCrypto.decrypt(resultSet.getString("access_token_enc")),
-          decryptNullable(resultSet.getString("refresh_token_enc")),
-          resultSet.getObject("expiry_at", OffsetDateTime.class),
-          resultSet.getString("scope"),
-          resultSet.getString("token_type")
-        ),
-      accountId
-    ).stream().findFirst().orElseThrow(() -> new IllegalStateException("OAuth tokens not found for account"));
+            (resultSet, rowNum) ->
+                new TokenRow(
+                    resultSet.getObject("account_id", UUID.class),
+                    tokenCrypto.decrypt(resultSet.getString("access_token_enc")),
+                    decryptNullable(resultSet.getString("refresh_token_enc")),
+                    resultSet.getObject("expiry_at", OffsetDateTime.class),
+                    resultSet.getString("scope"),
+                    resultSet.getString("token_type")),
+            accountId)
+        .stream()
+        .findFirst()
+        .orElseThrow(() -> new IllegalStateException("OAuth tokens not found for account"));
   }
 
   private String decryptNullable(String value) {
@@ -167,13 +170,12 @@ public class TokenService {
 
   private AccessToken toAccessToken(TokenRow row) {
     return new AccessToken(
-      row.accountId(),
-      row.accessToken(),
-      row.refreshToken(),
-      row.expiryAt(),
-      row.scope(),
-      row.tokenType()
-    );
+        row.accountId(),
+        row.accessToken(),
+        row.refreshToken(),
+        row.expiryAt(),
+        row.scope(),
+        row.tokenType());
   }
 
   private String safeError(HttpStatusCodeException exception) {
@@ -189,29 +191,26 @@ public class TokenService {
   }
 
   public record AccessToken(
-    UUID accountId,
-    String accessToken,
-    String refreshToken,
-    OffsetDateTime expiryAt,
-    String scope,
-    String tokenType
-  ) {}
+      UUID accountId,
+      String accessToken,
+      String refreshToken,
+      OffsetDateTime expiryAt,
+      String scope,
+      String tokenType) {}
 
   private record TokenRow(
-    UUID accountId,
-    String accessToken,
-    String refreshToken,
-    OffsetDateTime expiryAt,
-    String scope,
-    String tokenType
-  ) {}
+      UUID accountId,
+      String accessToken,
+      String refreshToken,
+      OffsetDateTime expiryAt,
+      String scope,
+      String tokenType) {}
 
   @JsonIgnoreProperties(ignoreUnknown = true)
   private record GoogleRefreshTokenResponse(
-    @JsonProperty("access_token") String accessToken,
-    @JsonProperty("refresh_token") String refreshToken,
-    @JsonProperty("expires_in") Long expiresIn,
-    @JsonProperty("scope") String scope,
-    @JsonProperty("token_type") String tokenType
-  ) {}
+      @JsonProperty("access_token") String accessToken,
+      @JsonProperty("refresh_token") String refreshToken,
+      @JsonProperty("expires_in") Long expiresIn,
+      @JsonProperty("scope") String scope,
+      @JsonProperty("token_type") String tokenType) {}
 }

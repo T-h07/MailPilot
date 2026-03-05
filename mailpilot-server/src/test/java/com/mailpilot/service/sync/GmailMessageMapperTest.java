@@ -50,26 +50,25 @@ class GmailMessageMapperTest {
   @Test
   void mapCoreFieldsUsesInternalDateMilliseconds() {
     long internalDateMs = 1700000000000L;
-    GmailPayload payload = new GmailPayload(
-      null,
-      "text/plain",
-      null,
-      List.of(
-        new GmailHeader("From", "Alice Example <alice@example.com>"),
-        new GmailHeader("Subject", "Hello")
-      ),
-      null,
-      List.of()
-    );
-    GmailMessageResponse message = new GmailMessageResponse(
-      "msg-1",
-      "thread-1",
-      List.of("INBOX"),
-      "snippet",
-      "history-1",
-      String.valueOf(internalDateMs),
-      payload
-    );
+    GmailPayload payload =
+        new GmailPayload(
+            null,
+            "text/plain",
+            null,
+            List.of(
+                new GmailHeader("From", "Alice Example <alice@example.com>"),
+                new GmailHeader("Subject", "Hello")),
+            null,
+            List.of());
+    GmailMessageResponse message =
+        new GmailMessageResponse(
+            "msg-1",
+            "thread-1",
+            List.of("INBOX"),
+            "snippet",
+            "history-1",
+            String.valueOf(internalDateMs),
+            payload);
 
     GmailMessageMapper.GmailMetadata metadata = mapper.mapCoreFields(message);
     assertEquals(internalDateMs, metadata.gmailInternalDateMs());

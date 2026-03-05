@@ -23,4 +23,3 @@ export function markViewOpened(viewId: string, signal?: AbortSignal) {
     signal,
   });
 }
-

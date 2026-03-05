@@ -66,7 +66,8 @@ const EMPTY_RULE_FORM: RuleForm = {
   accent: "gold",
 };
 
-const WINDOWS_OAUTH_JSON_PATH = "C:\\Users\\taulanth\\AppData\\Local\\MailPilot\\google-oauth-client.json";
+const WINDOWS_OAUTH_JSON_PATH =
+  "C:\\Users\\taulanth\\AppData\\Local\\MailPilot\\google-oauth-client.json";
 const OAUTH_POLL_INTERVAL_MS = 2000;
 const OAUTH_POLL_TIMEOUT_MS = 45000;
 const DEFAULT_SYNC_MAX_MESSAGES = 500;
@@ -91,7 +92,10 @@ function validateRuleForm(form: RuleForm): RuleFormErrors {
     errors.matchValue = "Match value is required";
   } else if (form.matchType === "EMAIL" && !matchValue.includes("@")) {
     errors.matchValue = "Enter a valid email address";
-  } else if (form.matchType === "DOMAIN" && (matchValue.includes("@") || !matchValue.includes("."))) {
+  } else if (
+    form.matchType === "DOMAIN" &&
+    (matchValue.includes("@") || !matchValue.includes("."))
+  ) {
     errors.matchValue = "Enter a valid domain (example: company.com)";
   }
 
@@ -157,7 +161,9 @@ function timeoutReauthMessage() {
   ].join("\n");
 }
 
-function syncStatusBadgeVariant(status: "RUNNING" | "IDLE" | "ERROR"): "default" | "secondary" | "outline" {
+function syncStatusBadgeVariant(
+  status: "RUNNING" | "IDLE" | "ERROR"
+): "default" | "secondary" | "outline" {
   if (status === "RUNNING") {
     return "default";
   }
@@ -178,7 +184,7 @@ function applyRoleLabelToAccounts(
   accounts: AccountRecord[],
   accountId: string,
   role: AccountRole,
-  customLabel: string | null,
+  customLabel: string | null
 ): AccountRecord[] {
   return accounts.map((account) => {
     if (account.id === accountId) {
@@ -241,14 +247,20 @@ export function SettingsPage() {
   const [isConnectingGmail, setIsConnectingGmail] = useState(false);
   const [oauthConfigDialogOpen, setOauthConfigDialogOpen] = useState(false);
   const [oauthConfigPath, setOauthConfigPath] = useState<string>(WINDOWS_OAUTH_JSON_PATH);
-  const [oauthConfigMessage, setOauthConfigMessage] = useState("Google OAuth configuration is missing.");
+  const [oauthConfigMessage, setOauthConfigMessage] = useState(
+    "Google OAuth configuration is missing."
+  );
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [isSyncingAll, setIsSyncingAll] = useState(false);
   const [syncingAccountId, setSyncingAccountId] = useState<string | null>(null);
   const [isRepairingMetadata, setIsRepairingMetadata] = useState(false);
-  const [labelDraftByAccountId, setLabelDraftByAccountId] = useState<Record<string, AccountLabelDraft>>({});
-  const [labelSaveErrorByAccountId, setLabelSaveErrorByAccountId] = useState<Record<string, string>>({});
+  const [labelDraftByAccountId, setLabelDraftByAccountId] = useState<
+    Record<string, AccountLabelDraft>
+  >({});
+  const [labelSaveErrorByAccountId, setLabelSaveErrorByAccountId] = useState<
+    Record<string, string>
+  >({});
   const [savingLabelByAccountId, setSavingLabelByAccountId] = useState<Record<string, boolean>>({});
   const [detachDialogAccount, setDetachDialogAccount] = useState<AccountRecord | null>(null);
   const [detachConfirmInput, setDetachConfirmInput] = useState("");
@@ -270,7 +282,7 @@ export function SettingsPage() {
 
   const gmailAccounts = useMemo(
     () => accounts.filter((account) => account.provider === "GMAIL"),
-    [accounts],
+    [accounts]
   );
 
   const showNotice = useCallback((message: string) => {
@@ -290,17 +302,21 @@ export function SettingsPage() {
   const applyAccountSnapshot = useCallback((nextAccounts: AccountRecord[]) => {
     setAccounts(nextAccounts);
     setLabelDraftByAccountId(() =>
-      Object.fromEntries(nextAccounts.map((account) => [account.id, toAccountLabelDraft(account)])),
+      Object.fromEntries(nextAccounts.map((account) => [account.id, toAccountLabelDraft(account)]))
     );
     setLabelSaveErrorByAccountId((previous) =>
       Object.fromEntries(
-        Object.entries(previous).filter(([accountId]) => nextAccounts.some((account) => account.id === accountId)),
-      ),
+        Object.entries(previous).filter(([accountId]) =>
+          nextAccounts.some((account) => account.id === accountId)
+        )
+      )
     );
     setSavingLabelByAccountId((previous) =>
       Object.fromEntries(
-        Object.entries(previous).filter(([accountId]) => nextAccounts.some((account) => account.id === accountId)),
-      ),
+        Object.entries(previous).filter(([accountId]) =>
+          nextAccounts.some((account) => account.id === accountId)
+        )
+      )
     );
   }, []);
 
@@ -347,7 +363,9 @@ export function SettingsPage() {
   }, [loadAccounts, loadSenderRules, refreshSyncStatus]);
 
   useEffect(() => {
-    const hasRunningSync = Object.values(syncByAccountId).some((status) => status.state === "RUNNING");
+    const hasRunningSync = Object.values(syncByAccountId).some(
+      (status) => status.state === "RUNNING"
+    );
 
     if (hadRunningSyncRef.current && !hasRunningSync) {
       void loadAccounts();
@@ -412,7 +430,7 @@ export function SettingsPage() {
 
       return timeoutConnectMessage();
     },
-    [accounts, applyAccountSnapshot],
+    [accounts, applyAccountSnapshot]
   );
 
   const pollForSendCapability = useCallback(
@@ -448,7 +466,7 @@ export function SettingsPage() {
 
       return timeoutReauthMessage();
     },
-    [accounts, applyAccountSnapshot],
+    [accounts, applyAccountSnapshot]
   );
 
   const handleConnectGmail = async () => {
@@ -456,7 +474,7 @@ export function SettingsPage() {
     setIsConnectingGmail(true);
 
     const baselineByEmail = new Map(
-      gmailAccounts.map((account) => [account.email.toLowerCase(), account.status]),
+      gmailAccounts.map((account) => [account.email.toLowerCase(), account.status])
     );
 
     try {
@@ -615,7 +633,7 @@ export function SettingsPage() {
         });
 
         setAccounts((previous) =>
-          applyRoleLabelToAccounts(previous, accountId, draft.role, normalizedCustomLabel),
+          applyRoleLabelToAccounts(previous, accountId, draft.role, normalizedCustomLabel)
         );
         setLabelDraftByAccountId((previous) => {
           const next: Record<string, AccountLabelDraft> = {
@@ -649,7 +667,7 @@ export function SettingsPage() {
         setSavingLabelByAccountId((previous) => withoutRecordKey(previous, accountId));
       }
     },
-    [setAccounts],
+    [setAccounts]
   );
 
   const scheduleAccountLabelSave = useCallback(
@@ -666,7 +684,7 @@ export function SettingsPage() {
 
       labelSaveTimeoutsRef.current.set(accountId, timeoutId);
     },
-    [persistAccountLabel],
+    [persistAccountLabel]
   );
 
   const handleAccountRoleChange = useCallback(
@@ -685,7 +703,7 @@ export function SettingsPage() {
       setLabelSaveErrorByAccountId((previous) => withoutRecordKey(previous, accountId));
       scheduleAccountLabelSave(accountId, nextDraft);
     },
-    [labelDraftByAccountId, scheduleAccountLabelSave],
+    [labelDraftByAccountId, scheduleAccountLabelSave]
   );
 
   const handleAccountCustomLabelChange = useCallback(
@@ -701,7 +719,7 @@ export function SettingsPage() {
       setLabelSaveErrorByAccountId((previous) => withoutRecordKey(previous, accountId));
       scheduleAccountLabelSave(accountId, nextDraft);
     },
-    [scheduleAccountLabelSave],
+    [scheduleAccountLabelSave]
   );
 
   const openDetachDialog = useCallback((account: AccountRecord) => {
@@ -810,7 +828,8 @@ export function SettingsPage() {
     }
   };
 
-  const detachEmailMatches = detachDialogAccount !== null && detachConfirmInput === detachDialogAccount.email;
+  const detachEmailMatches =
+    detachDialogAccount !== null && detachConfirmInput === detachDialogAccount.email;
 
   return (
     <section className="space-y-6">
@@ -876,7 +895,12 @@ export function SettingsPage() {
               </CardDescription>
             </div>
             <div className="flex items-center gap-2">
-              <Button disabled={isLoadingAccounts} onClick={() => void loadAccounts()} size="sm" variant="outline">
+              <Button
+                disabled={isLoadingAccounts}
+                onClick={() => void loadAccounts()}
+                size="sm"
+                variant="outline"
+              >
                 Refresh
               </Button>
               <Button
@@ -887,7 +911,11 @@ export function SettingsPage() {
               >
                 {isSyncingAll ? "Starting sync..." : "Sync all accounts"}
               </Button>
-              <Button disabled={isConnectingGmail} onClick={() => void handleConnectGmail()} size="sm">
+              <Button
+                disabled={isConnectingGmail}
+                onClick={() => void handleConnectGmail()}
+                size="sm"
+              >
                 {isConnectingGmail ? "Connecting..." : "Connect Gmail"}
               </Button>
             </div>
@@ -897,7 +925,12 @@ export function SettingsPage() {
           {oauthError && (
             <div className="rounded-md border border-border bg-card p-3 text-sm text-muted-foreground">
               <p className="whitespace-pre-line">{oauthError}</p>
-              <Button className="mt-3" onClick={() => void handleConnectGmail()} size="sm" variant="outline">
+              <Button
+                className="mt-3"
+                onClick={() => void handleConnectGmail()}
+                size="sm"
+                variant="outline"
+              >
                 Retry
               </Button>
             </div>
@@ -906,7 +939,12 @@ export function SettingsPage() {
           {syncError && (
             <div className="rounded-md border border-border bg-card p-3 text-sm text-muted-foreground">
               <p>{syncError}</p>
-              <Button className="mt-3" onClick={() => void refreshSyncStatus()} size="sm" variant="outline">
+              <Button
+                className="mt-3"
+                onClick={() => void refreshSyncStatus()}
+                size="sm"
+                variant="outline"
+              >
                 Retry
               </Button>
             </div>
@@ -915,7 +953,10 @@ export function SettingsPage() {
           {isLoadingAccounts && (
             <div className="space-y-2">
               {Array.from({ length: 3 }, (_, index) => (
-                <div className="h-12 animate-pulse rounded-lg border border-border bg-muted" key={index} />
+                <div
+                  className="h-12 animate-pulse rounded-lg border border-border bg-muted"
+                  key={index}
+                />
               ))}
             </div>
           )}
@@ -923,7 +964,12 @@ export function SettingsPage() {
           {!isLoadingAccounts && accountsError && (
             <div className="rounded-md border border-border bg-card p-3 text-sm text-muted-foreground">
               <p>{accountsError}</p>
-              <Button className="mt-3" onClick={() => void loadAccounts()} size="sm" variant="outline">
+              <Button
+                className="mt-3"
+                onClick={() => void loadAccounts()}
+                size="sm"
+                variant="outline"
+              >
                 Retry
               </Button>
             </div>
@@ -942,7 +988,8 @@ export function SettingsPage() {
                 const statusLabel = syncStatus?.state ?? "IDLE";
                 const effectiveLastSyncAt = syncStatus?.lastSyncAt ?? account.lastSyncAt;
                 const isRunning = statusLabel === "RUNNING";
-                const labelDraft = labelDraftByAccountId[account.id] ?? toAccountLabelDraft(account);
+                const labelDraft =
+                  labelDraftByAccountId[account.id] ?? toAccountLabelDraft(account);
                 const roleSaveError = labelSaveErrorByAccountId[account.id] ?? null;
                 const isSavingLabel = savingLabelByAccountId[account.id] ?? false;
                 const isDetaching = detachingAccountId === account.id;
@@ -987,7 +1034,9 @@ export function SettingsPage() {
                         <select
                           className="h-8 min-w-[132px] rounded-md border border-input bg-background px-2 text-xs"
                           disabled={isSavingLabel || isDetaching}
-                          onChange={(event) => handleAccountRoleChange(account.id, event.target.value as AccountRole)}
+                          onChange={(event) =>
+                            handleAccountRoleChange(account.id, event.target.value as AccountRole)
+                          }
                           value={labelDraft.role}
                         >
                           <option value="PRIMARY">PRIMARY</option>
@@ -999,7 +1048,9 @@ export function SettingsPage() {
                             className="h-8 w-[180px] text-xs"
                             disabled={isSavingLabel || isDetaching}
                             maxLength={30}
-                            onChange={(event) => handleAccountCustomLabelChange(account.id, event.target.value)}
+                            onChange={(event) =>
+                              handleAccountCustomLabelChange(account.id, event.target.value)
+                            }
                             placeholder="Custom label"
                             value={labelDraft.customLabel}
                           />
@@ -1047,7 +1098,8 @@ export function SettingsPage() {
           )}
 
           <p className="text-xs text-muted-foreground">
-            Live updates: {sseConnected ? "connected (SSE)" : "reconnecting (fallback polling if needed)"}.
+            Live updates:{" "}
+            {sseConnected ? "connected (SSE)" : "reconnecting (fallback polling if needed)"}.
           </p>
         </CardContent>
       </Card>
@@ -1087,7 +1139,10 @@ export function SettingsPage() {
             {isLoadingRules && (
               <div className="space-y-2">
                 {Array.from({ length: 4 }, (_, index) => (
-                  <div className="h-12 animate-pulse rounded-lg border border-border bg-muted" key={index} />
+                  <div
+                    className="h-12 animate-pulse rounded-lg border border-border bg-muted"
+                    key={index}
+                  />
                 ))}
               </div>
             )}
@@ -1095,7 +1150,12 @@ export function SettingsPage() {
             {!isLoadingRules && rulesError && (
               <div className="rounded-md border border-border bg-card p-3 text-sm text-muted-foreground">
                 <p>{rulesError}</p>
-                <Button className="mt-3" onClick={() => void loadSenderRules()} size="sm" variant="outline">
+                <Button
+                  className="mt-3"
+                  onClick={() => void loadSenderRules()}
+                  size="sm"
+                  variant="outline"
+                >
                   Retry
                 </Button>
               </div>
@@ -1124,10 +1184,16 @@ export function SettingsPage() {
                             {rule.label}
                           </Badge>
                         </div>
-                        <p className="pt-1 text-xs text-muted-foreground">Accent token: {rule.accent}</p>
+                        <p className="pt-1 text-xs text-muted-foreground">
+                          Accent token: {rule.accent}
+                        </p>
                       </div>
                       <div className="flex items-center gap-2">
-                        <Button onClick={() => openEditRuleDialog(rule)} size="sm" variant="outline">
+                        <Button
+                          onClick={() => openEditRuleDialog(rule)}
+                          size="sm"
+                          variant="outline"
+                        >
                           Edit
                         </Button>
                         <Button
@@ -1160,9 +1226,7 @@ export function SettingsPage() {
           </DialogHeader>
 
           <div className="space-y-2 text-sm">
-            <p className="text-muted-foreground">
-              Type the account email to confirm:
-            </p>
+            <p className="text-muted-foreground">Type the account email to confirm:</p>
             <Input
               autoComplete="off"
               autoFocus
@@ -1177,11 +1241,7 @@ export function SettingsPage() {
           </div>
 
           <DialogFooter>
-            <Button
-              onClick={() => closeDetachDialog(false)}
-              type="button"
-              variant="outline"
-            >
+            <Button onClick={() => closeDetachDialog(false)} type="button" variant="outline">
               Cancel
             </Button>
             <Button
@@ -1240,7 +1300,9 @@ export function SettingsPage() {
         <Dialog onOpenChange={setRuleDialogOpen} open={ruleDialogOpen}>
           <DialogContent className="max-w-lg">
             <DialogHeader>
-              <DialogTitle>{editingRuleId ? "Edit sender highlight rule" : "Create sender highlight rule"}</DialogTitle>
+              <DialogTitle>
+                {editingRuleId ? "Edit sender highlight rule" : "Create sender highlight rule"}
+              </DialogTitle>
               <DialogDescription>
                 Use EMAIL for exact sender matches and DOMAIN for broader sender groups.
               </DialogDescription>
@@ -1293,7 +1355,9 @@ export function SettingsPage() {
                   placeholder="BOSS"
                   value={ruleForm.label}
                 />
-                {ruleFormErrors.label && <p className="text-xs text-destructive">{ruleFormErrors.label}</p>}
+                {ruleFormErrors.label && (
+                  <p className="text-xs text-destructive">{ruleFormErrors.label}</p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -1339,4 +1403,3 @@ export function SettingsPage() {
     </section>
   );
 }
-

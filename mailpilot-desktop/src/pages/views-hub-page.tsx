@@ -277,7 +277,9 @@ export function ViewsHubPage() {
   const [banner, setBanner] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [deletingViewId, setDeletingViewId] = useState<string | null>(null);
-  const [viewLabelsByViewId, setViewLabelsByViewId] = useState<Record<string, ViewLabelRecord[]>>({});
+  const [viewLabelsByViewId, setViewLabelsByViewId] = useState<Record<string, ViewLabelRecord[]>>(
+    {}
+  );
   const [isLoadingSelectedViewLabels, setIsLoadingSelectedViewLabels] = useState(false);
   const [labelDraftName, setLabelDraftName] = useState("");
   const [labelDraftColor, setLabelDraftColor] = useState<AccentToken>("blue");
@@ -307,17 +309,20 @@ export function ViewsHubPage() {
 
   const selectedView = useMemo(
     () => views.find((view) => view.id === selectedViewId) ?? null,
-    [selectedViewId, views],
+    [selectedViewId, views]
   );
 
   const accountMap = useMemo(
     () => new Map(accounts.map((account) => [account.id, account.email])),
-    [accounts],
+    [accounts]
   );
 
   const selectedViewLabels = selectedViewId ? (viewLabelsByViewId[selectedViewId] ?? []) : [];
 
-  const loadLabelsForView = async (viewId: string, signal?: AbortSignal): Promise<ViewLabelRecord[]> => {
+  const loadLabelsForView = async (
+    viewId: string,
+    signal?: AbortSignal
+  ): Promise<ViewLabelRecord[]> => {
     const labels = await listViewLabels(viewId, signal);
     setViewLabelsByViewId((previous) => ({
       ...previous,
@@ -465,7 +470,9 @@ export function ViewsHubPage() {
       sortOrder: index,
     }));
 
-    const desiredIdSet = new Set(desired.map((label) => label.id).filter((id): id is string => Boolean(id)));
+    const desiredIdSet = new Set(
+      desired.map((label) => label.id).filter((id): id is string => Boolean(id))
+    );
     for (const existingLabel of existing) {
       if (!desiredIdSet.has(existingLabel.id)) {
         await deleteViewLabel(viewId, existingLabel.id);
@@ -525,7 +532,7 @@ export function ViewsHubPage() {
             ? "View updated"
             : dialogMode === "duplicate"
               ? "View duplicated"
-              : "View created",
+              : "View created"
       );
       setDialogOpen(false);
       await refreshViews();
@@ -576,7 +583,8 @@ export function ViewsHubPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Views Hub</h1>
           <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-            Saved views define reusable mailbox filters. Manage scope, priority, and rule chips here.
+            Saved views define reusable mailbox filters. Manage scope, priority, and rule chips
+            here.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -607,7 +615,9 @@ export function ViewsHubPage() {
         <Card>
           <CardHeader className="pb-3">
             <CardTitle>Saved Views</CardTitle>
-            <CardDescription>Ordered by sort order. Click a row to inspect details.</CardDescription>
+            <CardDescription>
+              Ordered by sort order. Click a row to inspect details.
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
             {viewsLoading && (
@@ -621,7 +631,12 @@ export function ViewsHubPage() {
             {!viewsLoading && viewsError && (
               <div className="rounded-md border border-border bg-card p-3 text-sm text-muted-foreground">
                 <p>{viewsError}</p>
-                <Button className="mt-3" onClick={() => void refreshViews()} size="sm" variant="outline">
+                <Button
+                  className="mt-3"
+                  onClick={() => void refreshViews()}
+                  size="sm"
+                  variant="outline"
+                >
                   Retry
                 </Button>
               </div>
@@ -633,63 +648,65 @@ export function ViewsHubPage() {
               </div>
             )}
 
-            {!viewsLoading && !viewsError && views.map((view) => (
-              <div
-                className={`rounded-lg border border-border p-3 ${
-                  view.id === selectedViewId ? "bg-accent" : "bg-background"
-                }`}
-                key={view.id}
-                onClick={() => setSelectedViewId(view.id)}
-                role="button"
-                tabIndex={0}
-              >
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold">{view.name}</p>
-                    <p className="pt-1 text-xs text-muted-foreground">
-                      Scope: {view.scopeType} • {summarizeRules(view)}
-                    </p>
+            {!viewsLoading &&
+              !viewsError &&
+              views.map((view) => (
+                <div
+                  className={`rounded-lg border border-border p-3 ${
+                    view.id === selectedViewId ? "bg-accent" : "bg-background"
+                  }`}
+                  key={view.id}
+                  onClick={() => setSelectedViewId(view.id)}
+                  role="button"
+                  tabIndex={0}
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold">{view.name}</p>
+                      <p className="pt-1 text-xs text-muted-foreground">
+                        Scope: {view.scopeType} • {summarizeRules(view)}
+                      </p>
+                    </div>
+                    <Badge variant="secondary">P{view.priority}</Badge>
                   </div>
-                  <Badge variant="secondary">P{view.priority}</Badge>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void openEditDialog(view);
+                      }}
+                      size="sm"
+                      variant="outline"
+                    >
+                      <Pencil className="mr-1 h-3.5 w-3.5" />
+                      Edit
+                    </Button>
+                    <Button
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void openDuplicateDialog(view);
+                      }}
+                      size="sm"
+                      variant="outline"
+                    >
+                      <Copy className="mr-1 h-3.5 w-3.5" />
+                      Duplicate
+                    </Button>
+                    <Button
+                      disabled={deletingViewId === view.id}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void handleDelete(view.id);
+                      }}
+                      size="sm"
+                      variant="outline"
+                    >
+                      <Trash2 className="mr-1 h-3.5 w-3.5" />
+                      {deletingViewId === view.id ? "Deleting..." : "Delete"}
+                    </Button>
+                  </div>
                 </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <Button
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      void openEditDialog(view);
-                    }}
-                    size="sm"
-                    variant="outline"
-                  >
-                    <Pencil className="mr-1 h-3.5 w-3.5" />
-                    Edit
-                  </Button>
-                  <Button
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      void openDuplicateDialog(view);
-                    }}
-                    size="sm"
-                    variant="outline"
-                  >
-                    <Copy className="mr-1 h-3.5 w-3.5" />
-                    Duplicate
-                  </Button>
-                  <Button
-                    disabled={deletingViewId === view.id}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      void handleDelete(view.id);
-                    }}
-                    size="sm"
-                    variant="outline"
-                  >
-                    <Trash2 className="mr-1 h-3.5 w-3.5" />
-                    {deletingViewId === view.id ? "Deleting..." : "Delete"}
-                  </Button>
-                </div>
-              </div>
-            ))}
+              ))}
           </CardContent>
         </Card>
 
@@ -699,7 +716,9 @@ export function ViewsHubPage() {
             <CardDescription>Rules and scope for the selected view.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
-            {!selectedView && <p className="text-muted-foreground">Select a view to inspect details.</p>}
+            {!selectedView && (
+              <p className="text-muted-foreground">Select a view to inspect details.</p>
+            )}
 
             {selectedView && (
               <>
@@ -753,13 +772,19 @@ export function ViewsHubPage() {
                   {isLoadingSelectedViewLabels ? (
                     <p className="text-xs text-muted-foreground">Loading labels...</p>
                   ) : selectedViewLabels.length === 0 ? (
-                    <p className="text-xs text-muted-foreground">No labels configured for this view.</p>
+                    <p className="text-xs text-muted-foreground">
+                      No labels configured for this view.
+                    </p>
                   ) : (
                     <div className="flex flex-wrap gap-1.5">
                       {selectedViewLabels.map((label) => {
                         const accent = getAccentClasses(label.colorToken);
                         return (
-                          <Badge className={cn("border text-[10px]", accent.badge)} key={label.id} variant="outline">
+                          <Badge
+                            className={cn("border text-[10px]", accent.badge)}
+                            key={label.id}
+                            variant="outline"
+                          >
                             {label.name}
                           </Badge>
                         );
@@ -794,7 +819,9 @@ export function ViewsHubPage() {
             <div className="space-y-2">
               <p className="text-xs font-medium text-muted-foreground">Name</p>
               <Input
-                onChange={(event) => setForm((previous) => ({ ...previous, name: event.target.value }))}
+                onChange={(event) =>
+                  setForm((previous) => ({ ...previous, name: event.target.value }))
+                }
                 value={form.name}
               />
               {formErrors.name && <p className="text-xs text-destructive">{formErrors.name}</p>}
@@ -804,7 +831,9 @@ export function ViewsHubPage() {
               <p className="text-xs font-medium text-muted-foreground">Icon</p>
               <select
                 className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                onChange={(event) => setForm((previous) => ({ ...previous, icon: event.target.value }))}
+                onChange={(event) =>
+                  setForm((previous) => ({ ...previous, icon: event.target.value }))
+                }
                 value={form.icon}
               >
                 <option value="">None</option>
@@ -898,7 +927,9 @@ export function ViewsHubPage() {
                       selectedAccountIds: [value],
                     }));
                   }}
-                  value={form.scopeType === "ALL" ? "__ALL__" : form.selectedAccountIds[0] ?? "__ALL__"}
+                  value={
+                    form.scopeType === "ALL" ? "__ALL__" : (form.selectedAccountIds[0] ?? "__ALL__")
+                  }
                 >
                   <option value="__ALL__">All accounts</option>
                   {accounts.map((account) => (
@@ -938,7 +969,9 @@ export function ViewsHubPage() {
                 )}
               </div>
             )}
-            {formErrors.scopeType && <p className="text-xs text-destructive">{formErrors.scopeType}</p>}
+            {formErrors.scopeType && (
+              <p className="text-xs text-destructive">{formErrors.scopeType}</p>
+            )}
           </div>
 
           <div className="grid gap-4 md:grid-cols-3">
@@ -1015,7 +1048,7 @@ export function ViewsHubPage() {
                                     ...candidate,
                                     name: event.target.value,
                                   }
-                                : candidate,
+                                : candidate
                             ),
                           }))
                         }
@@ -1032,7 +1065,7 @@ export function ViewsHubPage() {
                                     ...candidate,
                                     colorToken: event.target.value as AccentToken,
                                   }
-                                : candidate,
+                                : candidate
                             ),
                           }))
                         }
@@ -1051,7 +1084,9 @@ export function ViewsHubPage() {
                         onClick={() =>
                           setForm((previous) => ({
                             ...previous,
-                            labels: previous.labels.filter((_, candidateIndex) => candidateIndex !== index),
+                            labels: previous.labels.filter(
+                              (_, candidateIndex) => candidateIndex !== index
+                            ),
                           }))
                         }
                         size="sm"
@@ -1093,11 +1128,7 @@ export function ViewsHubPage() {
           {actionError && <p className="text-sm text-destructive">{actionError}</p>}
 
           <DialogFooter>
-            <Button
-              onClick={() => setDialogOpen(false)}
-              type="button"
-              variant="outline"
-            >
+            <Button onClick={() => setDialogOpen(false)} type="button" variant="outline">
               Cancel
             </Button>
             <Button disabled={isSaving} onClick={() => void handleSave()} type="button">
@@ -1109,4 +1140,3 @@ export function ViewsHubPage() {
     </section>
   );
 }
-

@@ -17,9 +17,7 @@ export function DashboardDriverList({ emptyLabel, items, title }: DashboardDrive
   return (
     <div className="space-y-3">
       <p className="text-sm font-semibold">{title}</p>
-      {items.length === 0 && (
-        <p className="text-sm text-muted-foreground">{emptyLabel}</p>
-      )}
+      {items.length === 0 && <p className="text-sm text-muted-foreground">{emptyLabel}</p>}
       {items.map((item) => {
         const width = Math.max(8, Math.round((item.count / maxCount) * 100));
         return (

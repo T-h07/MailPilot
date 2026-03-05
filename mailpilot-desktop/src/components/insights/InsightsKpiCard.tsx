@@ -9,21 +9,15 @@ type InsightsKpiCardProps = {
   delta: string;
 };
 
-export function InsightsKpiCard({
-  accent,
-  label,
-  value,
-  subtitle,
-  delta,
-}: InsightsKpiCardProps) {
+export function InsightsKpiCard({ accent, label, value, subtitle, delta }: InsightsKpiCardProps) {
   return (
     <AccentCard
       accent={accent}
       className="h-full"
       contentClassName="space-y-0 p-4"
-      heading={(
+      heading={
         <span className="text-xs uppercase tracking-wide text-muted-foreground">{label}</span>
-      )}
+      }
     >
       <p className="text-2xl font-semibold leading-none">{value}</p>
       <p className="pt-2 text-xs text-muted-foreground">{subtitle}</p>

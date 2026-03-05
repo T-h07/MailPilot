@@ -171,4 +171,3 @@ class MailPilotSseClient {
 }
 
 export const sseClient = new MailPilotSseClient(`${API_BASE}/api/events/stream`);
-

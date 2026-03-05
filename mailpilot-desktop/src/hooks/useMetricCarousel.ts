@@ -53,7 +53,7 @@ export function useMetricCarousel({
       setActiveMetricIndex(metricIndex);
       setIsPinned(true);
     },
-    [activeMetricIndex],
+    [activeMetricIndex]
   );
 
   return {

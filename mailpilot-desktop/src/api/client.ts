@@ -38,7 +38,11 @@ export function resolveApiBase(): string {
   return API_BASE;
 }
 
-export function normalizeApiError(error: unknown): { message: string; status?: number; details?: string } {
+export function normalizeApiError(error: unknown): {
+  message: string;
+  status?: number;
+  details?: string;
+} {
   if (error instanceof ApiClientError) {
     return {
       message: error.message,
@@ -70,7 +74,7 @@ export async function apiJson<T>(path: string, options: FetchJsonOptions = {}): 
         () => {
           timeoutController.abort(options.signal?.reason);
         },
-        { once: true },
+        { once: true }
       );
     }
   }
@@ -121,7 +125,7 @@ export async function apiJson<T>(path: string, options: FetchJsonOptions = {}): 
 export async function fetchFormJson<T>(
   path: string,
   formData: FormData,
-  options: Omit<FetchJsonOptions, "body"> = {},
+  options: Omit<FetchJsonOptions, "body"> = {}
 ): Promise<T> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const timeoutController = new AbortController();
@@ -136,7 +140,7 @@ export async function fetchFormJson<T>(
         () => {
           timeoutController.abort(options.signal?.reason);
         },
-        { once: true },
+        { once: true }
       );
     }
   }
@@ -195,7 +199,7 @@ export async function apiBlob(path: string, options: FetchJsonOptions = {}): Pro
         () => {
           timeoutController.abort(options.signal?.reason);
         },
-        { once: true },
+        { once: true }
       );
     }
   }
@@ -237,7 +241,10 @@ export async function apiBlob(path: string, options: FetchJsonOptions = {}): Pro
   }
 }
 
-export async function downloadBinary(path: string, options: FetchJsonOptions = {}): Promise<BinaryResponse> {
+export async function downloadBinary(
+  path: string,
+  options: FetchJsonOptions = {}
+): Promise<BinaryResponse> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const timeoutController = new AbortController();
   const timeoutId = window.setTimeout(() => timeoutController.abort("timeout"), timeoutMs);
@@ -251,7 +258,7 @@ export async function downloadBinary(path: string, options: FetchJsonOptions = {
         () => {
           timeoutController.abort(options.signal?.reason);
         },
-        { once: true },
+        { once: true }
       );
     }
   }
@@ -301,7 +308,10 @@ export async function downloadBinary(path: string, options: FetchJsonOptions = {
   }
 }
 
-export async function fetchBinary(path: string, options: FetchJsonOptions = {}): Promise<BinaryResponse> {
+export async function fetchBinary(
+  path: string,
+  options: FetchJsonOptions = {}
+): Promise<BinaryResponse> {
   return downloadBinary(path, options);
 }
 

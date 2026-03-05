@@ -92,7 +92,9 @@ export function DraftsPage() {
   }, [refreshDrafts]);
 
   const preferredAccountId = useMemo(() => {
-    const primary = accounts.find((account) => account.role === "PRIMARY" && account.provider === "GMAIL");
+    const primary = accounts.find(
+      (account) => account.role === "PRIMARY" && account.provider === "GMAIL"
+    );
     if (primary) {
       return primary.id;
     }
@@ -156,12 +158,15 @@ export function DraftsPage() {
     void refreshDrafts();
   }, [refreshDrafts]);
 
-  const handleComposeOpenChange = useCallback((nextOpen: boolean) => {
-    setComposeOpen(nextOpen);
-    if (!nextOpen) {
-      void refreshDrafts();
-    }
-  }, [refreshDrafts]);
+  const handleComposeOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      setComposeOpen(nextOpen);
+      if (!nextOpen) {
+        void refreshDrafts();
+      }
+    },
+    [refreshDrafts]
+  );
 
   const handleComposeSendSuccess = useCallback(() => {
     void refreshDrafts();
@@ -224,7 +229,7 @@ export function DraftsPage() {
         return false;
       }
     },
-    [loadAccounts],
+    [loadAccounts]
   );
 
   return (
@@ -283,7 +288,11 @@ export function DraftsPage() {
             size="sm"
             variant="outline"
           >
-            {isRefreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            {isRefreshing ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4" />
+            )}
             Refresh
           </Button>
 
@@ -295,9 +304,7 @@ export function DraftsPage() {
       </div>
 
       <div className="mailbox-panel divide-y divide-border">
-        {listError && (
-          <div className="p-4 text-sm text-destructive">{listError}</div>
-        )}
+        {listError && <div className="p-4 text-sm text-destructive">{listError}</div>}
 
         {!listError && isLoading && (
           <div className="p-6 text-sm text-muted-foreground">Loading drafts...</div>
@@ -307,64 +314,74 @@ export function DraftsPage() {
           <div className="p-6 text-sm text-muted-foreground">No drafts yet.</div>
         )}
 
-        {!listError && !isLoading && drafts.map((draft) => {
-          const isRowLoading = loadingDraftId === draft.id;
-          const isRowDeleting = deletingDraftId === draft.id;
-          return (
-            <div className="flex flex-wrap items-center justify-between gap-3 p-4" key={draft.id}>
-              <div className="min-w-0 flex-1 space-y-1">
-                <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  <p className="truncate text-sm font-semibold">
-                    {draft.subject.trim().length > 0 ? draft.subject : "(no subject)"}
-                  </p>
-                  <Badge className="max-w-[260px] truncate" variant="outline">
-                    {draft.accountEmail}
-                  </Badge>
-                  {draft.hasAttachments && (
-                    <Badge className="gap-1" variant="secondary">
-                      <Paperclip className="h-3 w-3" />
-                      Attachments
+        {!listError &&
+          !isLoading &&
+          drafts.map((draft) => {
+            const isRowLoading = loadingDraftId === draft.id;
+            const isRowDeleting = deletingDraftId === draft.id;
+            return (
+              <div className="flex flex-wrap items-center justify-between gap-3 p-4" key={draft.id}>
+                <div className="min-w-0 flex-1 space-y-1">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <p className="truncate text-sm font-semibold">
+                      {draft.subject.trim().length > 0 ? draft.subject : "(no subject)"}
+                    </p>
+                    <Badge className="max-w-[260px] truncate" variant="outline">
+                      {draft.accountEmail}
                     </Badge>
+                    {draft.hasAttachments && (
+                      <Badge className="gap-1" variant="secondary">
+                        <Paperclip className="h-3 w-3" />
+                        Attachments
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="truncate text-xs text-muted-foreground">
+                    To: {draft.to.trim().length > 0 ? draft.to : "(no recipients)"}
+                  </p>
+                  {draft.snippet.trim().length > 0 && (
+                    <p className="truncate text-xs text-muted-foreground">{draft.snippet}</p>
                   )}
+                  <p className="text-xs text-muted-foreground">
+                    Updated {formatRelativeTime(draft.updatedAt)}
+                  </p>
                 </div>
-                <p className="truncate text-xs text-muted-foreground">
-                  To: {draft.to.trim().length > 0 ? draft.to : "(no recipients)"}
-                </p>
-                {draft.snippet.trim().length > 0 && (
-                  <p className="truncate text-xs text-muted-foreground">{draft.snippet}</p>
-                )}
-                <p className="text-xs text-muted-foreground">
-                  Updated {formatRelativeTime(draft.updatedAt)}
-                </p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    className="gap-2"
+                    disabled={isRowLoading || isRowDeleting}
+                    onClick={() => {
+                      void handleContinueDraft(draft.id);
+                    }}
+                    size="sm"
+                  >
+                    {isRowLoading ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <PencilLine className="h-4 w-4" />
+                    )}
+                    Continue
+                  </Button>
+                  <Button
+                    className="gap-2"
+                    disabled={isRowLoading || isRowDeleting}
+                    onClick={() => {
+                      void handleDiscardDraft(draft);
+                    }}
+                    size="sm"
+                    variant="destructive"
+                  >
+                    {isRowDeleting ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-4 w-4" />
+                    )}
+                    Discard
+                  </Button>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  className="gap-2"
-                  disabled={isRowLoading || isRowDeleting}
-                  onClick={() => {
-                    void handleContinueDraft(draft.id);
-                  }}
-                  size="sm"
-                >
-                  {isRowLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <PencilLine className="h-4 w-4" />}
-                  Continue
-                </Button>
-                <Button
-                  className="gap-2"
-                  disabled={isRowLoading || isRowDeleting}
-                  onClick={() => {
-                    void handleDiscardDraft(draft);
-                  }}
-                  size="sm"
-                  variant="destructive"
-                >
-                  {isRowDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                  Discard
-                </Button>
-              </div>
-            </div>
-          );
-        })}
+            );
+          })}
       </div>
 
       <ComposeDialog
@@ -425,4 +442,3 @@ function sleep(durationMs: number) {
     window.setTimeout(resolve, durationMs);
   });
 }
-

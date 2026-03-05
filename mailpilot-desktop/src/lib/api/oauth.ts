@@ -40,4 +40,3 @@ export function getGmailOAuthStatus(state: string, signal?: AbortSignal) {
     signal,
   });
 }
-

@@ -32,6 +32,7 @@ export type InsightsSummary = {
 };
 
 export function getInsightsSummary(range: InsightsRange, signal?: AbortSignal) {
-  return fetchJson<InsightsSummary>(`/api/insights/summary?range=${encodeURIComponent(range)}`, { signal });
+  return fetchJson<InsightsSummary>(`/api/insights/summary?range=${encodeURIComponent(range)}`, {
+    signal,
+  });
 }
-

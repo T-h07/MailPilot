@@ -118,7 +118,7 @@ export function FocusPage() {
 
   const activeQueueMeta = useMemo(
     () => QUEUES.find((queue) => queue.type === activeQueue) ?? QUEUES[0],
-    [activeQueue],
+    [activeQueue]
   );
 
   const loadSummary = useCallback(async () => {
@@ -160,7 +160,7 @@ export function FocusPage() {
         }
       }
     },
-    [activeQueue],
+    [activeQueue]
   );
 
   useEffect(() => {
@@ -189,7 +189,7 @@ export function FocusPage() {
         | { type: "MARK_DONE" }
         | { type: "SNOOZE"; days: 1 | 3 | 7 }
         | { type: "CLEAR_SNOOZE" }
-        | { type: "TOGGLE_NEEDS_REPLY" },
+        | { type: "TOGGLE_NEEDS_REPLY" }
     ) => {
       setActioningMessageId(item.messageId);
       try {
@@ -220,7 +220,7 @@ export function FocusPage() {
         setActioningMessageId(null);
       }
     },
-    [refreshFocusData],
+    [refreshFocusData]
   );
 
   return (
@@ -228,7 +228,8 @@ export function FocusPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Focus</h1>
         <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-          Action cockpit for followups. Drive response work, due queues, and snooze wakeups from one place.
+          Action cockpit for followups. Drive response work, due queues, and snooze wakeups from one
+          place.
         </p>
       </div>
 
@@ -266,7 +267,7 @@ export function FocusPage() {
             {QUEUES.map((queue) => (
               <Button
                 className={cn(
-                  activeQueue === queue.type && "border-primary/50 bg-accent ring-1 ring-primary/20",
+                  activeQueue === queue.type && "border-primary/50 bg-accent ring-1 ring-primary/20"
                 )}
                 key={queue.type}
                 onClick={() => setActiveQueue(queue.type)}
@@ -298,7 +299,12 @@ export function FocusPage() {
           {queueError && (
             <div className="rounded-md border border-border bg-card p-3 text-sm text-destructive">
               <p>{queueError}</p>
-              <Button className="mt-3" onClick={() => void loadQueue(null, false)} size="sm" variant="outline">
+              <Button
+                className="mt-3"
+                onClick={() => void loadQueue(null, false)}
+                size="sm"
+                variant="outline"
+              >
                 Retry queue
               </Button>
             </div>
@@ -307,7 +313,10 @@ export function FocusPage() {
           {!queueError && isLoadingQueue && (
             <div className="space-y-2">
               {Array.from({ length: 6 }, (_, index) => (
-                <div className="h-16 animate-pulse rounded-lg border border-border bg-muted" key={index} />
+                <div
+                  className="h-16 animate-pulse rounded-lg border border-border bg-muted"
+                  key={index}
+                />
               ))}
             </div>
           )}
@@ -327,7 +336,7 @@ export function FocusPage() {
                   <div
                     className={cn(
                       "rounded-xl border border-border bg-card p-3",
-                      item.highlight && highlight?.border,
+                      item.highlight && highlight?.border
                     )}
                     key={item.messageId}
                   >
@@ -338,12 +347,17 @@ export function FocusPage() {
                         </p>
                         <p className="mailbox-snippet pt-1 text-sm">{item.subject}</p>
                         <p className="pt-1 text-xs text-muted-foreground">{item.snippet}</p>
-                        <p className="pt-1 text-xs text-muted-foreground">{formatQueueContext(item)}</p>
+                        <p className="pt-1 text-xs text-muted-foreground">
+                          {formatQueueContext(item)}
+                        </p>
                       </div>
                       <div className="flex flex-wrap items-center gap-1.5">
                         <Badge variant="outline">{item.accountEmail}</Badge>
                         {item.highlight && (
-                          <Badge className={cn("border uppercase", highlight?.badge)} variant="outline">
+                          <Badge
+                            className={cn("border uppercase", highlight?.badge)}
+                            variant="outline"
+                          >
                             {item.highlight.label}
                           </Badge>
                         )}

@@ -9,4 +9,3 @@ export function toApiErrorMessage(error: unknown): string {
   }
   return "Request failed";
 }
-

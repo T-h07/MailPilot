@@ -27,38 +27,39 @@ import org.springframework.test.web.servlet.MockMvc;
 @Import(GlobalExceptionHandler.class)
 class MessageControllerWebMvcTest {
 
-  @Autowired
-  private MockMvc mockMvc;
+  @Autowired private MockMvc mockMvc;
 
-  @MockBean
-  private MessageService messageService;
+  @MockBean private MessageService messageService;
 
-  @MockBean
-  private PdfExportService pdfExportService;
+  @MockBean private PdfExportService pdfExportService;
 
   @Test
   void exportPdfReturnsApplicationPdfContentType() throws Exception {
     UUID messageId = UUID.randomUUID();
     byte[] bytes = "pdf-bytes".getBytes(StandardCharsets.UTF_8);
-    when(pdfExportService.exportMessage(messageId)).thenReturn(new PdfDocument("sample.pdf", bytes));
+    when(pdfExportService.exportMessage(messageId))
+        .thenReturn(new PdfDocument("sample.pdf", bytes));
 
-    mockMvc.perform(get("/api/messages/{id}/export/pdf", messageId))
-      .andExpect(status().isOk())
-      .andExpect(header().string(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_PDF_VALUE))
-      .andExpect(content().bytes(bytes));
+    mockMvc
+        .perform(get("/api/messages/{id}/export/pdf", messageId))
+        .andExpect(status().isOk())
+        .andExpect(header().string(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_PDF_VALUE))
+        .andExpect(content().bytes(bytes));
   }
 
   @Test
   void badRequestReturnsStructuredErrorResponse() throws Exception {
     UUID messageId = UUID.randomUUID();
-    when(messageService.getMessageDetail(messageId)).thenThrow(new ApiBadRequestException("Invalid request payload"));
+    when(messageService.getMessageDetail(messageId))
+        .thenThrow(new ApiBadRequestException("Invalid request payload"));
 
-    mockMvc.perform(get("/api/messages/{id}", messageId))
-      .andExpect(status().isBadRequest())
-      .andExpect(jsonPath("$.status").value("error"))
-      .andExpect(jsonPath("$.message").value("Invalid request payload"))
-      .andExpect(jsonPath("$.code").value("BAD_REQUEST"))
-      .andExpect(jsonPath("$.timestamp").exists())
-      .andExpect(jsonPath("$.path").value("/api/messages/" + messageId));
+    mockMvc
+        .perform(get("/api/messages/{id}", messageId))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.status").value("error"))
+        .andExpect(jsonPath("$.message").value("Invalid request payload"))
+        .andExpect(jsonPath("$.code").value("BAD_REQUEST"))
+        .andExpect(jsonPath("$.timestamp").exists())
+        .andExpect(jsonPath("$.path").value("/api/messages/" + messageId));
   }
 }

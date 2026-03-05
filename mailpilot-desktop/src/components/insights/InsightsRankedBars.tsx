@@ -17,9 +17,7 @@ export function InsightsRankedBars({ emptyLabel, items, title }: InsightsRankedB
   return (
     <div className="space-y-3">
       <p className="text-sm font-semibold">{title}</p>
-      {items.length === 0 && (
-        <p className="text-sm text-muted-foreground">{emptyLabel}</p>
-      )}
+      {items.length === 0 && <p className="text-sm text-muted-foreground">{emptyLabel}</p>}
       {items.map((item) => {
         const widthPercent = Math.max(6, Math.round((item.count / maxValue) * 100));
         return (

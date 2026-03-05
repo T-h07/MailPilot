@@ -27,11 +27,9 @@ public class GlobalExceptionHandler {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
-  @ExceptionHandler({
-    BadRequestException.class,
-    ApiBadRequestException.class
-  })
-  public ResponseEntity<ApiErrorResponse> handleBadRequest(RuntimeException exception, HttpServletRequest request) {
+  @ExceptionHandler({BadRequestException.class, ApiBadRequestException.class})
+  public ResponseEntity<ApiErrorResponse> handleBadRequest(
+      RuntimeException exception, HttpServletRequest request) {
     return error(HttpStatus.BAD_REQUEST, "BAD_REQUEST", exception.getMessage(), request);
   }
 
@@ -40,51 +38,51 @@ public class GlobalExceptionHandler {
     ApiNotFoundException.class,
     NoSuchElementException.class
   })
-  public ResponseEntity<ApiErrorResponse> handleNotFound(RuntimeException exception, HttpServletRequest request) {
+  public ResponseEntity<ApiErrorResponse> handleNotFound(
+      RuntimeException exception, HttpServletRequest request) {
     return error(HttpStatus.NOT_FOUND, "NOT_FOUND", exception.getMessage(), request);
   }
 
-  @ExceptionHandler({
-    ConflictException.class,
-    ApiConflictException.class
-  })
-  public ResponseEntity<ApiErrorResponse> handleConflict(RuntimeException exception, HttpServletRequest request) {
+  @ExceptionHandler({ConflictException.class, ApiConflictException.class})
+  public ResponseEntity<ApiErrorResponse> handleConflict(
+      RuntimeException exception, HttpServletRequest request) {
     return error(HttpStatus.CONFLICT, "CONFLICT", exception.getMessage(), request);
   }
 
-  @ExceptionHandler({
-    UpstreamException.class,
-    GmailClient.GmailApiException.class
-  })
-  public ResponseEntity<ApiErrorResponse> handleUpstream(RuntimeException exception, HttpServletRequest request) {
+  @ExceptionHandler({UpstreamException.class, GmailClient.GmailApiException.class})
+  public ResponseEntity<ApiErrorResponse> handleUpstream(
+      RuntimeException exception, HttpServletRequest request) {
     return error(HttpStatus.BAD_GATEWAY, "UPSTREAM_ERROR", exception.getMessage(), request);
   }
 
   @ExceptionHandler(ApiInternalException.class)
-  public ResponseEntity<ApiErrorResponse> handleInternal(ApiInternalException exception, HttpServletRequest request) {
+  public ResponseEntity<ApiErrorResponse> handleInternal(
+      ApiInternalException exception, HttpServletRequest request) {
     LOGGER.error("Internal API error", exception);
-    return error(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", exception.getMessage(), request);
+    return error(
+        HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", exception.getMessage(), request);
   }
 
   @ExceptionHandler(DataAccessException.class)
-  public ResponseEntity<ApiErrorResponse> handleDataAccess(DataAccessException exception, HttpServletRequest request) {
+  public ResponseEntity<ApiErrorResponse> handleDataAccess(
+      DataAccessException exception, HttpServletRequest request) {
     LOGGER.error("Database API error", exception);
     String message = "Internal server error";
-    String details = exception.getMostSpecificCause() == null
-      ? exception.getMessage()
-      : exception.getMostSpecificCause().getMessage();
+    String details =
+        exception.getMostSpecificCause() == null
+            ? exception.getMessage()
+            : exception.getMostSpecificCause().getMessage();
     String normalized = details == null ? "" : details.toLowerCase(Locale.ROOT);
     if (normalized.contains("view_labels") || normalized.contains("message_view_labels")) {
-      message = "View labels storage is unavailable. Restart the backend so latest migrations can run.";
+      message =
+          "View labels storage is unavailable. Restart the backend so latest migrations can run.";
     }
     return error(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", message, request);
   }
 
   @ExceptionHandler(MethodArgumentNotValidException.class)
   public ResponseEntity<ApiErrorResponse> handleValidation(
-    MethodArgumentNotValidException exception,
-    HttpServletRequest request
-  ) {
+      MethodArgumentNotValidException exception, HttpServletRequest request) {
     String message = "Invalid request";
     FieldError firstFieldError = exception.getBindingResult().getFieldError();
     if (firstFieldError != null && firstFieldError.getDefaultMessage() != null) {
@@ -95,14 +93,10 @@ public class GlobalExceptionHandler {
 
   @ExceptionHandler(ConstraintViolationException.class)
   public ResponseEntity<ApiErrorResponse> handleConstraintViolation(
-    ConstraintViolationException exception,
-    HttpServletRequest request
-  ) {
+      ConstraintViolationException exception, HttpServletRequest request) {
     String message = "Invalid request input";
-    ConstraintViolation<?> firstViolation = exception.getConstraintViolations()
-      .stream()
-      .findFirst()
-      .orElse(null);
+    ConstraintViolation<?> firstViolation =
+        exception.getConstraintViolations().stream().findFirst().orElse(null);
     if (firstViolation != null && firstViolation.getMessage() != null) {
       message = firstViolation.getMessage();
     }
@@ -114,27 +108,27 @@ public class GlobalExceptionHandler {
     HttpMessageNotReadableException.class,
     IllegalArgumentException.class
   })
-  public ResponseEntity<ApiErrorResponse> handleInputErrors(Exception exception, HttpServletRequest request) {
+  public ResponseEntity<ApiErrorResponse> handleInputErrors(
+      Exception exception, HttpServletRequest request) {
     return error(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Invalid request input", request);
   }
 
   @ExceptionHandler(SecurityException.class)
-  public ResponseEntity<ApiErrorResponse> handleSecurity(SecurityException exception, HttpServletRequest request) {
+  public ResponseEntity<ApiErrorResponse> handleSecurity(
+      SecurityException exception, HttpServletRequest request) {
     return error(HttpStatus.FORBIDDEN, "FORBIDDEN", "Access denied", request);
   }
 
   @ExceptionHandler(Exception.class)
-  public ResponseEntity<ApiErrorResponse> handleUnhandled(Exception exception, HttpServletRequest request) {
+  public ResponseEntity<ApiErrorResponse> handleUnhandled(
+      Exception exception, HttpServletRequest request) {
     LOGGER.error("Unhandled API error", exception);
-    return error(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "Internal server error", request);
+    return error(
+        HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "Internal server error", request);
   }
 
   private ResponseEntity<ApiErrorResponse> error(
-    HttpStatus status,
-    String code,
-    String message,
-    HttpServletRequest request
-  ) {
+      HttpStatus status, String code, String message, HttpServletRequest request) {
     String safeMessage = message == null || message.isBlank() ? "Request failed" : message;
     ApiErrorResponse response = ApiErrorResponse.of(safeMessage, code, request.getRequestURI());
     return ResponseEntity.status(status).body(response);

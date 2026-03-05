@@ -164,4 +164,3 @@ export function loadMessageBody(id: string, force = false, signal?: AbortSignal)
     signal,
   });
 }
-

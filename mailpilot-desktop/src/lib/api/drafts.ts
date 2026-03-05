@@ -92,4 +92,3 @@ export function deleteDraft(id: string, signal?: AbortSignal) {
     signal,
   });
 }
-

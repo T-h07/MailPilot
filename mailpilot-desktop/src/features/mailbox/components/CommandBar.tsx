@@ -1,5 +1,12 @@
 import { useEffect, useRef } from "react";
-import { EllipsisVertical, Loader2, MessageSquarePlus, RefreshCw, Search, Settings2 } from "lucide-react";
+import {
+  EllipsisVertical,
+  Loader2,
+  MessageSquarePlus,
+  RefreshCw,
+  Search,
+  Settings2,
+} from "lucide-react";
 import type { AccountScope, MailAccount, QuickFilterKey } from "@/features/mailbox/model/types";
 import { AccountScopeDropdown } from "@/features/mailbox/components/AccountScopeDropdown";
 import { FilterChips } from "@/features/mailbox/components/FilterChips";
@@ -126,7 +133,11 @@ export function CommandBar({
           size="sm"
           variant="outline"
         >
-          {isRefreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+          {isRefreshing ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <RefreshCw className="h-4 w-4" />
+          )}
           Refresh
         </Button>
         <Button className="gap-2" onClick={onCompose}>

@@ -43,7 +43,7 @@ export function getFocusQueue(
   type: FocusQueueType,
   pageSize = 50,
   cursor: string | null = null,
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ) {
   const params = new URLSearchParams();
   params.set("type", type);
@@ -53,4 +53,3 @@ export function getFocusQueue(
   }
   return fetchJson<FocusQueueResponse>(`/api/focus/queue?${params.toString()}`, { signal });
 }
-

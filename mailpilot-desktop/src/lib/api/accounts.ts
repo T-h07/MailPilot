@@ -39,4 +39,3 @@ export function updateAccountLabel(accountId: string, payload: AccountLabelUpdat
     body: payload,
   });
 }
-

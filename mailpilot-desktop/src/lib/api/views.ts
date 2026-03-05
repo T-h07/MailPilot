@@ -81,7 +81,11 @@ export function listViewLabels(viewId: string, signal?: AbortSignal) {
   return fetchJson<ViewLabelRecord[]>(`/api/views/${viewId}/labels`, { signal });
 }
 
-export function createViewLabel(viewId: string, payload: ViewLabelUpsertPayload, signal?: AbortSignal) {
+export function createViewLabel(
+  viewId: string,
+  payload: ViewLabelUpsertPayload,
+  signal?: AbortSignal
+) {
   return fetchJson<ViewLabelRecord>(`/api/views/${viewId}/labels`, {
     method: "POST",
     body: payload,
@@ -93,7 +97,7 @@ export function updateViewLabel(
   viewId: string,
   labelId: string,
   payload: ViewLabelUpsertPayload,
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ) {
   return fetchJson<ViewLabelRecord>(`/api/views/${viewId}/labels/${labelId}`, {
     method: "PUT",
@@ -110,14 +114,16 @@ export function deleteViewLabel(viewId: string, labelId: string, signal?: AbortS
 }
 
 export function listMessageViewLabels(viewId: string, messageId: string, signal?: AbortSignal) {
-  return fetchJson<ViewLabelRecord[]>(`/api/views/${viewId}/messages/${messageId}/labels`, { signal });
+  return fetchJson<ViewLabelRecord[]>(`/api/views/${viewId}/messages/${messageId}/labels`, {
+    signal,
+  });
 }
 
 export function replaceMessageViewLabels(
   viewId: string,
   messageId: string,
   labelIds: string[],
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ) {
   return fetchJson<{ status: string }>(`/api/views/${viewId}/messages/${messageId}/labels`, {
     method: "PUT",
@@ -125,4 +131,3 @@ export function replaceMessageViewLabels(
     signal,
   });
 }
-

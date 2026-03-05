@@ -1,10 +1,21 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { Activity, Pin, RefreshCw, TrendingUp, Unplug } from "lucide-react";
 import { InsightsChartTooltip } from "@/components/insights/InsightsChartTooltip";
 import { InsightsKpiCard } from "@/components/insights/InsightsKpiCard";
-import { InsightsRankedBars, type InsightsRankedItem } from "@/components/insights/InsightsRankedBars";
+import {
+  InsightsRankedBars,
+  type InsightsRankedItem,
+} from "@/components/insights/InsightsRankedBars";
 import { AccentCard, type AccentColor } from "@/components/ui/AccentCard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -130,7 +141,7 @@ function mergeChartData(
   receivedSeries: Array<{ date: string; count: number }>,
   unreadSeries: Array<{ date: string; count: number }>,
   bossSeries: Array<{ date: string; count: number }>,
-  followupsDoneSeries: Array<{ date: string; count: number }>,
+  followupsDoneSeries: Array<{ date: string; count: number }>
 ): ChartRow[] {
   const dates = new Set<string>();
   for (const point of receivedSeries) {
@@ -192,7 +203,7 @@ export function InsightsPage() {
 
   const chartRows = useMemo(
     () => mergeChartData(receivedSeries, unreadSeries, bossSeries, followupsDoneSeries),
-    [bossSeries, followupsDoneSeries, receivedSeries, unreadSeries],
+    [bossSeries, followupsDoneSeries, receivedSeries, unreadSeries]
   );
 
   const availableMetrics = useMemo(() => {
@@ -229,13 +240,17 @@ export function InsightsPage() {
     resumeAfterHoverMs: RESUME_AFTER_HOVER_MS,
   });
 
-  const activeMetric = effectiveMetrics[Math.min(activeMetricIndex, Math.max(effectiveMetrics.length - 1, 0))];
+  const activeMetric =
+    effectiveMetrics[Math.min(activeMetricIndex, Math.max(effectiveMetrics.length - 1, 0))];
 
   const peakPoint = useMemo(() => {
     if (chartRows.length === 0) {
       return null;
     }
-    return chartRows.reduce((peak, point) => (point.received > peak.received ? point : peak), chartRows[0]);
+    return chartRows.reduce(
+      (peak, point) => (point.received > peak.received ? point : peak),
+      chartRows[0]
+    );
   }, [chartRows]);
 
   const averagePerDay = useMemo(() => {
@@ -267,18 +282,18 @@ export function InsightsPage() {
     (params: InboxDrilldownParams) => {
       navigate(buildInboxDrilldownPath(params));
     },
-    [navigate],
+    [navigate]
   );
 
   const topDomain = useMemo(() => summary?.topDomains[0] ?? null, [summary]);
   const topSender = useMemo(() => summary?.topSenders[0] ?? null, [summary]);
   const topDomainShare = useMemo(
     () => (summary && topDomain ? (topDomain.count / Math.max(1, summary.receivedCount)) * 100 : 0),
-    [summary, topDomain],
+    [summary, topDomain]
   );
   const topSenderShare = useMemo(
     () => (summary && topSender ? (topSender.count / Math.max(1, summary.receivedCount)) * 100 : 0),
-    [summary, topSender],
+    [summary, topSender]
   );
 
   const topDomainItems = useMemo<InsightsRankedItem[]>(
@@ -289,7 +304,7 @@ export function InsightsPage() {
         count: item.count,
         onClick: () => openDrilldown({ senderDomains: [item.domain] }),
       })),
-    [openDrilldown, summary],
+    [openDrilldown, summary]
   );
 
   const topSenderItems = useMemo<InsightsRankedItem[]>(
@@ -300,7 +315,7 @@ export function InsightsPage() {
         count: item.count,
         onClick: () => openDrilldown({ senderEmails: [item.email] }),
       })),
-    [openDrilldown, summary],
+    [openDrilldown, summary]
   );
 
   const accountActivityItems = useMemo<InsightsRankedItem[]>(
@@ -311,7 +326,7 @@ export function InsightsPage() {
         count: item.count,
         onClick: () => openDrilldown({ accountIds: [item.accountId] }),
       })),
-    [openDrilldown, summary],
+    [openDrilldown, summary]
   );
 
   const unreadDomainItems = useMemo<InsightsRankedItem[]>(
@@ -322,7 +337,7 @@ export function InsightsPage() {
         count: item.count,
         onClick: () => openDrilldown({ unread: true, senderDomains: [item.domain] }),
       })),
-    [openDrilldown, summary],
+    [openDrilldown, summary]
   );
 
   const activeMetricColor = activeMetric?.color ?? "#06b6d4";
@@ -338,7 +353,12 @@ export function InsightsPage() {
             Historical analytics with comparison deltas, distribution drivers, and drilldowns.
           </p>
         </div>
-        <Button disabled={isLoading} onClick={() => void loadSummary(range)} size="sm" variant="outline">
+        <Button
+          disabled={isLoading}
+          onClick={() => void loadSummary(range)}
+          size="sm"
+          variant="outline"
+        >
           {isLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : "Refresh"}
         </Button>
       </div>
@@ -404,12 +424,12 @@ export function InsightsPage() {
         accent="blue"
         className={cn("transition-opacity", isLoading && "animate-pulse opacity-75")}
         description="Primary baseline is Received per day. Secondary metric rotates and pauses on hover."
-        heading={(
+        heading={
           <span className="flex items-center gap-2">
             <TrendingUp className="h-4 w-4" />
             Metric Carousel Chart
           </span>
-        )}
+        }
       >
         <div className="space-y-3">
           <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
@@ -420,7 +440,8 @@ export function InsightsPage() {
               </span>
             </div>
             <div className="rounded-md border border-border bg-card/70 px-3 py-2">
-              Average/day: <span className="font-semibold text-foreground">{averagePerDay.toFixed(1)}</span>
+              Average/day:{" "}
+              <span className="font-semibold text-foreground">{averagePerDay.toFixed(1)}</span>
             </div>
           </div>
 
@@ -438,7 +459,7 @@ export function InsightsPage() {
                     "rounded-full border px-2.5 py-1 text-xs transition-colors",
                     active
                       ? "border-border bg-accent text-foreground"
-                      : "border-border bg-card text-muted-foreground hover:bg-muted/80",
+                      : "border-border bg-card text-muted-foreground hover:bg-muted/80"
                   )}
                   key={metric.key}
                   onClick={() => handleMetricClick(metricIndex)}
@@ -449,7 +470,10 @@ export function InsightsPage() {
               );
             })}
             {!isPinned ? (
-              <Badge className="ml-auto gap-1 border border-border bg-muted text-foreground" variant="outline">
+              <Badge
+                className="ml-auto gap-1 border border-border bg-muted text-foreground"
+                variant="outline"
+              >
                 <Unplug className="h-3 w-3" />
                 AUTO
               </Badge>
@@ -490,10 +514,7 @@ export function InsightsPage() {
                 />
                 <Tooltip
                   content={(tooltipProps) => (
-                    <InsightsChartTooltip
-                      {...tooltipProps}
-                      activeMetricLabel={activeMetricLabel}
-                    />
+                    <InsightsChartTooltip {...tooltipProps} activeMetricLabel={activeMetricLabel} />
                   )}
                 />
                 <Line
@@ -523,7 +544,11 @@ export function InsightsPage() {
       </AccentCard>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <AccentCard accent="purple" description="Click to open mailbox filtered by domain." heading="Top Domains">
+        <AccentCard
+          accent="purple"
+          description="Click to open mailbox filtered by domain."
+          heading="Top Domains"
+        >
           <div>
             <InsightsRankedBars
               emptyLabel="No domain activity in this range."
@@ -533,7 +558,11 @@ export function InsightsPage() {
           </div>
         </AccentCard>
 
-        <AccentCard accent="gold" description="Click to open mailbox filtered by sender." heading="Top Senders">
+        <AccentCard
+          accent="gold"
+          description="Click to open mailbox filtered by sender."
+          heading="Top Senders"
+        >
           <div>
             <InsightsRankedBars
               emptyLabel="No sender activity in this range."
@@ -545,7 +574,11 @@ export function InsightsPage() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <AccentCard accent="blue" description="Received counts by account in selected range." heading="Account Distribution">
+        <AccentCard
+          accent="blue"
+          description="Received counts by account in selected range."
+          heading="Account Distribution"
+        >
           <div>
             <InsightsRankedBars
               emptyLabel="No account activity in this range."
@@ -555,7 +588,11 @@ export function InsightsPage() {
           </div>
         </AccentCard>
 
-        <AccentCard accent="green" description="Current unread concentration by sender domain." heading="Unread by Domain">
+        <AccentCard
+          accent="green"
+          description="Current unread concentration by sender domain."
+          heading="Unread by Domain"
+        >
           <div>
             <InsightsRankedBars
               emptyLabel="No unread domain concentration."
@@ -568,12 +605,12 @@ export function InsightsPage() {
         <AccentCard
           accent="orange"
           description="Current followup pressure (live, independent of range)."
-          heading={(
+          heading={
             <span className="flex items-center gap-2">
               <Activity className="h-4 w-4" />
               Followup Pressure
             </span>
-          )}
+          }
         >
           <div className="space-y-2 text-sm">
             <div className="flex items-center justify-between rounded-md border border-border bg-card px-3 py-2">

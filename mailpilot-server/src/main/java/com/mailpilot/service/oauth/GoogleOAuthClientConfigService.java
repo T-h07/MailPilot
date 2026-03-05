@@ -4,13 +4,13 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mailpilot.api.error.ApiBadRequestException;
 import com.mailpilot.service.logging.LogSanitizer;
+import jakarta.annotation.PostConstruct;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Locale;
-import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.env.Environment;
@@ -20,10 +20,10 @@ import org.springframework.util.StringUtils;
 @Service
 public class GoogleOAuthClientConfigService {
 
-  private static final Logger LOGGER = LoggerFactory.getLogger(GoogleOAuthClientConfigService.class);
-  private static final Path WINDOWS_DEFAULT_PATH = Paths.get(
-    "C:\\Users\\taulanth\\AppData\\Local\\MailPilot\\google-oauth-client.json"
-  );
+  private static final Logger LOGGER =
+      LoggerFactory.getLogger(GoogleOAuthClientConfigService.class);
+  private static final Path WINDOWS_DEFAULT_PATH =
+      Paths.get("C:\\Users\\taulanth\\AppData\\Local\\MailPilot\\google-oauth-client.json");
 
   private final Environment environment;
   private final ObjectMapper objectMapper;
@@ -41,7 +41,8 @@ public class GoogleOAuthClientConfigService {
 
     GoogleOAuthConfigCheck check = checkConfiguration();
     if (check.configured()) {
-      LOGGER.info("Google OAuth client configuration is available at {}", sanitizePath(check.path()));
+      LOGGER.info(
+          "Google OAuth client configuration is available at {}", sanitizePath(check.path()));
       return;
     }
 
@@ -61,33 +62,25 @@ public class GoogleOAuthClientConfigService {
     }
     if (resolvedPath == null) {
       return new GoogleOAuthConfigCheck(
-        false,
-        null,
-        "Set MAILPILOT_GOOGLE_OAUTH_CLIENT_JSON to a Google OAuth client JSON file path."
-      );
+          false,
+          null,
+          "Set MAILPILOT_GOOGLE_OAUTH_CLIENT_JSON to a Google OAuth client JSON file path.");
     }
 
     if (!Files.exists(resolvedPath)) {
       return new GoogleOAuthConfigCheck(
-        false,
-        resolvedPath.toString(),
-        "OAuth client JSON file not found at resolved path."
-      );
+          false, resolvedPath.toString(), "OAuth client JSON file not found at resolved path.");
     }
 
     try {
       loadConfig(resolvedPath);
       return new GoogleOAuthConfigCheck(
-        true,
-        resolvedPath.toString(),
-        "OAuth client JSON loaded successfully."
-      );
+          true, resolvedPath.toString(), "OAuth client JSON loaded successfully.");
     } catch (IOException | IllegalArgumentException exception) {
       return new GoogleOAuthConfigCheck(
-        false,
-        resolvedPath.toString(),
-        "Invalid OAuth client JSON. Expected installed.client_id and installed.client_secret."
-      );
+          false,
+          resolvedPath.toString(),
+          "Invalid OAuth client JSON. Expected installed.client_id and installed.client_secret.");
     }
   }
 
@@ -101,8 +94,7 @@ public class GoogleOAuthClientConfigService {
       return loadConfig(Paths.get(check.path()));
     } catch (IOException | IllegalArgumentException exception) {
       throw new ApiBadRequestException(
-        "OAuth client JSON is invalid. Expected installed.client_id and installed.client_secret."
-      );
+          "OAuth client JSON is invalid. Expected installed.client_id and installed.client_secret.");
     }
   }
 
@@ -129,8 +121,7 @@ public class GoogleOAuthClientConfigService {
         return Paths.get(fromEnv.trim()).toAbsolutePath().normalize();
       } catch (InvalidPathException exception) {
         throw new ApiBadRequestException(
-          "MAILPILOT_GOOGLE_OAUTH_CLIENT_JSON points to an invalid path."
-        );
+            "MAILPILOT_GOOGLE_OAUTH_CLIENT_JSON points to an invalid path.");
       }
     }
 

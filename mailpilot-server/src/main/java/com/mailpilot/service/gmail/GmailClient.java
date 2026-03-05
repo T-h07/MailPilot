@@ -31,7 +31,7 @@ public class GmailClient {
   private static final String LIST_MESSAGES_URL = GMAIL_BASE_URL + "/messages";
   private static final String MESSAGE_URL = GMAIL_BASE_URL + "/messages/{messageId}";
   private static final String ATTACHMENT_URL =
-    GMAIL_BASE_URL + "/messages/{messageId}/attachments/{attachmentId}";
+      GMAIL_BASE_URL + "/messages/{messageId}/attachments/{attachmentId}";
   private static final String SEND_MESSAGE_URL = GMAIL_BASE_URL + "/messages/send";
   private static final String PROFILE_URL = GMAIL_BASE_URL + "/profile";
   private static final String HISTORY_URL = GMAIL_BASE_URL + "/history";
@@ -43,101 +43,82 @@ public class GmailClient {
   private final ObjectMapper objectMapper;
 
   public GmailClient(RestTemplateBuilder restTemplateBuilder, ObjectMapper objectMapper) {
-    this.restTemplate = restTemplateBuilder
-      .setConnectTimeout(Duration.ofSeconds(10))
-      .setReadTimeout(Duration.ofSeconds(30))
-      .build();
+    this.restTemplate =
+        restTemplateBuilder
+            .setConnectTimeout(Duration.ofSeconds(10))
+            .setReadTimeout(Duration.ofSeconds(30))
+            .build();
     this.objectMapper = objectMapper;
   }
 
   public MessageListResponse listMessages(
-    String accessToken,
-    int maxResults,
-    String pageToken,
-    String query
-  ) {
-    URI uri = UriComponentsBuilder
-      .fromUriString(LIST_MESSAGES_URL)
-      .queryParam("maxResults", maxResults)
-      .queryParamIfPresent("pageToken", nullable(pageToken))
-      .queryParamIfPresent("q", nullable(query))
-      .build(true)
-      .toUri();
+      String accessToken, int maxResults, String pageToken, String query) {
+    URI uri =
+        UriComponentsBuilder.fromUriString(LIST_MESSAGES_URL)
+            .queryParam("maxResults", maxResults)
+            .queryParamIfPresent("pageToken", nullable(pageToken))
+            .queryParamIfPresent("q", nullable(query))
+            .build(true)
+            .toUri();
 
     return executeWithRetry(
-      "listMessages",
-      uri,
-      accessToken,
-      MessageListResponse.class,
-      ErrorSemantics.DEFAULT
-    );
+        "listMessages", uri, accessToken, MessageListResponse.class, ErrorSemantics.DEFAULT);
   }
 
   public GmailMessageResponse getMessage(String accessToken, String messageId) {
-    URI uri = UriComponentsBuilder
-      .fromUriString(MESSAGE_URL)
-      .queryParam("format", "metadata")
-      .queryParam("metadataHeaders", "From")
-      .queryParam("metadataHeaders", "To")
-      .queryParam("metadataHeaders", "Cc")
-      .queryParam("metadataHeaders", "Subject")
-      .queryParam("metadataHeaders", "Date")
-      .queryParam("metadataHeaders", "Message-ID")
-      .queryParam("metadataHeaders", "References")
-      .buildAndExpand(messageId)
-      .encode()
-      .toUri();
+    URI uri =
+        UriComponentsBuilder.fromUriString(MESSAGE_URL)
+            .queryParam("format", "metadata")
+            .queryParam("metadataHeaders", "From")
+            .queryParam("metadataHeaders", "To")
+            .queryParam("metadataHeaders", "Cc")
+            .queryParam("metadataHeaders", "Subject")
+            .queryParam("metadataHeaders", "Date")
+            .queryParam("metadataHeaders", "Message-ID")
+            .queryParam("metadataHeaders", "References")
+            .buildAndExpand(messageId)
+            .encode()
+            .toUri();
 
     return executeWithRetry(
-      "getMessage",
-      uri,
-      accessToken,
-      GmailMessageResponse.class,
-      ErrorSemantics.MESSAGE_FETCH
-    );
+        "getMessage", uri, accessToken, GmailMessageResponse.class, ErrorSemantics.MESSAGE_FETCH);
   }
 
   public GmailMessageResponse getMessageFull(String accessToken, String messageId) {
-    URI uri = UriComponentsBuilder
-      .fromUriString(MESSAGE_URL)
-      .queryParam("format", "full")
-      .buildAndExpand(messageId)
-      .encode()
-      .toUri();
+    URI uri =
+        UriComponentsBuilder.fromUriString(MESSAGE_URL)
+            .queryParam("format", "full")
+            .buildAndExpand(messageId)
+            .encode()
+            .toUri();
 
     return executeWithRetry(
-      "getMessageFull",
-      uri,
-      accessToken,
-      GmailMessageResponse.class,
-      ErrorSemantics.MESSAGE_FETCH
-    );
+        "getMessageFull",
+        uri,
+        accessToken,
+        GmailMessageResponse.class,
+        ErrorSemantics.MESSAGE_FETCH);
   }
 
   public GmailProfileResponse getProfile(String accessToken) {
     URI uri = UriComponentsBuilder.fromUriString(PROFILE_URL).build(true).toUri();
     return executeWithRetry(
-      "getProfile",
-      uri,
-      accessToken,
-      GmailProfileResponse.class,
-      ErrorSemantics.DEFAULT
-    );
+        "getProfile", uri, accessToken, GmailProfileResponse.class, ErrorSemantics.DEFAULT);
   }
 
   public GmailAttachmentResponse getAttachment(
-    String accessToken,
-    String messageId,
-    String attachmentId
-  ) {
-    URI uri = UriComponentsBuilder.fromUriString(ATTACHMENT_URL).buildAndExpand(messageId, attachmentId).encode().toUri();
+      String accessToken, String messageId, String attachmentId) {
+    URI uri =
+        UriComponentsBuilder.fromUriString(ATTACHMENT_URL)
+            .buildAndExpand(messageId, attachmentId)
+            .encode()
+            .toUri();
     return executeWithRetry(
-      "getAttachment",
-      uri,
-      accessToken,
-      GmailAttachmentResponse.class,
-      ErrorSemantics.ATTACHMENT_FETCH
-    );
+        "getAttachment",
+        uri,
+        accessToken,
+        GmailAttachmentResponse.class,
+        ErrorSemantics.ATTACHMENT_FETCH);
   }
 
   public GmailSendResponse sendMessage(String accessToken, String rawMessage, String threadId) {
@@ -153,12 +134,9 @@ public class GmailClient {
 
     for (int attempt = 0; attempt < MAX_RETRY_ATTEMPTS; attempt++) {
       try {
-        ResponseEntity<GmailSendResponse> response = restTemplate.exchange(
-          SEND_MESSAGE_URL,
-          HttpMethod.POST,
-          requestEntity,
-          GmailSendResponse.class
-        );
+        ResponseEntity<GmailSendResponse> response =
+            restTemplate.exchange(
+                SEND_MESSAGE_URL, HttpMethod.POST, requestEntity, GmailSendResponse.class);
         GmailSendResponse body = response.getBody();
         if (body == null || !StringUtils.hasText(body.id())) {
           throw new GmailApiException("sendMessage returned an empty response body.");
@@ -186,45 +164,36 @@ public class GmailClient {
     throw new GmailApiException("sendMessage failed after retries.");
   }
 
-  public HistoryListResponse historyList(String accessToken, String startHistoryId, String pageToken) {
-    URI uri = UriComponentsBuilder
-      .fromUriString(HISTORY_URL)
-      .queryParam("startHistoryId", startHistoryId)
-      .queryParam("maxResults", 500)
-      .queryParamIfPresent("pageToken", nullable(pageToken))
-      .queryParam("historyTypes", "messageAdded")
-      .queryParam("historyTypes", "messageDeleted")
-      .queryParam("historyTypes", "labelAdded")
-      .queryParam("historyTypes", "labelRemoved")
-      .build(true)
-      .toUri();
+  public HistoryListResponse historyList(
+      String accessToken, String startHistoryId, String pageToken) {
+    URI uri =
+        UriComponentsBuilder.fromUriString(HISTORY_URL)
+            .queryParam("startHistoryId", startHistoryId)
+            .queryParam("maxResults", 500)
+            .queryParamIfPresent("pageToken", nullable(pageToken))
+            .queryParam("historyTypes", "messageAdded")
+            .queryParam("historyTypes", "messageDeleted")
+            .queryParam("historyTypes", "labelAdded")
+            .queryParam("historyTypes", "labelRemoved")
+            .build(true)
+            .toUri();
 
     return executeWithRetry(
-      "historyList",
-      uri,
-      accessToken,
-      HistoryListResponse.class,
-      ErrorSemantics.HISTORY_LIST
-    );
+        "historyList", uri, accessToken, HistoryListResponse.class, ErrorSemantics.HISTORY_LIST);
   }
 
   private <T> T executeWithRetry(
-    String operation,
-    URI uri,
-    String accessToken,
-    Class<T> responseType,
-    ErrorSemantics semantics
-  ) {
+      String operation,
+      URI uri,
+      String accessToken,
+      Class<T> responseType,
+      ErrorSemantics semantics) {
     HttpEntity<Void> requestEntity = new HttpEntity<>(authHeaders(accessToken));
 
     for (int attempt = 0; attempt < MAX_RETRY_ATTEMPTS; attempt++) {
       try {
-        ResponseEntity<T> response = restTemplate.exchange(
-          uri,
-          HttpMethod.GET,
-          requestEntity,
-          responseType
-        );
+        ResponseEntity<T> response =
+            restTemplate.exchange(uri, HttpMethod.GET, requestEntity, responseType);
         T body = response.getBody();
         if (body == null) {
           throw new GmailApiException(operation + " returned an empty response body.");
@@ -247,14 +216,11 @@ public class GmailClient {
 
         if ((status == 404 || status == 400) && semantics == ErrorSemantics.HISTORY_LIST) {
           String errorBody = normalize(exception.getResponseBodyAsString());
-          if (
-            errorBody.contains("starthistoryid") ||
-            (errorBody.contains("history") && errorBody.contains("too old")) ||
-            errorBody.contains("historyid") && errorBody.contains("invalid")
-          ) {
+          if (errorBody.contains("starthistoryid")
+              || (errorBody.contains("history") && errorBody.contains("too old"))
+              || errorBody.contains("historyid") && errorBody.contains("invalid")) {
             throw new GmailHistoryExpiredException(
-              "Gmail history cursor expired. Falling back to bootstrap sync."
-            );
+                "Gmail history cursor expired. Falling back to bootstrap sync.");
           }
         }
 
@@ -308,7 +274,8 @@ public class GmailClient {
       if (envelope.error() != null && StringUtils.hasText(envelope.error().message())) {
         return LogSanitizer.sanitize(envelope.error().message());
       }
-    } catch (Exception ignored) {}
+    } catch (Exception ignored) {
+    }
 
     return LogSanitizer.sanitize(body);
   }
@@ -335,80 +302,75 @@ public class GmailClient {
 
   @JsonIgnoreProperties(ignoreUnknown = true)
   public record MessageListResponse(
-    @JsonProperty("messages") List<MessageRef> messages,
-    @JsonProperty("nextPageToken") String nextPageToken,
-    @JsonProperty("resultSizeEstimate") Long resultSizeEstimate
-  ) {}
+      @JsonProperty("messages") List<MessageRef> messages,
+      @JsonProperty("nextPageToken") String nextPageToken,
+      @JsonProperty("resultSizeEstimate") Long resultSizeEstimate) {}
 
   @JsonIgnoreProperties(ignoreUnknown = true)
-  public record MessageRef(@JsonProperty("id") String id, @JsonProperty("threadId") String threadId) {}
+  public record MessageRef(
+      @JsonProperty("id") String id, @JsonProperty("threadId") String threadId) {}
 
   @JsonIgnoreProperties(ignoreUnknown = true)
   public record GmailMessageResponse(
-    @JsonProperty("id") String id,
-    @JsonProperty("threadId") String threadId,
-    @JsonProperty("labelIds") List<String> labelIds,
-    @JsonProperty("snippet") String snippet,
-    @JsonProperty("historyId") String historyId,
-    @JsonProperty("internalDate") String internalDate,
-    @JsonProperty("payload") GmailPayload payload
-  ) {}
+      @JsonProperty("id") String id,
+      @JsonProperty("threadId") String threadId,
+      @JsonProperty("labelIds") List<String> labelIds,
+      @JsonProperty("snippet") String snippet,
+      @JsonProperty("historyId") String historyId,
+      @JsonProperty("internalDate") String internalDate,
+      @JsonProperty("payload") GmailPayload payload) {}
 
   @JsonIgnoreProperties(ignoreUnknown = true)
   public record GmailPayload(
-    @JsonProperty("partId") String partId,
-    @JsonProperty("mimeType") String mimeType,
-    @JsonProperty("filename") String filename,
-    @JsonProperty("headers") List<GmailHeader> headers,
-    @JsonProperty("body") GmailBody body,
-    @JsonProperty("parts") List<GmailPayload> parts
-  ) {}
+      @JsonProperty("partId") String partId,
+      @JsonProperty("mimeType") String mimeType,
+      @JsonProperty("filename") String filename,
+      @JsonProperty("headers") List<GmailHeader> headers,
+      @JsonProperty("body") GmailBody body,
+      @JsonProperty("parts") List<GmailPayload> parts) {}
 
   @JsonIgnoreProperties(ignoreUnknown = true)
-  public record GmailHeader(@JsonProperty("name") String name, @JsonProperty("value") String value) {}
+  public record GmailHeader(
+      @JsonProperty("name") String name, @JsonProperty("value") String value) {}
 
   @JsonIgnoreProperties(ignoreUnknown = true)
   public record GmailBody(
-    @JsonProperty("size") Long size,
-    @JsonProperty("data") String data,
-    @JsonProperty("attachmentId") String attachmentId
-  ) {}
+      @JsonProperty("size") Long size,
+      @JsonProperty("data") String data,
+      @JsonProperty("attachmentId") String attachmentId) {}
 
   @JsonIgnoreProperties(ignoreUnknown = true)
   public record GmailAttachmentResponse(
-    @JsonProperty("attachmentId") String attachmentId,
-    @JsonProperty("size") Long size,
-    @JsonProperty("data") String data
-  ) {}
+      @JsonProperty("attachmentId") String attachmentId,
+      @JsonProperty("size") Long size,
+      @JsonProperty("data") String data) {}
 
   @JsonIgnoreProperties(ignoreUnknown = true)
   public record GmailProfileResponse(
-    @JsonProperty("emailAddress") String emailAddress,
-    @JsonProperty("historyId") String historyId
-  ) {}
+      @JsonProperty("emailAddress") String emailAddress,
+      @JsonProperty("historyId") String historyId) {}
 
   @JsonIgnoreProperties(ignoreUnknown = true)
   public record HistoryListResponse(
-    @JsonProperty("history") List<HistoryRecord> history,
-    @JsonProperty("nextPageToken") String nextPageToken,
-    @JsonProperty("historyId") String historyId
-  ) {}
+      @JsonProperty("history") List<HistoryRecord> history,
+      @JsonProperty("nextPageToken") String nextPageToken,
+      @JsonProperty("historyId") String historyId) {}
 
   @JsonIgnoreProperties(ignoreUnknown = true)
   public record HistoryRecord(
-    @JsonProperty("id") String id,
-    @JsonProperty("messages") List<MessageRef> messages,
-    @JsonProperty("messagesAdded") List<HistoryMessageContainer> messagesAdded,
-    @JsonProperty("messagesDeleted") List<HistoryMessageContainer> messagesDeleted,
-    @JsonProperty("labelsAdded") List<HistoryMessageContainer> labelsAdded,
-    @JsonProperty("labelsRemoved") List<HistoryMessageContainer> labelsRemoved
-  ) {}
+      @JsonProperty("id") String id,
+      @JsonProperty("messages") List<MessageRef> messages,
+      @JsonProperty("messagesAdded") List<HistoryMessageContainer> messagesAdded,
+      @JsonProperty("messagesDeleted") List<HistoryMessageContainer> messagesDeleted,
+      @JsonProperty("labelsAdded") List<HistoryMessageContainer> labelsAdded,
+      @JsonProperty("labelsRemoved") List<HistoryMessageContainer> labelsRemoved) {}
 
   @JsonIgnoreProperties(ignoreUnknown = true)
   public record HistoryMessageContainer(@JsonProperty("message") MessageRef message) {}
 
   @JsonIgnoreProperties(ignoreUnknown = true)
-  public record GmailSendResponse(@JsonProperty("id") String id, @JsonProperty("threadId") String threadId) {}
+  public record GmailSendResponse(
+      @JsonProperty("id") String id, @JsonProperty("threadId") String threadId) {}
 
   public static class GmailApiException extends RuntimeException {
 

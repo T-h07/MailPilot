@@ -24,7 +24,7 @@ export function MailList({
 
   const selectedIndex = useMemo(
     () => messages.findIndex((message) => message.id === selectedMessageId),
-    [messages, selectedMessageId],
+    [messages, selectedMessageId]
   );
 
   const rowVirtualizer = useVirtualizer({

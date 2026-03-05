@@ -34,7 +34,7 @@ export function createSenderRule(payload: SenderRuleUpsertPayload, signal?: Abor
 export function updateSenderRule(
   ruleId: string,
   payload: SenderRuleUpsertPayload,
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ) {
   return fetchJson<SenderRuleRecord>(`/api/sender-rules/${ruleId}`, {
     method: "PUT",
@@ -49,4 +49,3 @@ export function deleteSenderRule(ruleId: string, signal?: AbortSignal) {
     signal,
   });
 }
-

@@ -28,7 +28,10 @@ export type SendMailResponse = {
   sentAt: string;
 };
 
-export async function sendMail(payload: SendMailRequest, signal?: AbortSignal): Promise<SendMailResponse> {
+export async function sendMail(
+  payload: SendMailRequest,
+  signal?: AbortSignal
+): Promise<SendMailResponse> {
   const formData = new FormData();
   formData.set("accountId", payload.accountId);
   formData.set("to", payload.to ?? "");
@@ -65,4 +68,3 @@ export async function sendMail(payload: SendMailRequest, signal?: AbortSignal): 
     signal,
   });
 }
-

@@ -37,4 +37,3 @@ export type DashboardSummary = {
 export function getDashboardSummary(signal?: AbortSignal) {
   return fetchJson<DashboardSummary>("/api/dashboard/summary", { signal });
 }
-

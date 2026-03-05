@@ -37,24 +37,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "@/components/ui/sheet";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ApiClientError } from "@/api/client";
 import { listViews, type ViewRecord } from "@/lib/api/views";
 import { LiveEventsProvider, useLiveEvents } from "@/lib/events/live-events-context";
@@ -167,7 +152,7 @@ function linkClassName(active: boolean): string {
     "flex w-full flex-row items-center justify-start gap-2 rounded-lg border border-transparent px-3 py-2.5 text-sm font-medium transition-colors",
     active
       ? "border-border bg-accent text-foreground shadow-sm"
-      : "text-muted-foreground hover:bg-muted hover:text-foreground",
+      : "text-muted-foreground hover:bg-muted hover:text-foreground"
   );
 }
 
@@ -244,7 +229,10 @@ function Sidebar({
                     <item.icon className="h-[18px] w-[18px] shrink-0" />
                     <span>{item.label}</span>
                     {item.to === "/inbox" && inboxBadgeCount > 0 && (
-                      <Badge className="ml-auto rounded-full px-2 py-0 text-[10px]" variant="secondary">
+                      <Badge
+                        className="ml-auto rounded-full px-2 py-0 text-[10px]"
+                        variant="secondary"
+                      >
                         {inboxBadgeCount}
                       </Badge>
                     )}
@@ -289,7 +277,12 @@ function Sidebar({
                 {!viewsLoading && viewsError && (
                   <div className="rounded-md border border-border bg-card p-2 text-xs text-muted-foreground">
                     <p>{viewsError}</p>
-                    <Button className="mt-2 w-full" onClick={onRetryViews} size="sm" variant="outline">
+                    <Button
+                      className="mt-2 w-full"
+                      onClick={onRetryViews}
+                      size="sm"
+                      variant="outline"
+                    >
                       Retry
                     </Button>
                   </div>
@@ -299,33 +292,35 @@ function Sidebar({
                   <p className="px-3 py-2 text-xs text-muted-foreground">No saved views yet.</p>
                 )}
 
-                {!viewsLoading && !viewsError && views.map((view) => (
-                  <NavLink
-                    className={({ isActive }) =>
-                      cn(
-                        "ml-7 flex items-center justify-between gap-2 rounded-lg border border-transparent px-3 py-2 text-sm transition-colors",
-                        isActive
-                          ? "border-border bg-accent text-foreground"
-                          : "text-muted-foreground hover:bg-muted hover:text-foreground",
-                      )
-                    }
-                    key={view.id}
-                    onClick={onNavigate}
-                    to={`/views/${view.id}`}
-                  >
-                    <span className="truncate">{view.name}</span>
-                    <span className="flex items-center gap-1.5">
-                      {viewBadgeCounts[view.id] > 0 && (
-                        <Badge className="rounded-full px-2 py-0 text-[10px]" variant="secondary">
-                          {viewBadgeCounts[view.id]}
-                        </Badge>
-                      )}
-                      <span className="rounded-full border border-border px-2 py-0.5 text-[10px]">
-                        P{view.priority}
+                {!viewsLoading &&
+                  !viewsError &&
+                  views.map((view) => (
+                    <NavLink
+                      className={({ isActive }) =>
+                        cn(
+                          "ml-7 flex items-center justify-between gap-2 rounded-lg border border-transparent px-3 py-2 text-sm transition-colors",
+                          isActive
+                            ? "border-border bg-accent text-foreground"
+                            : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                        )
+                      }
+                      key={view.id}
+                      onClick={onNavigate}
+                      to={`/views/${view.id}`}
+                    >
+                      <span className="truncate">{view.name}</span>
+                      <span className="flex items-center gap-1.5">
+                        {viewBadgeCounts[view.id] > 0 && (
+                          <Badge className="rounded-full px-2 py-0 text-[10px]" variant="secondary">
+                            {viewBadgeCounts[view.id]}
+                          </Badge>
+                        )}
+                        <span className="rounded-full border border-border px-2 py-0.5 text-[10px]">
+                          P{view.priority}
+                        </span>
                       </span>
-                    </span>
-                  </NavLink>
-                ))}
+                    </NavLink>
+                  ))}
 
                 <NavLink
                   className={({ isActive }) =>
@@ -333,7 +328,7 @@ function Sidebar({
                       "ml-7 flex items-center gap-2 rounded-lg border border-transparent px-3 py-2 text-sm transition-colors",
                       isActive
                         ? "border-border bg-accent text-foreground"
-                        : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
                     )
                   }
                   onClick={onNavigate}
@@ -363,13 +358,7 @@ function Sidebar({
 
 function AppShell() {
   const location = useLocation();
-  const {
-    badges,
-    latestNewMail,
-    newMailSequence,
-    sseConnected,
-    syncByAccountId,
-  } = useLiveEvents();
+  const { badges, latestNewMail, newMailSequence, sseConnected, syncByAccountId } = useLiveEvents();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [themeMode, setThemeMode] = useState<ThemeMode>(getInitialThemeMode);
   const [toasts, setToasts] = useState<AppToast[]>([]);
@@ -398,15 +387,16 @@ function AppShell() {
 
   const pageTitle = useMemo(
     () => resolveHeaderTitle(location.pathname, views),
-    [location.pathname, views],
+    [location.pathname, views]
   );
   const syncPill = useMemo(() => {
     const statuses = Object.values(syncByAccountId);
     const running = statuses.find((status) => status.state === "RUNNING");
     if (running) {
-      const progress = running.total && running.total > 0 && running.processed !== null
-        ? ` • ${running.processed}/${running.total}`
-        : "";
+      const progress =
+        running.total && running.total > 0 && running.processed !== null
+          ? ` • ${running.processed}/${running.total}`
+          : "";
       return {
         label: `Syncing ${running.email}${progress}`,
         variant: "default" as const,
@@ -590,4 +580,3 @@ function App() {
 }
 
 export default App;
-

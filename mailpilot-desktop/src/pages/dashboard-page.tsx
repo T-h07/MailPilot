@@ -10,7 +10,10 @@ import {
   RefreshCw,
   TrendingUp,
 } from "lucide-react";
-import { DashboardDriverList, type DashboardDriverItem } from "@/components/dashboard/DashboardDriverList";
+import {
+  DashboardDriverList,
+  type DashboardDriverItem,
+} from "@/components/dashboard/DashboardDriverList";
 import { DashboardKpiTile, mapDashboardSparkline } from "@/components/dashboard/DashboardKpiTile";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -53,7 +56,7 @@ export function DashboardPage() {
     (params: InboxDrilldownParams) => {
       navigate(buildInboxDrilldownPath(params));
     },
-    [navigate],
+    [navigate]
   );
 
   const loadDashboard = useCallback(async () => {
@@ -174,27 +177,27 @@ export function DashboardPage() {
 
   const unreadSparkline = useMemo(
     () => mapDashboardSparkline(summary?.series7d, "unreadNow"),
-    [summary?.series7d],
+    [summary?.series7d]
   );
   const needsReplySparkline = useMemo(
     () => mapDashboardSparkline(summary?.series7d, "needsReplyOpen"),
-    [summary?.series7d],
+    [summary?.series7d]
   );
   const overdueSparkline = useMemo(
     () => mapDashboardSparkline(summary?.series7d, "overdue"),
-    [summary?.series7d],
+    [summary?.series7d]
   );
   const dueTodaySparkline = useMemo(
     () => mapDashboardSparkline(summary?.series7d, "dueToday"),
-    [summary?.series7d],
+    [summary?.series7d]
   );
   const snoozedSparkline = useMemo(
     () => mapDashboardSparkline(summary?.series7d, "snoozed"),
-    [summary?.series7d],
+    [summary?.series7d]
   );
   const unreadBossSparkline = useMemo(
     () => mapDashboardSparkline(summary?.series7d, "unreadBoss"),
-    [summary?.series7d],
+    [summary?.series7d]
   );
 
   return (
@@ -214,7 +217,12 @@ export function DashboardPage() {
           >
             {autoRefresh ? "Auto refresh: On" : "Auto refresh: Off"}
           </Button>
-          <Button disabled={isLoading} onClick={() => void loadDashboard()} size="sm" variant="outline">
+          <Button
+            disabled={isLoading}
+            onClick={() => void loadDashboard()}
+            size="sm"
+            variant="outline"
+          >
             {isLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : "Refresh"}
           </Button>
         </div>
@@ -296,12 +304,12 @@ export function DashboardPage() {
         <AccentCard
           accent="blue"
           description="Received now vs previous 24-hour window."
-          heading={(
+          heading={
             <span className="flex items-center gap-2">
               <TrendingUp className="h-4 w-4" />
               Last 24h Intake
             </span>
-          )}
+          }
         >
           <div className="space-y-4">
             <div className="grid gap-3 sm:grid-cols-3">
@@ -318,7 +326,7 @@ export function DashboardPage() {
                 <p
                   className={cn(
                     "pt-1 text-xl font-semibold",
-                    (summary?.receivedDeltaPct ?? 0) >= 0 ? "text-emerald-600" : "text-red-600",
+                    (summary?.receivedDeltaPct ?? 0) >= 0 ? "text-emerald-600" : "text-red-600"
                   )}
                 >
                   {formatPercent(summary?.receivedDeltaPct ?? 0)}
@@ -341,23 +349,33 @@ export function DashboardPage() {
           </div>
         </AccentCard>
 
-        <AccentCard accent="orange" description="Open followup pressure and wakeups." heading="Followup Health">
+        <AccentCard
+          accent="orange"
+          description="Open followup pressure and wakeups."
+          heading="Followup Health"
+        >
           <div className="grid gap-3 sm:grid-cols-2">
             <button
               className="rounded-md border border-border bg-card p-3 text-left transition-colors hover:bg-accent"
               onClick={() => openDrilldown({ allOpen: true })}
               type="button"
             >
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Open followups</p>
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                Open followups
+              </p>
               <p className="pt-1 text-2xl font-semibold">{summary?.openFollowupsTotal ?? 0}</p>
-              <p className="pt-1 text-xs text-muted-foreground">Click to open all active followups</p>
+              <p className="pt-1 text-xs text-muted-foreground">
+                Click to open all active followups
+              </p>
             </button>
             <button
               className="rounded-md border border-border bg-card p-3 text-left transition-colors hover:bg-accent"
               onClick={() => openDrilldown({ snoozed: true })}
               type="button"
             >
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Snoozed waking soon</p>
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                Snoozed waking soon
+              </p>
               <p className="pt-1 text-2xl font-semibold">{summary?.snoozedWakingNext24h ?? 0}</p>
               <p className="pt-1 text-xs text-muted-foreground">Snoozed items waking in 24 hours</p>
             </button>
@@ -366,7 +384,11 @@ export function DashboardPage() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <AccentCard accent="purple" description="Main unread drivers by sender domain." heading="Top Domains (Unread)">
+        <AccentCard
+          accent="purple"
+          description="Main unread drivers by sender domain."
+          heading="Top Domains (Unread)"
+        >
           <div>
             <DashboardDriverList
               emptyLabel="No unread domain concentration."
@@ -376,7 +398,11 @@ export function DashboardPage() {
           </div>
         </AccentCard>
 
-        <AccentCard accent="gold" description="Main unread drivers by sender email." heading="Top Senders (Unread)">
+        <AccentCard
+          accent="gold"
+          description="Main unread drivers by sender email."
+          heading="Top Senders (Unread)"
+        >
           <div>
             <DashboardDriverList
               emptyLabel="No unread sender concentration."
@@ -386,7 +412,11 @@ export function DashboardPage() {
           </div>
         </AccentCard>
 
-        <AccentCard accent="green" description="Where unread load is currently concentrated." heading="Unread by Account">
+        <AccentCard
+          accent="green"
+          description="Where unread load is currently concentrated."
+          heading="Unread by Account"
+        >
           <div>
             <DashboardDriverList
               emptyLabel="No unread messages across accounts."
@@ -400,12 +430,22 @@ export function DashboardPage() {
       <AccentCard
         accent="blue"
         description="Connection state and last sync snapshot by account."
-        headerRight={(
-          <Button className="gap-2" disabled={isSyncingNow} onClick={() => void handleSyncNow()} size="sm" variant="outline">
-            {isSyncingNow ? <RefreshCw className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+        headerRight={
+          <Button
+            className="gap-2"
+            disabled={isSyncingNow}
+            onClick={() => void handleSyncNow()}
+            size="sm"
+            variant="outline"
+          >
+            {isSyncingNow ? (
+              <RefreshCw className="h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4" />
+            )}
             Sync now
           </Button>
-        )}
+        }
         heading="Freshness + Sync"
       >
         <div className="space-y-3 text-sm">
@@ -413,7 +453,9 @@ export function DashboardPage() {
             <Badge variant={sseConnected ? "secondary" : "destructive"}>
               {sseConnected ? "SSE connected" : "SSE reconnecting"}
             </Badge>
-            <Badge variant="outline">Last dashboard update: {formatTimestamp(summary?.lastUpdatedAt ?? null)}</Badge>
+            <Badge variant="outline">
+              Last dashboard update: {formatTimestamp(summary?.lastUpdatedAt ?? null)}
+            </Badge>
           </div>
           <Separator className="opacity-55" />
           <div className="space-y-2">
@@ -421,11 +463,15 @@ export function DashboardPage() {
               <p className="text-muted-foreground">No connected accounts.</p>
             )}
             {syncRows.map((row) => (
-              <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-card p-2" key={row.account.id}>
+              <div
+                className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-card p-2"
+                key={row.account.id}
+              >
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium">{row.account.email}</p>
                   <p className="text-xs text-muted-foreground">
-                    Last sync: {formatTimestamp(row.syncState?.lastSyncAt ?? row.account.lastSyncAt)}
+                    Last sync:{" "}
+                    {formatTimestamp(row.syncState?.lastSyncAt ?? row.account.lastSyncAt)}
                   </p>
                 </div>
                 <Badge

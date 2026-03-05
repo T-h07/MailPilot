@@ -80,7 +80,7 @@ function MiniSparkline({ data, stroke }: { data: SparklinePoint[]; stroke: strin
 
 export function mapDashboardSparkline(
   series7d: DashboardSummary["series7d"] | undefined,
-  valueKey: "unreadNow" | "needsReplyOpen" | "overdue" | "dueToday" | "snoozed" | "unreadBoss",
+  valueKey: "unreadNow" | "needsReplyOpen" | "overdue" | "dueToday" | "snoozed" | "unreadBoss"
 ): SparklinePoint[] {
   return (series7d ?? []).map((point) => ({
     date: point.date,
@@ -104,7 +104,7 @@ export function DashboardKpiTile({
     <button
       className={cn(
         "rounded-xl border p-4 text-left transition-all hover:-translate-y-0.5 hover:shadow-sm",
-        dashboardCardTone(tone),
+        dashboardCardTone(tone)
       )}
       onClick={onClick}
       type="button"
