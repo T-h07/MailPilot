@@ -75,6 +75,13 @@ const METRIC_OPTIONS: ChartMetric[] = [
   { key: "followupsDone", label: "Followups done per day", accent: "purple", color: "#8b5cf6" },
 ];
 
+function hasOwnSeriesKey(series: unknown, key: string): boolean {
+  if (!series || typeof series !== "object") {
+    return false;
+  }
+  return Object.prototype.hasOwnProperty.call(series, key);
+}
+
 function toErrorMessage(error: unknown): string {
   if (error instanceof ApiClientError) {
     return error.message;
@@ -325,6 +332,8 @@ export function InsightsPage() {
   const unreadSeries = summary?.series?.unreadPerDay ?? [];
   const bossSeries = summary?.series?.bossPerDay ?? [];
   const followupsDoneSeries = summary?.series?.followupsDonePerDay ?? [];
+  const hasBossSeries = hasOwnSeriesKey(summary?.series, "bossPerDay");
+  const hasFollowupsDoneSeries = hasOwnSeriesKey(summary?.series, "followupsDonePerDay");
 
   const chartRows = useMemo(
     () => mergeChartData(receivedSeries, unreadSeries, bossSeries, followupsDoneSeries),
@@ -332,10 +341,18 @@ export function InsightsPage() {
   );
 
   const availableMetrics = useMemo(() => {
-    return METRIC_OPTIONS.filter((metric) =>
-      chartRows.some((row) => (row[metric.key] ?? 0) > 0),
-    );
-  }, [chartRows]);
+    const metrics: ChartMetric[] = [];
+    if (unreadSeries.length > 0 || chartRows.length > 0) {
+      metrics.push(METRIC_OPTIONS[0]);
+    }
+    if (hasBossSeries) {
+      metrics.push(METRIC_OPTIONS[1]);
+    }
+    if (hasFollowupsDoneSeries) {
+      metrics.push(METRIC_OPTIONS[2]);
+    }
+    return metrics;
+  }, [chartRows.length, hasBossSeries, hasFollowupsDoneSeries, unreadSeries.length]);
 
   const effectiveMetrics = useMemo(() => {
     if (availableMetrics.length > 0) {
