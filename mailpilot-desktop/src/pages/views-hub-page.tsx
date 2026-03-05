@@ -76,6 +76,16 @@ function toErrorMessage(error: unknown): string {
   return "Request failed";
 }
 
+function accountRoleBadge(account: AccountRecord): string {
+  if (account.role === "PRIMARY") {
+    return "Primary";
+  }
+  if (account.role === "SECONDARY") {
+    return "Secondary";
+  }
+  return account.customLabel?.trim() || "Custom";
+}
+
 function createEmptyForm(): FormState {
   return {
     name: "",
@@ -389,6 +399,45 @@ export function ViewsHubPage() {
     setDialogOpen(true);
   };
 
+  const applyScopeAll = () => {
+    setActionError(null);
+    setForm((previous) => ({
+      ...previous,
+      scopeType: "ALL",
+      selectedAccountIds: [],
+    }));
+  };
+
+  const applyScopePrimary = () => {
+    const primaryAccount = accounts.find((account) => account.role === "PRIMARY");
+    if (!primaryAccount) {
+      setActionError("No PRIMARY account found. Set one in Settings first.");
+      return;
+    }
+    setActionError(null);
+    setForm((previous) => ({
+      ...previous,
+      scopeType: "SELECTED",
+      selectedAccountIds: [primaryAccount.id],
+    }));
+  };
+
+  const applyScopeSecondary = () => {
+    const secondaryAccountIds = accounts
+      .filter((account) => account.role !== "PRIMARY")
+      .map((account) => account.id);
+    if (secondaryAccountIds.length === 0) {
+      setActionError("No secondary/custom accounts found.");
+      return;
+    }
+    setActionError(null);
+    setForm((previous) => ({
+      ...previous,
+      scopeType: "SELECTED",
+      selectedAccountIds: secondaryAccountIds,
+    }));
+  };
+
   const addLabelDraft = () => {
     const normalizedName = labelDraftName.trim();
     if (!normalizedName) {
@@ -459,14 +508,24 @@ export function ViewsHubPage() {
         dialogMode === "edit" && editingViewId
           ? await updateView(editingViewId, payload)
           : await createView(payload);
-      await syncViewLabels(savedView.id, form.labels);
+      let labelSyncWarning: string | null = null;
+      const shouldSyncLabels = dialogMode === "edit" || form.labels.length > 0;
+      if (shouldSyncLabels) {
+        try {
+          await syncViewLabels(savedView.id, form.labels);
+        } catch (error) {
+          labelSyncWarning = toErrorMessage(error);
+        }
+      }
 
       setBanner(
-        dialogMode === "edit"
-          ? "View updated"
-          : dialogMode === "duplicate"
-            ? "View duplicated"
-            : "View created",
+        labelSyncWarning
+          ? `View saved, but label sync failed: ${labelSyncWarning}`
+          : dialogMode === "edit"
+            ? "View updated"
+            : dialogMode === "duplicate"
+              ? "View duplicated"
+              : "View created",
       );
       setDialogOpen(false);
       await refreshViews();
@@ -810,6 +869,46 @@ export function ViewsHubPage() {
                 SELECTED
               </label>
             </div>
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={applyScopeAll} size="sm" type="button" variant="outline">
+                Use all emails
+              </Button>
+              <Button onClick={applyScopePrimary} size="sm" type="button" variant="outline">
+                Use primary email
+              </Button>
+              <Button onClick={applyScopeSecondary} size="sm" type="button" variant="outline">
+                Use secondary email(s)
+              </Button>
+            </div>
+            {accounts.length > 0 && (
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">Or pick a single account email</p>
+                <select
+                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    if (value === "__ALL__") {
+                      applyScopeAll();
+                      return;
+                    }
+                    setActionError(null);
+                    setForm((previous) => ({
+                      ...previous,
+                      scopeType: "SELECTED",
+                      selectedAccountIds: [value],
+                    }));
+                  }}
+                  value={form.scopeType === "ALL" ? "__ALL__" : form.selectedAccountIds[0] ?? "__ALL__"}
+                >
+                  <option value="__ALL__">All accounts</option>
+                  {accounts.map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.email} ({accountRoleBadge(account)})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             {form.scopeType === "SELECTED" && (
               <div className="rounded-md border border-border p-2">
                 {accountsError && <p className="text-xs text-destructive">{accountsError}</p>}
