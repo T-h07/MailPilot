@@ -1,7 +1,44 @@
-# Tauri + React + Typescript
+# MailPilot Desktop
 
-This template should help get you started developing with Tauri, React and Typescript in Vite.
+Tauri + React desktop client for MailPilot.
 
-## Recommended IDE Setup
+## Requirements
 
-- [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+- Node.js LTS
+- Rust toolchain (`rustup`)
+- WebView2 runtime (Windows)
+- MSVC build tools for native Tauri builds
+
+## Run (Dev)
+
+```powershell
+cd $env:USERPROFILE\Documents\MailPilot\mailpilot-desktop
+npm install
+npm run tauri dev
+```
+
+Default backend target is `http://127.0.0.1:8082` (or `VITE_API_BASE` if configured).
+
+## Build
+
+```powershell
+cd $env:USERPROFILE\Documents\MailPilot\mailpilot-desktop
+npm ci
+npm run lint
+npm run format:check
+npm run build
+```
+
+## Environment Notes
+
+- Keep secrets out of frontend source and commits.
+- Desktop file save/export permissions are controlled by:
+  - `src-tauri/capabilities/default.json`
+
+## UI Areas
+
+- Inbox, Views, Focus, Sent, Drafts
+- Preview panel + full body viewer
+- Dashboard and Insights analytics
+- Settings and account management
+
