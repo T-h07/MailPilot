@@ -13,7 +13,7 @@ type SaveBinaryWithDialogOptions = {
 };
 
 export async function saveBinaryWithDialog(
-  options: SaveBinaryWithDialogOptions,
+  options: SaveBinaryWithDialogOptions
 ): Promise<string | null> {
   const savePath = await save({
     defaultPath: options.defaultFileName,

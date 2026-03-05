@@ -45,10 +45,7 @@ function resolveExternalHref(rawHref: string, iframeDocument: Document): string 
     return null;
   }
 
-  const baseHref = iframeDocument
-    .querySelector("base[href]")
-    ?.getAttribute("href")
-    ?.trim();
+  const baseHref = iframeDocument.querySelector("base[href]")?.getAttribute("href")?.trim();
   if (baseHref) {
     try {
       return new URL(href, baseHref).toString();
@@ -130,7 +127,10 @@ export function EmailHtmlViewer({ html, zoomPercent }: EmailHtmlViewerProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const clickCleanupRef = useRef<(() => void) | null>(null);
   const normalizedHtml = useMemo(() => sanitizeAndRewriteAnchors(html), [html]);
-  const srcDoc = useMemo(() => buildSrcDoc(normalizedHtml, zoomPercent), [normalizedHtml, zoomPercent]);
+  const srcDoc = useMemo(
+    () => buildSrcDoc(normalizedHtml, zoomPercent),
+    [normalizedHtml, zoomPercent]
+  );
 
   const attachLinkHandler = useCallback(() => {
     clickCleanupRef.current?.();
@@ -198,4 +198,3 @@ export function EmailHtmlViewer({ html, zoomPercent }: EmailHtmlViewerProps) {
     />
   );
 }
-

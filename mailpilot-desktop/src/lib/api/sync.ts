@@ -1,4 +1,4 @@
-import { fetchJson } from "@/lib/api/client";
+import { fetchJson } from "@/api/client";
 
 export type SyncStartResponse = {
   status: string;
@@ -32,10 +32,13 @@ export type MessageRepairResponse = {
 
 export function runAccountSync(accountId: string, maxMessages = 500, signal?: AbortSignal) {
   const encodedAccountId = encodeURIComponent(accountId);
-  return fetchJson<SyncStartResponse>(`/api/sync/gmail/${encodedAccountId}/run?maxMessages=${maxMessages}`, {
-    method: "POST",
-    signal,
-  });
+  return fetchJson<SyncStartResponse>(
+    `/api/sync/gmail/${encodedAccountId}/run?maxMessages=${maxMessages}`,
+    {
+      method: "POST",
+      signal,
+    }
+  );
 }
 
 export function runAllAccountsSync(maxMessages = 500, signal?: AbortSignal) {

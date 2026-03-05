@@ -67,14 +67,16 @@ export function AccentCard({
     <section
       className={cn(
         "relative overflow-hidden rounded-xl border border-border bg-card text-card-foreground shadow-sm",
-        className,
+        className
       )}
       {...props}
     >
       <div className="pointer-events-none absolute inset-0">
         <div className={cn("absolute inset-0 bg-gradient-to-br", styles.gradient)} />
         <div className={cn("absolute inset-x-0 top-0 h-[2px]", styles.line)} />
-        <div className={cn("absolute -top-8 left-8 h-16 w-36 rounded-full blur-2xl", styles.glow)} />
+        <div
+          className={cn("absolute -top-8 left-8 h-16 w-36 rounded-full blur-2xl", styles.glow)}
+        />
       </div>
 
       <div className="relative">
@@ -91,9 +93,7 @@ export function AccentCard({
             {headerRight}
           </div>
         )}
-        <div className={cn(hasHeader ? "px-5 pb-5" : "p-5", contentClassName)}>
-          {children}
-        </div>
+        <div className={cn(hasHeader ? "px-5 pb-5" : "p-5", contentClassName)}>{children}</div>
       </div>
     </section>
   );

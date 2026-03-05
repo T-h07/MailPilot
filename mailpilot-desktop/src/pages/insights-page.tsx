@@ -1,15 +1,32 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { Activity, Pin, RefreshCw, TrendingUp, Unplug } from "lucide-react";
+import { InsightsChartTooltip } from "@/components/insights/InsightsChartTooltip";
+import { InsightsKpiCard } from "@/components/insights/InsightsKpiCard";
+import {
+  InsightsRankedBars,
+  type InsightsRankedItem,
+} from "@/components/insights/InsightsRankedBars";
 import { AccentCard, type AccentColor } from "@/components/ui/AccentCard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { ApiClientError } from "@/lib/api/client";
+import { useMetricCarousel } from "@/hooks/useMetricCarousel";
 import { getInsightsSummary, type InsightsRange, type InsightsSummary } from "@/lib/api/insights";
 import { cn } from "@/lib/utils";
+import { toApiErrorMessage } from "@/utils/api-error";
+import { buildInboxDrilldownPath, type InboxDrilldownParams } from "@/utils/mailbox-drilldown";
+import { formatPercent } from "@/utils/number-format";
 
 const RANGE_OPTIONS: Array<{ value: InsightsRange; label: string }> = [
   { value: "2d", label: "2d" },
@@ -21,20 +38,7 @@ const RANGE_OPTIONS: Array<{ value: InsightsRange; label: string }> = [
 
 const AUTO_ROTATE_MS = 4000;
 const RESUME_AFTER_HOVER_MS = 1000;
-
-type RankedItem = {
-  key: string;
-  label: string;
-  count: number;
-  onClick: () => void;
-};
-
-type DrilldownParams = {
-  unread?: boolean;
-  senderDomains?: string[];
-  senderEmails?: string[];
-  accountIds?: string[];
-};
+const EMPTY_SERIES: Array<{ date: string; count: number }> = [];
 
 type ChartMetricKey = "unread" | "boss" | "followupsDone";
 
@@ -57,18 +61,6 @@ type LegacyInsightsSeries = {
   volumePerDay?: Array<{ date: string; count: number }>;
 };
 
-type TooltipValueEntry = {
-  dataKey?: string | number;
-  value?: number | string;
-};
-
-type ChartTooltipProps = {
-  active?: boolean;
-  payload?: readonly TooltipValueEntry[];
-  label?: string | number;
-  activeMetricLabel: string;
-};
-
 const METRIC_OPTIONS: ChartMetric[] = [
   { key: "unread", label: "Unread per day", accent: "green", color: "#10b981" },
   { key: "boss", label: "Boss emails per day", accent: "gold", color: "#eab308" },
@@ -80,39 +72,6 @@ function hasOwnSeriesKey(series: unknown, key: string): boolean {
     return false;
   }
   return Object.prototype.hasOwnProperty.call(series, key);
-}
-
-function toErrorMessage(error: unknown): string {
-  if (error instanceof ApiClientError) {
-    return error.message;
-  }
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return "Request failed";
-}
-
-function buildInboxDrilldownPath(params: DrilldownParams): string {
-  const searchParams = new URLSearchParams();
-  if (params.unread) {
-    searchParams.set("unread", "1");
-  }
-  for (const domain of params.senderDomains ?? []) {
-    searchParams.append("senderDomain", domain);
-  }
-  for (const sender of params.senderEmails ?? []) {
-    searchParams.append("senderEmail", sender);
-  }
-  for (const accountId of params.accountIds ?? []) {
-    searchParams.append("accountId", accountId);
-  }
-  const query = searchParams.toString();
-  return query.length > 0 ? `/inbox?${query}` : "/inbox";
-}
-
-function formatPercent(value: number): string {
-  const rounded = Math.abs(value) >= 10 ? value.toFixed(0) : value.toFixed(1);
-  return `${value >= 0 ? "+" : ""}${rounded}%`;
 }
 
 function formatDateLabel(value: string): string {
@@ -171,70 +130,6 @@ function rangeWindowDates(range: InsightsRange): string {
   return `${start.toLocaleDateString()} - ${end.toLocaleDateString()}`;
 }
 
-function KpiCard({
-  accent,
-  label,
-  value,
-  subtitle,
-  delta,
-}: {
-  accent: AccentColor;
-  label: string;
-  value: string;
-  subtitle: string;
-  delta: string;
-}) {
-  return (
-    <AccentCard accent={accent} className="h-full" contentClassName="space-y-0 p-4" heading={(
-      <span className="text-xs uppercase tracking-wide text-muted-foreground">{label}</span>
-    )}>
-      <p className="text-2xl font-semibold leading-none">{value}</p>
-      <p className="pt-2 text-xs text-muted-foreground">{subtitle}</p>
-      <p className="pt-1 text-xs font-medium text-foreground/80">{delta}</p>
-    </AccentCard>
-  );
-}
-
-function RankedBars({
-  emptyLabel,
-  items,
-  title,
-}: {
-  emptyLabel: string;
-  items: RankedItem[];
-  title: string;
-}) {
-  const maxValue = Math.max(1, ...items.map((item) => item.count));
-
-  return (
-    <div className="space-y-3">
-      <p className="text-sm font-semibold">{title}</p>
-      {items.length === 0 && (
-        <p className="text-sm text-muted-foreground">{emptyLabel}</p>
-      )}
-      {items.map((item) => {
-        const widthPercent = Math.max(6, Math.round((item.count / maxValue) * 100));
-        return (
-          <button
-            className="w-full space-y-1 rounded-md p-1 text-left transition-colors hover:bg-muted/70"
-            key={item.key}
-            onClick={item.onClick}
-            type="button"
-          >
-            <div className="flex items-center justify-between gap-2 text-xs">
-              <span className="truncate text-muted-foreground">{item.label}</span>
-              <span className="font-medium">{item.count}</span>
-            </div>
-            <div className="h-2 w-full overflow-hidden rounded bg-muted">
-              <div className="h-full rounded bg-primary/70" style={{ width: `${widthPercent}%` }} />
-            </div>
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
 function toSeriesMap(series: Array<{ date: string; count: number }>): Map<string, number> {
   const mapped = new Map<string, number>();
   for (const point of series) {
@@ -247,7 +142,7 @@ function mergeChartData(
   receivedSeries: Array<{ date: string; count: number }>,
   unreadSeries: Array<{ date: string; count: number }>,
   bossSeries: Array<{ date: string; count: number }>,
-  followupsDoneSeries: Array<{ date: string; count: number }>,
+  followupsDoneSeries: Array<{ date: string; count: number }>
 ): ChartRow[] {
   const dates = new Set<string>();
   for (const point of receivedSeries) {
@@ -279,40 +174,12 @@ function mergeChartData(
     }));
 }
 
-function ChartTooltip({
-  active,
-  payload,
-  label,
-  activeMetricLabel,
-}: ChartTooltipProps) {
-  if (!active || !payload || payload.length === 0) {
-    return null;
-  }
-  const receivedValue = Number(payload.find((entry) => entry.dataKey === "received")?.value ?? 0);
-  const secondaryEntry = payload.find((entry) => entry.dataKey !== "received");
-  const secondaryValue = Number(secondaryEntry?.value ?? 0);
-
-  return (
-    <div className="rounded-md border border-border bg-card p-2 text-xs shadow-sm">
-      <p className="font-medium">{formatDateLabel(String(label ?? ""))}</p>
-      <p className="pt-1 text-muted-foreground">Received: <span className="font-semibold text-foreground">{receivedValue}</span></p>
-      <p className="text-muted-foreground">
-        {activeMetricLabel}: <span className="font-semibold text-foreground">{secondaryValue}</span>
-      </p>
-    </div>
-  );
-}
-
 export function InsightsPage() {
   const navigate = useNavigate();
   const [range, setRange] = useState<InsightsRange>("7d");
   const [summary, setSummary] = useState<InsightsSummary | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeMetricIndex, setActiveMetricIndex] = useState(0);
-  const [isPinned, setIsPinned] = useState(false);
-  const [isHoveringChart, setIsHoveringChart] = useState(false);
-  const [resumeAfterMs, setResumeAfterMs] = useState(0);
 
   const comparison = summary?.comparison ?? {
     receivedPreviousCount: 0,
@@ -327,17 +194,28 @@ export function InsightsPage() {
     snoozed: 0,
   };
 
-  const legacySeries = summary?.series as unknown as LegacyInsightsSeries | undefined;
-  const receivedSeries = summary?.series?.receivedPerDay ?? legacySeries?.volumePerDay ?? [];
-  const unreadSeries = summary?.series?.unreadPerDay ?? [];
-  const bossSeries = summary?.series?.bossPerDay ?? [];
-  const followupsDoneSeries = summary?.series?.followupsDonePerDay ?? [];
-  const hasBossSeries = hasOwnSeriesKey(summary?.series, "bossPerDay");
-  const hasFollowupsDoneSeries = hasOwnSeriesKey(summary?.series, "followupsDonePerDay");
+  const {
+    receivedSeries,
+    unreadSeries,
+    bossSeries,
+    followupsDoneSeries,
+    hasBossSeries,
+    hasFollowupsDoneSeries,
+  } = useMemo(() => {
+    const legacySeries = summary?.series as unknown as LegacyInsightsSeries | undefined;
+    return {
+      receivedSeries: summary?.series?.receivedPerDay ?? legacySeries?.volumePerDay ?? EMPTY_SERIES,
+      unreadSeries: summary?.series?.unreadPerDay ?? EMPTY_SERIES,
+      bossSeries: summary?.series?.bossPerDay ?? EMPTY_SERIES,
+      followupsDoneSeries: summary?.series?.followupsDonePerDay ?? EMPTY_SERIES,
+      hasBossSeries: hasOwnSeriesKey(summary?.series, "bossPerDay"),
+      hasFollowupsDoneSeries: hasOwnSeriesKey(summary?.series, "followupsDonePerDay"),
+    };
+  }, [summary]);
 
   const chartRows = useMemo(
     () => mergeChartData(receivedSeries, unreadSeries, bossSeries, followupsDoneSeries),
-    [bossSeries, followupsDoneSeries, receivedSeries, unreadSeries],
+    [bossSeries, followupsDoneSeries, receivedSeries, unreadSeries]
   );
 
   const availableMetrics = useMemo(() => {
@@ -358,37 +236,33 @@ export function InsightsPage() {
     if (availableMetrics.length > 0) {
       return availableMetrics;
     }
-    // Keep unread as a fallback so the carousel still renders on empty datasets.
     return [METRIC_OPTIONS[0]];
   }, [availableMetrics]);
 
-  useEffect(() => {
-    setActiveMetricIndex((previous) =>
-      effectiveMetrics.length === 0 ? 0 : previous % effectiveMetrics.length,
-    );
-  }, [effectiveMetrics.length]);
+  const {
+    activeMetricIndex,
+    isPinned,
+    setIsPinned,
+    handleChartMouseEnter,
+    handleChartMouseLeave,
+    handleMetricClick,
+  } = useMetricCarousel({
+    metricCount: effectiveMetrics.length,
+    autoRotateMs: AUTO_ROTATE_MS,
+    resumeAfterHoverMs: RESUME_AFTER_HOVER_MS,
+  });
 
-  const activeMetric = effectiveMetrics[Math.min(activeMetricIndex, Math.max(effectiveMetrics.length - 1, 0))];
-
-  useEffect(() => {
-    if (effectiveMetrics.length <= 1) {
-      return;
-    }
-    const intervalId = window.setInterval(() => {
-      if (isPinned || isHoveringChart || Date.now() < resumeAfterMs) {
-        return;
-      }
-      setActiveMetricIndex((previous) => (previous + 1) % effectiveMetrics.length);
-    }, AUTO_ROTATE_MS);
-
-    return () => window.clearInterval(intervalId);
-  }, [effectiveMetrics.length, isHoveringChart, isPinned, resumeAfterMs]);
+  const activeMetric =
+    effectiveMetrics[Math.min(activeMetricIndex, Math.max(effectiveMetrics.length - 1, 0))];
 
   const peakPoint = useMemo(() => {
     if (chartRows.length === 0) {
       return null;
     }
-    return chartRows.reduce((peak, point) => (point.received > peak.received ? point : peak), chartRows[0]);
+    return chartRows.reduce(
+      (peak, point) => (point.received > peak.received ? point : peak),
+      chartRows[0]
+    );
   }, [chartRows]);
 
   const averagePerDay = useMemo(() => {
@@ -406,7 +280,7 @@ export function InsightsPage() {
       const response = await getInsightsSummary(selectedRange);
       setSummary(response);
     } catch (loadError) {
-      setError(toErrorMessage(loadError));
+      setError(toApiErrorMessage(loadError));
     } finally {
       setIsLoading(false);
     }
@@ -417,24 +291,24 @@ export function InsightsPage() {
   }, [loadSummary, range]);
 
   const openDrilldown = useCallback(
-    (params: DrilldownParams) => {
+    (params: InboxDrilldownParams) => {
       navigate(buildInboxDrilldownPath(params));
     },
-    [navigate],
+    [navigate]
   );
 
   const topDomain = useMemo(() => summary?.topDomains[0] ?? null, [summary]);
   const topSender = useMemo(() => summary?.topSenders[0] ?? null, [summary]);
   const topDomainShare = useMemo(
     () => (summary && topDomain ? (topDomain.count / Math.max(1, summary.receivedCount)) * 100 : 0),
-    [summary, topDomain],
+    [summary, topDomain]
   );
   const topSenderShare = useMemo(
     () => (summary && topSender ? (topSender.count / Math.max(1, summary.receivedCount)) * 100 : 0),
-    [summary, topSender],
+    [summary, topSender]
   );
 
-  const topDomainItems = useMemo<RankedItem[]>(
+  const topDomainItems = useMemo<InsightsRankedItem[]>(
     () =>
       (summary?.topDomains ?? []).map((item) => ({
         key: item.domain,
@@ -442,10 +316,10 @@ export function InsightsPage() {
         count: item.count,
         onClick: () => openDrilldown({ senderDomains: [item.domain] }),
       })),
-    [openDrilldown, summary],
+    [openDrilldown, summary]
   );
 
-  const topSenderItems = useMemo<RankedItem[]>(
+  const topSenderItems = useMemo<InsightsRankedItem[]>(
     () =>
       (summary?.topSenders ?? []).map((item) => ({
         key: item.email,
@@ -453,10 +327,10 @@ export function InsightsPage() {
         count: item.count,
         onClick: () => openDrilldown({ senderEmails: [item.email] }),
       })),
-    [openDrilldown, summary],
+    [openDrilldown, summary]
   );
 
-  const accountActivityItems = useMemo<RankedItem[]>(
+  const accountActivityItems = useMemo<InsightsRankedItem[]>(
     () =>
       (summary?.volumeByAccount ?? []).map((item) => ({
         key: item.accountId,
@@ -464,10 +338,10 @@ export function InsightsPage() {
         count: item.count,
         onClick: () => openDrilldown({ accountIds: [item.accountId] }),
       })),
-    [openDrilldown, summary],
+    [openDrilldown, summary]
   );
 
-  const unreadDomainItems = useMemo<RankedItem[]>(
+  const unreadDomainItems = useMemo<InsightsRankedItem[]>(
     () =>
       (summary?.unreadByDomain ?? []).map((item) => ({
         key: item.domain,
@@ -475,28 +349,7 @@ export function InsightsPage() {
         count: item.count,
         onClick: () => openDrilldown({ unread: true, senderDomains: [item.domain] }),
       })),
-    [openDrilldown, summary],
-  );
-
-  const handleChartMouseEnter = useCallback(() => {
-    setIsHoveringChart(true);
-  }, []);
-
-  const handleChartMouseLeave = useCallback(() => {
-    setIsHoveringChart(false);
-    setResumeAfterMs(Date.now() + RESUME_AFTER_HOVER_MS);
-  }, []);
-
-  const handleMetricClick = useCallback(
-    (metricIndex: number) => {
-      if (metricIndex === activeMetricIndex) {
-        setIsPinned((previous) => !previous);
-        return;
-      }
-      setActiveMetricIndex(metricIndex);
-      setIsPinned(true);
-    },
-    [activeMetricIndex],
+    [openDrilldown, summary]
   );
 
   const activeMetricColor = activeMetric?.color ?? "#06b6d4";
@@ -512,7 +365,12 @@ export function InsightsPage() {
             Historical analytics with comparison deltas, distribution drivers, and drilldowns.
           </p>
         </div>
-        <Button disabled={isLoading} onClick={() => void loadSummary(range)} size="sm" variant="outline">
+        <Button
+          disabled={isLoading}
+          onClick={() => void loadSummary(range)}
+          size="sm"
+          variant="outline"
+        >
           {isLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : "Refresh"}
         </Button>
       </div>
@@ -544,28 +402,28 @@ export function InsightsPage() {
       )}
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <KpiCard
+        <InsightsKpiCard
           accent="blue"
           delta={`${formatPercent(comparison.receivedDeltaPct)} vs previous window`}
           label="Messages received"
           subtitle="Inbound count in selected range."
           value={isLoading ? "..." : String(summary?.receivedCount ?? 0)}
         />
-        <KpiCard
+        <InsightsKpiCard
           accent="green"
           delta={`${formatPercent(comparison.uniqueSendersDeltaPct)} vs previous window`}
           label="Unique senders"
           subtitle="Distinct sender emails in range."
           value={isLoading ? "..." : String(summary?.uniqueSenders ?? 0)}
         />
-        <KpiCard
+        <InsightsKpiCard
           accent="purple"
           delta={topDomain ? `${topDomainShare.toFixed(1)}% share` : "--"}
           label="Top domain"
           subtitle="Highest contributor domain."
           value={isLoading ? "..." : topDomain ? `${topDomain.domain} (${topDomain.count})` : "--"}
         />
-        <KpiCard
+        <InsightsKpiCard
           accent="gold"
           delta={topSender ? `${topSenderShare.toFixed(1)}% share` : "--"}
           label="Top sender"
@@ -578,12 +436,12 @@ export function InsightsPage() {
         accent="blue"
         className={cn("transition-opacity", isLoading && "animate-pulse opacity-75")}
         description="Primary baseline is Received per day. Secondary metric rotates and pauses on hover."
-        heading={(
+        heading={
           <span className="flex items-center gap-2">
             <TrendingUp className="h-4 w-4" />
             Metric Carousel Chart
           </span>
-        )}
+        }
       >
         <div className="space-y-3">
           <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
@@ -613,7 +471,7 @@ export function InsightsPage() {
                     "rounded-full border px-2.5 py-1 text-xs transition-colors",
                     active
                       ? "border-border bg-accent text-foreground"
-                      : "border-border bg-card text-muted-foreground hover:bg-muted/80",
+                      : "border-border bg-card text-muted-foreground hover:bg-muted/80"
                   )}
                   key={metric.key}
                   onClick={() => handleMetricClick(metricIndex)}
@@ -624,7 +482,10 @@ export function InsightsPage() {
               );
             })}
             {!isPinned ? (
-              <Badge className="ml-auto gap-1 border border-border bg-muted text-foreground" variant="outline">
+              <Badge
+                className="ml-auto gap-1 border border-border bg-muted text-foreground"
+                variant="outline"
+              >
                 <Unplug className="h-3 w-3" />
                 AUTO
               </Badge>
@@ -665,10 +526,7 @@ export function InsightsPage() {
                 />
                 <Tooltip
                   content={(tooltipProps) => (
-                    <ChartTooltip
-                      {...tooltipProps}
-                      activeMetricLabel={activeMetricLabel}
-                    />
+                    <InsightsChartTooltip {...tooltipProps} activeMetricLabel={activeMetricLabel} />
                   )}
                 />
                 <Line
@@ -698,9 +556,13 @@ export function InsightsPage() {
       </AccentCard>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <AccentCard accent="purple" description="Click to open mailbox filtered by domain." heading="Top Domains">
+        <AccentCard
+          accent="purple"
+          description="Click to open mailbox filtered by domain."
+          heading="Top Domains"
+        >
           <div>
-            <RankedBars
+            <InsightsRankedBars
               emptyLabel="No domain activity in this range."
               items={topDomainItems}
               title="Domains"
@@ -708,9 +570,13 @@ export function InsightsPage() {
           </div>
         </AccentCard>
 
-        <AccentCard accent="gold" description="Click to open mailbox filtered by sender." heading="Top Senders">
+        <AccentCard
+          accent="gold"
+          description="Click to open mailbox filtered by sender."
+          heading="Top Senders"
+        >
           <div>
-            <RankedBars
+            <InsightsRankedBars
               emptyLabel="No sender activity in this range."
               items={topSenderItems}
               title="Senders"
@@ -720,9 +586,13 @@ export function InsightsPage() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <AccentCard accent="blue" description="Received counts by account in selected range." heading="Account Distribution">
+        <AccentCard
+          accent="blue"
+          description="Received counts by account in selected range."
+          heading="Account Distribution"
+        >
           <div>
-            <RankedBars
+            <InsightsRankedBars
               emptyLabel="No account activity in this range."
               items={accountActivityItems}
               title="Accounts"
@@ -730,9 +600,13 @@ export function InsightsPage() {
           </div>
         </AccentCard>
 
-        <AccentCard accent="green" description="Current unread concentration by sender domain." heading="Unread by Domain">
+        <AccentCard
+          accent="green"
+          description="Current unread concentration by sender domain."
+          heading="Unread by Domain"
+        >
           <div>
-            <RankedBars
+            <InsightsRankedBars
               emptyLabel="No unread domain concentration."
               items={unreadDomainItems}
               title="Unread domains"
@@ -743,12 +617,12 @@ export function InsightsPage() {
         <AccentCard
           accent="orange"
           description="Current followup pressure (live, independent of range)."
-          heading={(
+          heading={
             <span className="flex items-center gap-2">
               <Activity className="h-4 w-4" />
               Followup Pressure
             </span>
-          )}
+          }
         >
           <div className="space-y-2 text-sm">
             <div className="flex items-center justify-between rounded-md border border-border bg-card px-3 py-2">

@@ -9,7 +9,7 @@ import {
   type SenderRuleRecord,
   type SenderRuleUpsertPayload,
 } from "@/lib/api/sender-rules";
-import { ApiClientError } from "@/lib/api/client";
+import { ApiClientError } from "@/api/client";
 import { ACCENT_TOKENS, getAccentClasses, type AccentToken } from "@/features/mailbox/utils/accent";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -62,7 +62,10 @@ function validateRuleForm(form: RuleForm): RuleFormErrors {
     errors.matchValue = "Match value is required";
   } else if (form.matchType === "EMAIL" && !matchValue.includes("@")) {
     errors.matchValue = "Enter a valid email address";
-  } else if (form.matchType === "DOMAIN" && (matchValue.includes("@") || !matchValue.includes("."))) {
+  } else if (
+    form.matchType === "DOMAIN" &&
+    (matchValue.includes("@") || !matchValue.includes("."))
+  ) {
     errors.matchValue = "Enter a valid domain (example: company.com)";
   }
 
@@ -219,7 +222,10 @@ export function SenderHighlightsManager() {
         {isLoadingRules && (
           <div className="space-y-2">
             {Array.from({ length: 4 }, (_, index) => (
-              <div className="h-12 animate-pulse rounded-lg border border-border bg-muted" key={index} />
+              <div
+                className="h-12 animate-pulse rounded-lg border border-border bg-muted"
+                key={index}
+              />
             ))}
           </div>
         )}
@@ -227,7 +233,12 @@ export function SenderHighlightsManager() {
         {!isLoadingRules && rulesError && (
           <div className="rounded-md border border-border bg-card p-3 text-sm text-muted-foreground">
             <p>{rulesError}</p>
-            <Button className="mt-3" onClick={() => void loadSenderRules()} size="sm" variant="outline">
+            <Button
+              className="mt-3"
+              onClick={() => void loadSenderRules()}
+              size="sm"
+              variant="outline"
+            >
               Retry
             </Button>
           </div>
@@ -256,7 +267,9 @@ export function SenderHighlightsManager() {
                         {rule.label}
                       </Badge>
                     </div>
-                    <p className="pt-1 text-xs text-muted-foreground">Accent token: {rule.accent}</p>
+                    <p className="pt-1 text-xs text-muted-foreground">
+                      Accent token: {rule.accent}
+                    </p>
                   </div>
                   <div className="flex items-center gap-2">
                     <Button onClick={() => openEditRuleDialog(rule)} size="sm" variant="outline">
@@ -283,7 +296,9 @@ export function SenderHighlightsManager() {
       <Dialog onOpenChange={setRuleDialogOpen} open={ruleDialogOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>{editingRuleId ? "Edit sender highlight rule" : "Create sender highlight rule"}</DialogTitle>
+            <DialogTitle>
+              {editingRuleId ? "Edit sender highlight rule" : "Create sender highlight rule"}
+            </DialogTitle>
             <DialogDescription>
               Use EMAIL for exact sender matches and DOMAIN for broader sender groups.
             </DialogDescription>
@@ -336,7 +351,9 @@ export function SenderHighlightsManager() {
                 placeholder="BOSS"
                 value={ruleForm.label}
               />
-              {ruleFormErrors.label && <p className="text-xs text-destructive">{ruleFormErrors.label}</p>}
+              {ruleFormErrors.label && (
+                <p className="text-xs text-destructive">{ruleFormErrors.label}</p>
+              )}
             </div>
 
             <div className="space-y-2">

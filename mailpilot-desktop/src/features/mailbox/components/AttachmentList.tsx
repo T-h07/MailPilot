@@ -10,7 +10,11 @@ type AttachmentListProps = {
   activeDownloadId?: string | null;
 };
 
-export function AttachmentList({ attachments, onDownloadAttachment, activeDownloadId = null }: AttachmentListProps) {
+export function AttachmentList({
+  attachments,
+  onDownloadAttachment,
+  activeDownloadId = null,
+}: AttachmentListProps) {
   if (attachments.length === 0) {
     return null;
   }

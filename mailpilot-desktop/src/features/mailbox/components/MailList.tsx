@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { memo, useEffect, useMemo, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { MailMessage } from "@/features/mailbox/model/types";
 import { MailRow } from "@/features/mailbox/components/MailRow";
@@ -13,7 +13,7 @@ type MailListProps = {
 
 const ROW_HEIGHT_PX = 136;
 
-export function MailList({
+function MailListComponent({
   messages,
   selectedMessageId,
   searchQuery,
@@ -21,16 +21,18 @@ export function MailList({
   onFocusPreview,
 }: MailListProps) {
   const parentRef = useRef<HTMLDivElement>(null);
+  const showDebugStats = import.meta.env.VITE_DEBUG === "true";
 
   const selectedIndex = useMemo(
     () => messages.findIndex((message) => message.id === selectedMessageId),
-    [messages, selectedMessageId],
+    [messages, selectedMessageId]
   );
 
   const rowVirtualizer = useVirtualizer({
     count: messages.length,
     estimateSize: () => ROW_HEIGHT_PX,
     getScrollElement: () => parentRef.current,
+    getItemKey: (index) => messages[index]?.id ?? index,
     overscan: 12,
   });
 
@@ -78,6 +80,13 @@ export function MailList({
       role="listbox"
       tabIndex={0}
     >
+      {showDebugStats && (
+        <div className="sticky top-0 z-10 mb-1 flex justify-end">
+          <span className="rounded border border-border bg-card px-1.5 py-0.5 text-[10px] text-muted-foreground">
+            rows:{messages.length} visible:{rowVirtualizer.getVirtualItems().length}
+          </span>
+        </div>
+      )}
       <div
         style={{
           height: `${rowVirtualizer.getTotalSize()}px`,
@@ -112,3 +121,13 @@ export function MailList({
     </div>
   );
 }
+
+export const MailList = memo(
+  MailListComponent,
+  (previous, next) =>
+    previous.messages === next.messages &&
+    previous.selectedMessageId === next.selectedMessageId &&
+    previous.searchQuery === next.searchQuery &&
+    previous.onSelectMessage === next.onSelectMessage &&
+    previous.onFocusPreview === next.onFocusPreview
+);

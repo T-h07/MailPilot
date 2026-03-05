@@ -51,8 +51,32 @@ public class SenderHighlightResolver {
   }
 
   public Highlight resolveSingle(String senderEmail, String senderDomain) {
-    RuleSet ruleSet = loadRuleSet(singleton(senderEmail), singleton(senderDomain));
-    return resolve(senderEmail, senderDomain, ruleSet);
+    String normalizedEmail = normalize(senderEmail);
+    String normalizedDomain = normalize(senderDomain);
+    if (normalizedEmail.isBlank() && normalizedDomain.isBlank()) {
+      return null;
+    }
+
+    List<Highlight> rows =
+        jdbcTemplate.query(
+            """
+      SELECT label, accent
+      FROM sender_rules
+      WHERE
+        (match_type = 'EMAIL' AND ? <> '' AND lower(match_value) = ?)
+        OR
+        (match_type = 'DOMAIN' AND ? <> '' AND lower(match_value) = ?)
+      ORDER BY CASE WHEN match_type = 'EMAIL' THEN 0 ELSE 1 END
+      LIMIT 1
+      """,
+            (resultSet, rowNum) ->
+                new Highlight(resultSet.getString("label"), resultSet.getString("accent")),
+            normalizedEmail,
+            normalizedEmail,
+            normalizedDomain,
+            normalizedDomain);
+
+    return rows.isEmpty() ? null : rows.getFirst();
   }
 
   private Map<String, Highlight> loadRules(String matchType, List<String> matchValues) {
@@ -61,9 +85,9 @@ public class SenderHighlightResolver {
     }
 
     String sql =
-      "SELECT match_value, label, accent FROM sender_rules WHERE match_type = ? AND match_value IN ("
-        + placeholders(matchValues.size())
-        + ")";
+        "SELECT match_value, label, accent FROM sender_rules WHERE match_type = ? AND match_value IN ("
+            + placeholders(matchValues.size())
+            + ")";
 
     List<Object> args = new ArrayList<>(matchValues.size() + 1);
     args.add(matchType);
@@ -75,7 +99,11 @@ public class SenderHighlightResolver {
       String matchValue = normalize((String) row.get("match_value"));
       String label = row.get("label") == null ? null : row.get("label").toString();
       String accent = row.get("accent") == null ? null : row.get("accent").toString();
-      if (matchValue.isBlank() || label == null || label.isBlank() || accent == null || accent.isBlank()) {
+      if (matchValue.isBlank()
+          || label == null
+          || label.isBlank()
+          || accent == null
+          || accent.isBlank()) {
         continue;
       }
       rulesByValue.put(matchValue, new Highlight(label, accent));
@@ -96,14 +124,6 @@ public class SenderHighlightResolver {
       }
     }
     return List.copyOf(normalized);
-  }
-
-  private Set<String> singleton(String value) {
-    String normalized = normalize(value);
-    if (normalized.isBlank()) {
-      return Set.of();
-    }
-    return Set.of(normalized);
   }
 
   private String normalize(String value) {

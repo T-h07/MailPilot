@@ -40,7 +40,7 @@ import {
   type ViewRecord,
 } from "@/lib/api/views";
 import { listSenderRules } from "@/lib/api/sender-rules";
-import { ApiClientError } from "@/lib/api/client";
+import { ApiClientError } from "@/api/client";
 import { saveBinaryWithDialog } from "@/lib/files/save-binary";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -81,7 +81,10 @@ const OAUTH_POLL_TIMEOUT_MS = 45000;
 const ALL_LABEL_FILTER_VALUE = "__ALL_LABELS__";
 
 function nameFromEmail(email: string): string {
-  return email.split("@")[0].replace(/[._]/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+  return email
+    .split("@")[0]
+    .replace(/[._]/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function accountColorFromId(accountId: string): AccountColorToken {
@@ -143,7 +146,9 @@ function defaultFollowupState(): MessageFollowup {
   };
 }
 
-function toMessageFollowup(followup: MessageDetailResponse["followup"] | FollowupState): MessageFollowup {
+function toMessageFollowup(
+  followup: MessageDetailResponse["followup"] | FollowupState
+): MessageFollowup {
   return {
     status: followup.status,
     needsReply: followup.needsReply,
@@ -212,12 +217,12 @@ function mergeAccounts(existing: MailAccount[], incoming: MailAccount[]): MailAc
     nextById.set(account.id, account);
   }
   return Array.from(nextById.values()).sort((left, right) =>
-    left.accountEmail.localeCompare(right.accountEmail),
+    left.accountEmail.localeCompare(right.accountEmail)
   );
 }
 
 function toThreadSummary(
-  threadMessage: MessageDetailResponse["thread"]["messages"][number],
+  threadMessage: MessageDetailResponse["thread"]["messages"][number]
 ): ThreadMessageSummary {
   return {
     id: threadMessage.id,
@@ -234,13 +239,14 @@ function toThreadSummary(
 function buildPreviewMessage(
   summary: MailMessage,
   detail: MessageDetailResponse | undefined,
-  accountLookup: Map<string, MailAccount>,
+  accountLookup: Map<string, MailAccount>
 ): MailMessage {
   if (!detail) {
     return summary;
   }
 
-  const account = accountLookup.get(detail.accountId) ?? toMailAccount(detail.accountId, detail.accountEmail);
+  const account =
+    accountLookup.get(detail.accountId) ?? toMailAccount(detail.accountId, detail.accountEmail);
   return {
     ...summary,
     accountId: detail.accountId,
@@ -411,12 +417,14 @@ function buildQuotedSnippet(message: MailMessage): string {
 function resolvePreferredAccountId(
   accountRecords: AccountRecord[],
   accounts: MailAccount[],
-  preferredAccountId?: string | null,
+  preferredAccountId?: string | null
 ): string {
   if (preferredAccountId && accountRecords.some((account) => account.id === preferredAccountId)) {
     return preferredAccountId;
   }
-  const sendEnabled = accountRecords.find((account) => account.provider === "GMAIL" && account.canSend);
+  const sendEnabled = accountRecords.find(
+    (account) => account.provider === "GMAIL" && account.canSend
+  );
   if (sendEnabled) {
     return sendEnabled.id;
   }
@@ -443,6 +451,7 @@ export function MailboxShell({
   const previewRef = useRef<HTMLDivElement>(null);
   const hideNoticeTimeoutRef = useRef<number | null>(null);
   const listAbortRef = useRef<AbortController | null>(null);
+  const listRequestSequenceRef = useRef(0);
   const detailAbortRef = useRef<AbortController | null>(null);
   const viewLabelsAbortRef = useRef<AbortController | null>(null);
   const messageViewLabelsAbortRef = useRef<AbortController | null>(null);
@@ -462,7 +471,9 @@ export function MailboxShell({
   const [activeFilters, setActiveFilters] = useState<Set<QuickFilterKey>>(new Set());
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
-  const [selectedMessageDetail, setSelectedMessageDetail] = useState<MessageDetailResponse | null>(null);
+  const [selectedMessageDetail, setSelectedMessageDetail] = useState<MessageDetailResponse | null>(
+    null
+  );
   const [bodyViewMode, setBodyViewMode] = useState<BodyViewMode>("collapsed");
   const [notice, setNotice] = useState<NoticeState | null>(null);
 
@@ -532,7 +543,7 @@ export function MailboxShell({
     }
 
     const sortedLabels = Array.from(labelMap.values()).sort((left, right) =>
-      left.localeCompare(right, undefined, { sensitivity: "base" }),
+      left.localeCompare(right, undefined, { sensitivity: "base" })
     );
 
     return [
@@ -542,18 +553,15 @@ export function MailboxShell({
   }, [isViewContext, senderRuleLabelOptions, viewLabelOptions]);
 
   const selectedLabelNames = useMemo(
-    () =>
-      selectedLabelFilter === ALL_LABEL_FILTER_VALUE
-        ? []
-        : [selectedLabelFilter],
-    [selectedLabelFilter],
+    () => (selectedLabelFilter === ALL_LABEL_FILTER_VALUE ? [] : [selectedLabelFilter]),
+    [selectedLabelFilter]
   );
 
-  const activeFiltersKey = useMemo(() => Array.from(activeFilters).sort().join("|"), [activeFilters]);
-  const forcedFiltersKey = useMemo(
-    () => JSON.stringify(forcedFilters ?? {}),
-    [forcedFilters],
+  const activeFiltersKey = useMemo(
+    () => Array.from(activeFilters).sort().join("|"),
+    [activeFilters]
   );
+  const forcedFiltersKey = useMemo(() => JSON.stringify(forcedFilters ?? {}), [forcedFilters]);
   const mailboxQueryKey = useMemo(
     () =>
       JSON.stringify({
@@ -577,11 +585,11 @@ export function MailboxShell({
       mailboxMode,
       sortOrder,
       view?.id,
-    ],
+    ]
   );
   const selectedViewLabelIds = useMemo(
     () => selectedViewLabels.map((label) => label.id),
-    [selectedViewLabels],
+    [selectedViewLabels]
   );
 
   useEffect(() => {
@@ -634,6 +642,8 @@ export function MailboxShell({
 
   useEffect(() => {
     return () => {
+      listRequestSequenceRef.current += 1;
+      detailRequestSequenceRef.current += 1;
       listAbortRef.current?.abort();
       detailAbortRef.current?.abort();
       viewLabelsAbortRef.current?.abort();
@@ -678,11 +688,7 @@ export function MailboxShell({
     void listSenderRules(controller.signal)
       .then((rules) => {
         const nextLabels = Array.from(
-          new Set(
-            rules
-              .map((rule) => rule.label.trim())
-              .filter((label) => label.length > 0),
-          ),
+          new Set(rules.map((rule) => rule.label.trim()).filter((label) => label.length > 0))
         ).sort((left, right) => left.localeCompare(right, undefined, { sensitivity: "base" }));
         setSenderRuleLabelOptions(nextLabels);
       })
@@ -730,17 +736,20 @@ export function MailboxShell({
     return () => controller.abort();
   }, [isViewContext, showNotice, view?.id]);
 
-  const applyFetchedDetail = useCallback((detail: MessageDetailResponse) => {
-    setSelectedMessageDetail((current) => {
-      if (!selectedMessageId || detail.id !== selectedMessageId) {
-        return current;
-      }
-      return detail;
-    });
-    setAccounts((previous) =>
-      mergeAccounts(previous, [toMailAccount(detail.accountId, detail.accountEmail)]),
-    );
-  }, [selectedMessageId]);
+  const applyFetchedDetail = useCallback(
+    (detail: MessageDetailResponse) => {
+      setSelectedMessageDetail((current) => {
+        if (!selectedMessageId || detail.id !== selectedMessageId) {
+          return current;
+        }
+        return detail;
+      });
+      setAccounts((previous) =>
+        mergeAccounts(previous, [toMailAccount(detail.accountId, detail.accountEmail)])
+      );
+    },
+    [selectedMessageId]
+  );
 
   const refreshMessageDetail = useCallback(
     async (messageId: string, showSpinner = false) => {
@@ -783,7 +792,7 @@ export function MailboxShell({
         }
       }
     },
-    [applyFetchedDetail, selectedMessageId],
+    [applyFetchedDetail, selectedMessageId]
   );
 
   const refreshSelectedMessage = useCallback(
@@ -793,7 +802,7 @@ export function MailboxShell({
       }
       await refreshMessageDetail(selectedMessageId, showSpinner);
     },
-    [refreshMessageDetail, selectedMessageId],
+    [refreshMessageDetail, selectedMessageId]
   );
 
   const fetchMailbox = useCallback(
@@ -812,6 +821,8 @@ export function MailboxShell({
       listAbortRef.current?.abort();
       const controller = new AbortController();
       listAbortRef.current = controller;
+      const requestSequence = listRequestSequenceRef.current + 1;
+      listRequestSequenceRef.current = requestSequence;
 
       setListError(null);
       if (append) {
@@ -822,11 +833,12 @@ export function MailboxShell({
 
       try {
         const forcedAccountIds = forcedFilters?.accountIds ?? [];
-        const resolvedAccountIds = forcedAccountIds.length > 0
-          ? forcedAccountIds
-          : accountScope === "ALL"
-            ? []
-            : [accountScope];
+        const resolvedAccountIds =
+          forcedAccountIds.length > 0
+            ? forcedAccountIds
+            : accountScope === "ALL"
+              ? []
+              : [accountScope];
         const resolvedUnreadOnly = forcedFilters?.unreadOnly ?? activeFilters.has("UNREAD");
         const resolvedNeedsReply = forcedFilters?.needsReply ?? activeFilters.has("NEEDS_REPLY");
         const resolvedOverdue = forcedFilters?.overdue ?? activeFilters.has("OVERDUE");
@@ -839,7 +851,7 @@ export function MailboxShell({
 
         const response =
           context === "view" && view
-              ? await queryMailboxView(
+            ? await queryMailboxView(
                 {
                   viewId: view.id,
                   q: debouncedSearchQuery.length > 0 ? debouncedSearchQuery : null,
@@ -857,7 +869,7 @@ export function MailboxShell({
                   pageSize: REQUEST_PAGE_SIZE,
                   cursor,
                 },
-                controller.signal,
+                controller.signal
               )
             : await queryMailbox(
                 {
@@ -880,18 +892,29 @@ export function MailboxShell({
                   pageSize: REQUEST_PAGE_SIZE,
                   cursor,
                 },
-                controller.signal,
+                controller.signal
               );
 
+        if (requestSequence !== listRequestSequenceRef.current) {
+          return;
+        }
+
         const incomingMessages = response.items.map((item) => toSummaryMessage(item));
-        const incomingAccounts = response.items.map((item) => toMailAccount(item.accountId, item.accountEmail));
+        const incomingAccounts = response.items.map((item) =>
+          toMailAccount(item.accountId, item.accountEmail)
+        );
 
         setAccounts((previous) => mergeAccounts(previous, incomingAccounts));
-        setMessages((previous) => (append ? mergeMessages(previous, incomingMessages) : incomingMessages));
+        setMessages((previous) =>
+          append ? mergeMessages(previous, incomingMessages) : incomingMessages
+        );
         setNextCursor(response.nextCursor);
       } catch (error) {
         const message = toErrorMessage(error);
         if (!message) {
+          return;
+        }
+        if (requestSequence !== listRequestSequenceRef.current) {
           return;
         }
         setListError(message);
@@ -900,11 +923,14 @@ export function MailboxShell({
           setNextCursor(null);
         }
       } finally {
-        if (append) {
-          setIsLoadingMore(false);
-        } else {
-          setIsLoadingList(false);
-          setIsRefreshingMailbox(false);
+        const isLatestRequest = requestSequence === listRequestSequenceRef.current;
+        if (isLatestRequest) {
+          if (append) {
+            setIsLoadingMore(false);
+          } else {
+            setIsLoadingList(false);
+            setIsRefreshingMailbox(false);
+          }
         }
       }
     },
@@ -918,7 +944,7 @@ export function MailboxShell({
       sortOrder,
       selectedLabelNames,
       debouncedSearchQuery,
-    ],
+    ]
   );
 
   const refreshMailbox = useCallback(
@@ -929,7 +955,7 @@ export function MailboxShell({
         void refreshSelectedMessage(true);
       }
     },
-    [refreshSelectedMessage],
+    [refreshSelectedMessage]
   );
 
   const handleRefreshMailbox = useCallback(() => {
@@ -956,11 +982,8 @@ export function MailboxShell({
   }, [fetchMailbox, mailboxQueryKey, refreshNonce]);
 
   useEffect(() => {
-    const mailboxKey = context === "inbox"
-      ? "INBOX"
-      : context === "view" && view?.id
-        ? `VIEW:${view.id}`
-        : null;
+    const mailboxKey =
+      context === "inbox" ? "INBOX" : context === "view" && view?.id ? `VIEW:${view.id}` : null;
     if (!mailboxKey || isLoadingList) {
       return;
     }
@@ -1033,7 +1056,7 @@ export function MailboxShell({
 
   const selectedSummary = useMemo(
     () => messages.find((message) => message.id === selectedMessageId) ?? null,
-    [messages, selectedMessageId],
+    [messages, selectedMessageId]
   );
 
   useEffect(() => {
@@ -1069,8 +1092,8 @@ export function MailboxShell({
                   ...message,
                   viewLabels: nextLabels,
                 }
-              : message,
-          ),
+              : message
+          )
         );
       })
       .catch((error) => {
@@ -1114,11 +1137,11 @@ export function MailboxShell({
                       ...threadMessage,
                       isUnread,
                     }
-                  : threadMessage,
+                  : threadMessage
               ),
             }
-          : message,
-      ),
+          : message
+      )
     );
 
     setSelectedMessageDetail((previous) => {
@@ -1135,7 +1158,7 @@ export function MailboxShell({
                   ...threadMessage,
                   isUnread,
                 }
-              : threadMessage,
+              : threadMessage
           ),
         },
       };
@@ -1153,8 +1176,8 @@ export function MailboxShell({
               followup,
               flags: nextFlags,
             }
-          : message,
-      ),
+          : message
+      )
     );
 
     setSelectedMessageDetail((previous) => {
@@ -1178,7 +1201,7 @@ export function MailboxShell({
       const message = messages.find((candidate) => candidate.id === messageId);
       return message?.followup ?? defaultFollowupState();
     },
-    [messages],
+    [messages]
   );
 
   const persistFollowup = useCallback(
@@ -1205,21 +1228,14 @@ export function MailboxShell({
         setIsUpdatingFollowup(false);
       }
     },
-    [applyFollowupState, getCurrentFollowup, refreshMessageDetail, showNotice],
+    [applyFollowupState, getCurrentFollowup, refreshMessageDetail, showNotice]
   );
 
   const applyFollowupAction = useCallback(
-    async (
-      messageId: string,
-      action: "MARK_DONE" | "MARK_OPEN" | "SNOOZE",
-      days?: 1 | 3 | 7,
-    ) => {
+    async (messageId: string, action: "MARK_DONE" | "MARK_OPEN" | "SNOOZE", days?: 1 | 3 | 7) => {
       setIsUpdatingFollowup(true);
       try {
-        const response = await runFollowupAction(
-          messageId,
-          days ? { action, days } : { action },
-        );
+        const response = await runFollowupAction(messageId, days ? { action, days } : { action });
         applyFollowupState(messageId, toMessageFollowup(response.followup));
         await refreshMessageDetail(messageId);
         emitFollowupUpdated();
@@ -1230,7 +1246,7 @@ export function MailboxShell({
         setIsUpdatingFollowup(false);
       }
     },
-    [applyFollowupState, refreshMessageDetail, showNotice],
+    [applyFollowupState, refreshMessageDetail, showNotice]
   );
 
   const handleToggleRead = useCallback(async () => {
@@ -1270,7 +1286,7 @@ export function MailboxShell({
         setBodyLoadingMessageId((current) => (current === messageId ? null : current));
       }
     },
-    [refreshMessageDetail, showNotice],
+    [refreshMessageDetail, showNotice]
   );
 
   const handleLoadFullBody = useCallback(async () => {
@@ -1278,10 +1294,7 @@ export function MailboxShell({
       return;
     }
 
-    const loaded = await ensureBodyIsLoaded(
-      selectedMessage.id,
-      selectedMessage.bodyCache !== null,
-    );
+    const loaded = await ensureBodyIsLoaded(selectedMessage.id, selectedMessage.bodyCache !== null);
     if (loaded) {
       setBodyViewMode("inline");
     }
@@ -1292,10 +1305,7 @@ export function MailboxShell({
       return;
     }
 
-    const loaded = await ensureBodyIsLoaded(
-      selectedMessage.id,
-      selectedMessage.bodyCache !== null,
-    );
+    const loaded = await ensureBodyIsLoaded(selectedMessage.id, selectedMessage.bodyCache !== null);
     if (loaded) {
       setBodyViewMode("modal");
     }
@@ -1325,7 +1335,9 @@ export function MailboxShell({
       }
 
       const labelById = new Map(viewLabelOptions.map((label) => [label.id, label]));
-      const normalizedIds = Array.from(new Set(nextLabelIds.filter((labelId) => labelById.has(labelId))));
+      const normalizedIds = Array.from(
+        new Set(nextLabelIds.filter((labelId) => labelById.has(labelId)))
+      );
       const nextLabels = normalizedIds
         .map((labelId) => labelById.get(labelId))
         .filter((label): label is ViewLabelRecord => Boolean(label));
@@ -1342,8 +1354,8 @@ export function MailboxShell({
                   ...message,
                   viewLabels: nextChips,
                 }
-              : message,
-          ),
+              : message
+          )
         );
         showNotice("View labels updated");
       } catch (error) {
@@ -1352,7 +1364,7 @@ export function MailboxShell({
         setIsSavingViewLabels(false);
       }
     },
-    [isViewContext, selectedMessageId, showNotice, view?.id, viewLabelOptions],
+    [isViewContext, selectedMessageId, showNotice, view?.id, viewLabelOptions]
   );
 
   const handleDownloadAttachment = useCallback(
@@ -1362,7 +1374,7 @@ export function MailboxShell({
         const response = await downloadAttachmentFile(attachmentId);
         const defaultFileName = sanitizeFilename(
           response.fileName ?? attachmentFilename,
-          `attachment-${attachmentId}.bin`,
+          `attachment-${attachmentId}.bin`
         );
         const savedPath = await saveBinaryWithDialog({
           defaultFileName,
@@ -1377,7 +1389,7 @@ export function MailboxShell({
         setActiveAttachmentDownloadId((current) => (current === attachmentId ? null : current));
       }
     },
-    [showNotice],
+    [showNotice]
   );
 
   const handleExportMessagePdf = useCallback(async () => {
@@ -1390,7 +1402,7 @@ export function MailboxShell({
       const response = await exportMessagePdf(selectedMessage.id);
       const defaultFileName = ensurePdfFilename(
         response.fileName,
-        `mailpilot-message-${selectedMessage.id}`,
+        `mailpilot-message-${selectedMessage.id}`
       );
       const savedPath = await saveBinaryWithDialog({
         defaultFileName,
@@ -1419,7 +1431,7 @@ export function MailboxShell({
       const response = await exportThreadPdf(selectedMessage.threadId);
       const defaultFileName = ensurePdfFilename(
         response.fileName,
-        `mailpilot-thread-${selectedMessage.threadId}`,
+        `mailpilot-thread-${selectedMessage.threadId}`
       );
       const savedPath = await saveBinaryWithDialog({
         defaultFileName,
@@ -1449,7 +1461,7 @@ export function MailboxShell({
     await persistFollowup(
       selectedMessage.id,
       nextFollowup,
-      nextFollowup.needsReply ? "Marked as needs reply" : "Cleared needs reply",
+      nextFollowup.needsReply ? "Marked as needs reply" : "Cleared needs reply"
     );
   }, [persistFollowup, selectedMessage]);
 
@@ -1470,10 +1482,10 @@ export function MailboxShell({
           status: "OPEN",
           dueAt: dueLocal.toISOString(),
         },
-        `Due date set for ${preset === "TODAY" ? "today" : "tomorrow"}`,
+        `Due date set for ${preset === "TODAY" ? "today" : "tomorrow"}`
       );
     },
-    [persistFollowup, selectedMessage],
+    [persistFollowup, selectedMessage]
   );
 
   const handleClearDueDate = useCallback(async () => {
@@ -1486,7 +1498,7 @@ export function MailboxShell({
         ...selectedMessage.followup,
         dueAt: null,
       },
-      "Due date cleared",
+      "Due date cleared"
     );
   }, [persistFollowup, selectedMessage]);
 
@@ -1497,7 +1509,7 @@ export function MailboxShell({
       }
       await applyFollowupAction(selectedMessage.id, "SNOOZE", days);
     },
-    [applyFollowupAction, selectedMessage],
+    [applyFollowupAction, selectedMessage]
   );
 
   const handleClearSnooze = useCallback(async () => {
@@ -1510,7 +1522,7 @@ export function MailboxShell({
         ...selectedMessage.followup,
         snoozedUntil: null,
       },
-      "Snooze cleared",
+      "Snooze cleared"
     );
   }, [persistFollowup, selectedMessage]);
 
@@ -1535,12 +1547,16 @@ export function MailboxShell({
       setSelectedMessageId(messageId);
       setBodyViewMode("collapsed");
     },
-    [messages, showNotice],
+    [messages, showNotice]
   );
 
   const handleSelectMessage = useCallback((messageId: string) => {
     setSelectedMessageId(messageId);
     setBodyViewMode("collapsed");
+  }, []);
+
+  const handleFocusPreview = useCallback(() => {
+    previewRef.current?.focus();
   }, []);
 
   const openComposeNew = useCallback(() => {
@@ -1567,7 +1583,7 @@ export function MailboxShell({
       const accountId = resolvePreferredAccountId(
         accountRecords,
         accounts,
-        selectedMessage.accountId,
+        selectedMessage.accountId
       );
       const quotedBody = buildQuotedSnippet(selectedMessage);
 
@@ -1608,7 +1624,7 @@ export function MailboxShell({
 
       setComposeOpen(true);
     },
-    [accountRecords, accounts, selectedMessage],
+    [accountRecords, accounts, selectedMessage]
   );
 
   const handleComposeSendSuccess = useCallback(() => {
@@ -1670,7 +1686,7 @@ export function MailboxShell({
         return false;
       }
     },
-    [loadAccountRecords, showNotice],
+    [loadAccountRecords, showNotice]
   );
 
   const toggleQuickFilter = useCallback((filterKey: QuickFilterKey) => {
@@ -1715,16 +1731,20 @@ export function MailboxShell({
     }
   }, [context, forcedFilters, hideScope]);
 
-  const heading = titleOverride ?? (
-    context === "view" ? `View: ${view?.name ?? "Missing"}` : context === "sent" ? "Sent" : "Inbox"
-  );
+  const heading =
+    titleOverride ??
+    (context === "view"
+      ? `View: ${view?.name ?? "Missing"}`
+      : context === "sent"
+        ? "Sent"
+        : "Inbox");
   const subtitle =
     subtitleOverride ??
     (context === "view"
       ? describeView(view)
       : context === "sent"
         ? "Unified sent mail across connected accounts."
-      : "Everything is a mailbox: unified queue across accounts and contexts.");
+        : "Everything is a mailbox: unified queue across accounts and contexts.");
   const isSearchLoading = isLoadingList && debouncedSearchQuery.length > 0;
 
   return (
@@ -1820,7 +1840,7 @@ export function MailboxShell({
           ) : (
             <MailList
               messages={messages}
-              onFocusPreview={() => previewRef.current?.focus()}
+              onFocusPreview={handleFocusPreview}
               onSelectMessage={handleSelectMessage}
               searchQuery={debouncedSearchQuery}
               selectedMessageId={selectedMessageId}

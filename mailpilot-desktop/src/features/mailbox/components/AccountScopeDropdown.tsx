@@ -25,7 +25,7 @@ export function AccountScopeDropdown({
   const scopeLabel =
     scope === "ALL"
       ? "All Accounts"
-      : accounts.find((account) => account.id === scope)?.accountLabel ?? "Unknown account";
+      : (accounts.find((account) => account.id === scope)?.accountLabel ?? "Unknown account");
 
   return (
     <DropdownMenu>
@@ -42,10 +42,7 @@ export function AccountScopeDropdown({
       >
         <DropdownMenuLabel>Account scope</DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <DropdownMenuRadioGroup
-          onValueChange={(value) => onScopeChange(value)}
-          value={scope}
-        >
+        <DropdownMenuRadioGroup onValueChange={(value) => onScopeChange(value)} value={scope}>
           <DropdownMenuRadioItem value="ALL">All Accounts</DropdownMenuRadioItem>
           {accounts.map((account) => (
             <DropdownMenuRadioItem key={account.id} value={account.id}>

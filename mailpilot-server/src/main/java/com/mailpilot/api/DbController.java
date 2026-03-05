@@ -1,10 +1,8 @@
 package com.mailpilot.api;
 
+import com.mailpilot.api.error.ApiInternalException;
 import com.mailpilot.service.DbPingService;
-import java.util.LinkedHashMap;
 import java.util.Map;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -20,15 +18,12 @@ public class DbController {
   }
 
   @GetMapping("/ping")
-  public ResponseEntity<Map<String, String>> ping() {
+  public Map<String, String> ping() {
     try {
       dbPingService.ping();
-      return ResponseEntity.ok(Map.of("status", "ok"));
+      return Map.of("status", "ok");
     } catch (RuntimeException ex) {
-      Map<String, String> response = new LinkedHashMap<>();
-      response.put("status", "error");
-      response.put("message", "Database ping failed");
-      return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+      throw new ApiInternalException("Database ping failed");
     }
   }
 }

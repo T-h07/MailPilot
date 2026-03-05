@@ -1,0 +1,23 @@
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    color-scheme: light;
+  }
+
+  html.dark {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: "Segoe UI Variable", "Inter", "Segoe UI", sans-serif;
+    min-height: 100vh;
+  }
+
+  #root {
+    @apply h-screen bg-background text-foreground;
+  }
+}

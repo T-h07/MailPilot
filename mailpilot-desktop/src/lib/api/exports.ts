@@ -1,6 +1,9 @@
-import { downloadBinary, type BinaryResponse } from "@/lib/api/client";
+import { downloadBinary, type BinaryResponse } from "@/api/client";
 
-export function downloadAttachmentFile(attachmentId: string, signal?: AbortSignal): Promise<BinaryResponse> {
+export function downloadAttachmentFile(
+  attachmentId: string,
+  signal?: AbortSignal
+): Promise<BinaryResponse> {
   return downloadBinary(`/api/attachments/${attachmentId}/download`, { signal });
 }
 

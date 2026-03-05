@@ -1,4 +1,4 @@
-import { API_BASE } from "@/lib/api/client";
+import { API_BASE } from "@/api/client";
 
 export type BadgeUpdateEvent = {
   inbox: number;

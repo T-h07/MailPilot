@@ -16,11 +16,7 @@ type FilterChipsProps = {
   onReset: () => void;
 };
 
-export function FilterChips({
-  activeFilters,
-  onToggleFilter,
-  onReset,
-}: FilterChipsProps) {
+export function FilterChips({ activeFilters, onToggleFilter, onReset }: FilterChipsProps) {
   const allSelected = activeFilters.size === 0;
 
   return (
@@ -28,7 +24,7 @@ export function FilterChips({
       <Button
         className={cn(
           "rounded-full px-3",
-          allSelected && "bg-primary text-primary-foreground hover:bg-primary/90",
+          allSelected && "bg-primary text-primary-foreground hover:bg-primary/90"
         )}
         onClick={onReset}
         size="sm"
@@ -42,7 +38,7 @@ export function FilterChips({
           <Button
             className={cn(
               "rounded-full px-3",
-              isActive && "bg-primary text-primary-foreground hover:bg-primary/90",
+              isActive && "bg-primary text-primary-foreground hover:bg-primary/90"
             )}
             key={filter.key}
             onClick={() => onToggleFilter(filter.key)}
