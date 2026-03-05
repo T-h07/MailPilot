@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Activity, RefreshCw, TrendingUp } from "lucide-react";
+import { AccentCard, type AccentColor } from "@/components/ui/AccentCard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
 import { ApiClientError } from "@/lib/api/client";
 import { getInsightsSummary, type InsightsRange, type InsightsSummary } from "@/lib/api/insights";
 import { cn } from "@/lib/utils";
@@ -112,23 +114,26 @@ function rangeWindowDates(range: InsightsRange): string {
 }
 
 function KpiCard({
+  accent,
   label,
   value,
   subtitle,
   delta,
 }: {
+  accent: AccentColor;
   label: string;
   value: string;
   subtitle: string;
   delta: string;
 }) {
   return (
-    <div className="rounded-xl border border-border bg-card p-4">
-      <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p className="pt-1 text-2xl font-semibold leading-none">{value}</p>
+    <AccentCard accent={accent} className="h-full" contentClassName="space-y-0 p-4" heading={(
+      <span className="text-xs uppercase tracking-wide text-muted-foreground">{label}</span>
+    )}>
+      <p className="text-2xl font-semibold leading-none">{value}</p>
       <p className="pt-2 text-xs text-muted-foreground">{subtitle}</p>
       <p className="pt-1 text-xs font-medium text-foreground/80">{delta}</p>
-    </div>
+    </AccentCard>
   );
 }
 
@@ -249,7 +254,7 @@ function RankedBars({
         const widthPercent = Math.max(6, Math.round((item.count / maxValue) * 100));
         return (
           <button
-            className="w-full space-y-1 rounded-md p-1 text-left transition-colors hover:bg-accent"
+            className="w-full space-y-1 rounded-md p-1 text-left transition-colors hover:bg-muted/70"
             key={item.key}
             onClick={item.onClick}
             type="button"
@@ -274,6 +279,34 @@ export function InsightsPage() {
   const [summary, setSummary] = useState<InsightsSummary | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const comparison = summary?.comparison ?? {
+    receivedPreviousCount: 0,
+    receivedDeltaPct: 0,
+    uniqueSendersPreviousCount: 0,
+    uniqueSendersDeltaPct: 0,
+  };
+  const followupCountsNow = summary?.followupCountsNow ?? {
+    needsReply: 0,
+    overdue: 0,
+    dueToday: 0,
+    snoozed: 0,
+  };
+  const volumeSeries = summary?.series?.volumePerDay ?? [];
+  const unreadSeries = summary?.series?.unreadPerDay ?? [];
+  const peakPoint = useMemo(() => {
+    if (volumeSeries.length === 0) {
+      return null;
+    }
+    return volumeSeries.reduce((peak, point) => (point.count > peak.count ? point : peak), volumeSeries[0]);
+  }, [volumeSeries]);
+  const averagePerDay = useMemo(() => {
+    if (volumeSeries.length === 0) {
+      return 0;
+    }
+    const total = volumeSeries.reduce((sum, point) => sum + point.count, 0);
+    return total / volumeSeries.length;
+  }, [volumeSeries]);
 
   const loadSummary = useCallback(async (selectedRange: InsightsRange) => {
     setIsLoading(true);
@@ -355,7 +388,7 @@ export function InsightsPage() {
   );
 
   return (
-    <section className="space-y-6">
+    <section className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Insights</h1>
@@ -396,24 +429,28 @@ export function InsightsPage() {
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <KpiCard
-          delta={`${formatPercent(summary?.comparison.receivedDeltaPct ?? 0)} vs previous window`}
+          accent="blue"
+          delta={`${formatPercent(comparison.receivedDeltaPct)} vs previous window`}
           label="Messages received"
           subtitle="Inbound count in selected range."
           value={isLoading ? "..." : String(summary?.receivedCount ?? 0)}
         />
         <KpiCard
-          delta={`${formatPercent(summary?.comparison.uniqueSendersDeltaPct ?? 0)} vs previous window`}
+          accent="green"
+          delta={`${formatPercent(comparison.uniqueSendersDeltaPct)} vs previous window`}
           label="Unique senders"
           subtitle="Distinct sender emails in range."
           value={isLoading ? "..." : String(summary?.uniqueSenders ?? 0)}
         />
         <KpiCard
+          accent="purple"
           delta={topDomain ? `${topDomainShare.toFixed(1)}% share` : "--"}
           label="Top domain"
           subtitle="Highest contributor domain."
           value={isLoading ? "..." : topDomain ? `${topDomain.domain} (${topDomain.count})` : "--"}
         />
         <KpiCard
+          accent="gold"
           delta={topSender ? `${topSenderShare.toFixed(1)}% share` : "--"}
           label="Top sender"
           subtitle="Most frequent sender."
@@ -421,116 +458,118 @@ export function InsightsPage() {
         />
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
+      <AccentCard
+        accent="blue"
+        className={cn("transition-opacity", isLoading && "animate-pulse opacity-75")}
+        description="Range trend overlay for received volume vs unread messages."
+        heading={(
+          <span className="flex items-center gap-2">
             <TrendingUp className="h-4 w-4" />
             Volume and Unread Per Day
-          </CardTitle>
-          <CardDescription>Range trend overlay for received volume vs unread messages.</CardDescription>
-        </CardHeader>
-        <CardContent className={cn("transition-opacity", isLoading && "animate-pulse opacity-75")}>
+          </span>
+        )}
+      >
+        <div className="space-y-3">
+          <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
+            <div className="rounded-md border border-border bg-card/70 px-3 py-2">
+              Peak day:{" "}
+              <span className="font-semibold text-foreground">
+                {peakPoint ? `${formatDateLabel(peakPoint.date)} (${peakPoint.count})` : "--"}
+              </span>
+            </div>
+            <div className="rounded-md border border-border bg-card/70 px-3 py-2">
+              Average/day:{" "}
+              <span className="font-semibold text-foreground">{averagePerDay.toFixed(1)}</span>
+            </div>
+          </div>
+          <Separator className="opacity-55" />
           <MultiLineChart
             leftColorClass="bg-primary"
             leftLabel="Received per day"
-            leftPoints={summary?.series.volumePerDay ?? []}
+            leftPoints={volumeSeries}
             rightColorClass="bg-cyan-500"
             rightLabel="Unread per day"
-            rightPoints={summary?.series.unreadPerDay ?? []}
+            rightPoints={unreadSeries}
           />
-        </CardContent>
-      </Card>
+        </div>
+      </AccentCard>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Top Domains</CardTitle>
-            <CardDescription>Click to open mailbox filtered by domain.</CardDescription>
-          </CardHeader>
-          <CardContent>
+        <AccentCard accent="purple" description="Click to open mailbox filtered by domain." heading="Top Domains">
+          <div>
             <RankedBars
               emptyLabel="No domain activity in this range."
               items={topDomainItems}
               title="Domains"
             />
-          </CardContent>
-        </Card>
+          </div>
+        </AccentCard>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Top Senders</CardTitle>
-            <CardDescription>Click to open mailbox filtered by sender.</CardDescription>
-          </CardHeader>
-          <CardContent>
+        <AccentCard accent="gold" description="Click to open mailbox filtered by sender." heading="Top Senders">
+          <div>
             <RankedBars
               emptyLabel="No sender activity in this range."
               items={topSenderItems}
               title="Senders"
             />
-          </CardContent>
-        </Card>
+          </div>
+        </AccentCard>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <Card>
-          <CardHeader>
-            <CardTitle>Accounts Activity</CardTitle>
-            <CardDescription>Received counts by account in selected range.</CardDescription>
-          </CardHeader>
-          <CardContent>
+        <AccentCard accent="blue" description="Received counts by account in selected range." heading="Account Distribution">
+          <div>
             <RankedBars
               emptyLabel="No account activity in this range."
               items={accountActivityItems}
               title="Accounts"
             />
-          </CardContent>
-        </Card>
+          </div>
+        </AccentCard>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Unread by Domain</CardTitle>
-            <CardDescription>Current unread concentration by sender domain.</CardDescription>
-          </CardHeader>
-          <CardContent>
+        <AccentCard accent="green" description="Current unread concentration by sender domain." heading="Unread by Domain">
+          <div>
             <RankedBars
               emptyLabel="No unread domain concentration."
               items={unreadDomainItems}
               title="Unread domains"
             />
-          </CardContent>
-        </Card>
+          </div>
+        </AccentCard>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
+        <AccentCard
+          accent="orange"
+          description="Current followup pressure (live, independent of range)."
+          heading={(
+            <span className="flex items-center gap-2">
               <Activity className="h-4 w-4" />
-              Followup Snapshot
-            </CardTitle>
-            <CardDescription>Current followup pressure (live, independent of range).</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm">
+              Followup Pressure
+            </span>
+          )}
+        >
+          <div className="space-y-2 text-sm">
             <div className="flex items-center justify-between rounded-md border border-border bg-card px-3 py-2">
               <span className="text-muted-foreground">Needs reply</span>
-              <span className="font-semibold">{summary?.followupCountsNow.needsReply ?? 0}</span>
+              <span className="font-semibold">{followupCountsNow.needsReply}</span>
             </div>
             <div className="flex items-center justify-between rounded-md border border-border bg-card px-3 py-2">
               <span className="text-muted-foreground">Overdue</span>
-              <span className="font-semibold">{summary?.followupCountsNow.overdue ?? 0}</span>
+              <span className="font-semibold">{followupCountsNow.overdue}</span>
             </div>
             <div className="flex items-center justify-between rounded-md border border-border bg-card px-3 py-2">
               <span className="text-muted-foreground">Due today</span>
-              <span className="font-semibold">{summary?.followupCountsNow.dueToday ?? 0}</span>
+              <span className="font-semibold">{followupCountsNow.dueToday}</span>
             </div>
             <div className="flex items-center justify-between rounded-md border border-border bg-card px-3 py-2">
               <span className="text-muted-foreground">Snoozed</span>
-              <span className="font-semibold">{summary?.followupCountsNow.snoozed ?? 0}</span>
+              <span className="font-semibold">{followupCountsNow.snoozed}</span>
             </div>
             <div className="flex items-center justify-between rounded-md border border-border bg-card px-3 py-2">
               <span className="text-muted-foreground">Unread now</span>
               <span className="font-semibold">{summary?.unreadNow ?? 0}</span>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </AccentCard>
       </div>
     </section>
   );

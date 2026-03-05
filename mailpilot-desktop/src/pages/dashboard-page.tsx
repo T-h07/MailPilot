@@ -12,7 +12,9 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { AccentCard } from "@/components/ui/AccentCard";
+import { Card, CardContent } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
 import { type AccountRecord, listAccounts } from "@/lib/api/accounts";
 import { ApiClientError } from "@/lib/api/client";
 import { getDashboardSummary, type DashboardSummary } from "@/lib/api/dashboard";
@@ -139,7 +141,7 @@ function DriverList({
         const width = Math.max(8, Math.round((item.count / maxCount) * 100));
         return (
           <button
-            className="w-full space-y-1 rounded-md p-1 text-left transition-colors hover:bg-accent"
+            className="w-full space-y-1 rounded-md p-1 text-left transition-colors hover:bg-muted/70"
             key={item.key}
             onClick={item.onClick}
             type="button"
@@ -423,15 +425,17 @@ export function DashboardPage() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
+        <AccentCard
+          accent="blue"
+          description="Received now vs previous 24-hour window."
+          heading={(
+            <span className="flex items-center gap-2">
               <TrendingUp className="h-4 w-4" />
               Last 24h Intake
-            </CardTitle>
-            <CardDescription>Received now vs previous 24-hour window.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
+            </span>
+          )}
+        >
+          <div className="space-y-4">
             <div className="grid gap-3 sm:grid-cols-3">
               <div className="rounded-md border border-border bg-card p-3">
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">Received</p>
@@ -453,6 +457,7 @@ export function DashboardPage() {
                 </p>
               </div>
             </div>
+            <Separator className="opacity-55" />
             <div className="grid gap-4 md:grid-cols-2">
               <DriverList
                 emptyLabel="No domains in the last 24h."
@@ -465,15 +470,11 @@ export function DashboardPage() {
                 title="Top senders received (24h)"
               />
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </AccentCard>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Followup Health</CardTitle>
-            <CardDescription>Open followup pressure and wakeups.</CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-3 sm:grid-cols-2">
+        <AccentCard accent="orange" description="Open followup pressure and wakeups." heading="Followup Health">
+          <div className="grid gap-3 sm:grid-cols-2">
             <button
               className="rounded-md border border-border bg-card p-3 text-left transition-colors hover:bg-accent"
               onClick={() => openDrilldown({ allOpen: true })}
@@ -492,72 +493,61 @@ export function DashboardPage() {
               <p className="pt-1 text-2xl font-semibold">{summary?.snoozedWakingNext24h ?? 0}</p>
               <p className="pt-1 text-xs text-muted-foreground">Snoozed items waking in 24 hours</p>
             </button>
-          </CardContent>
-        </Card>
+          </div>
+        </AccentCard>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <Card>
-          <CardHeader>
-            <CardTitle>Top Domains (Unread)</CardTitle>
-            <CardDescription>Main unread drivers by sender domain.</CardDescription>
-          </CardHeader>
-          <CardContent>
+        <AccentCard accent="purple" description="Main unread drivers by sender domain." heading="Top Domains (Unread)">
+          <div>
             <DriverList
               emptyLabel="No unread domain concentration."
               items={topDomainsUnread}
               title="Domains"
             />
-          </CardContent>
-        </Card>
+          </div>
+        </AccentCard>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Top Senders (Unread)</CardTitle>
-            <CardDescription>Main unread drivers by sender email.</CardDescription>
-          </CardHeader>
-          <CardContent>
+        <AccentCard accent="gold" description="Main unread drivers by sender email." heading="Top Senders (Unread)">
+          <div>
             <DriverList
               emptyLabel="No unread sender concentration."
               items={topSendersUnread}
               title="Senders"
             />
-          </CardContent>
-        </Card>
+          </div>
+        </AccentCard>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Unread by Account</CardTitle>
-            <CardDescription>Where unread load is currently concentrated.</CardDescription>
-          </CardHeader>
-          <CardContent>
+        <AccentCard accent="green" description="Where unread load is currently concentrated." heading="Unread by Account">
+          <div>
             <DriverList
               emptyLabel="No unread messages across accounts."
               items={unreadByAccount}
               title="Accounts"
             />
-          </CardContent>
-        </Card>
+          </div>
+        </AccentCard>
       </div>
 
-      <Card>
-        <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0">
-          <div>
-            <CardTitle>Freshness + Sync</CardTitle>
-            <CardDescription>Connection state and last sync snapshot by account.</CardDescription>
-          </div>
+      <AccentCard
+        accent="blue"
+        description="Connection state and last sync snapshot by account."
+        headerRight={(
           <Button className="gap-2" disabled={isSyncingNow} onClick={() => void handleSyncNow()} size="sm" variant="outline">
             {isSyncingNow ? <RefreshCw className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
             Sync now
           </Button>
-        </CardHeader>
-        <CardContent className="space-y-3 text-sm">
+        )}
+        heading="Freshness + Sync"
+      >
+        <div className="space-y-3 text-sm">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant={sseConnected ? "secondary" : "destructive"}>
               {sseConnected ? "SSE connected" : "SSE reconnecting"}
             </Badge>
             <Badge variant="outline">Last dashboard update: {formatTimestamp(summary?.lastUpdatedAt ?? null)}</Badge>
           </div>
+          <Separator className="opacity-55" />
           <div className="space-y-2">
             {syncRows.length === 0 && (
               <p className="text-muted-foreground">No connected accounts.</p>
@@ -584,8 +574,8 @@ export function DashboardPage() {
               </div>
             ))}
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </AccentCard>
     </section>
   );
 }
