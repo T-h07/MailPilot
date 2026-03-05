@@ -20,8 +20,11 @@ public record MailboxQueryResponse(List<Item> items, String nextCursor) {
     boolean hasAttachments,
     List<String> chips,
     List<String> tags,
-    Highlight highlight
+    Highlight highlight,
+    List<ViewLabel> viewLabels
   ) {}
 
   public record Highlight(String label, String accent) {}
+
+  public record ViewLabel(UUID id, String name, String colorToken) {}
 }

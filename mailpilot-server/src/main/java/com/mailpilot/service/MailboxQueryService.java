@@ -178,7 +178,8 @@ public class MailboxQueryService {
           row.hasAttachments(),
           chips,
           tags,
-          highlight
+          highlight,
+          List.of()
         )
       );
     }

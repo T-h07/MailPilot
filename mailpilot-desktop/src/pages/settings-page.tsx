@@ -220,6 +220,7 @@ function withoutRecordKey<T extends Record<string, unknown>>(record: T, keyToRem
 export function SettingsPage() {
   const { themeMode, setThemeMode } = useOutletContext<AppOutletContext>();
   const { refreshSyncStatus, sseConnected, syncByAccountId } = useLiveEvents();
+  const showSenderHighlightsInSettings = false;
   const nextTheme = themeMode === "dark" ? "light" : "dark";
   const modeLabel = themeMode === "dark" ? "Dark" : "Light";
   const nextThemeLabel = nextTheme === "dark" ? "Dark" : "Light";
@@ -1024,99 +1025,101 @@ export function SettingsPage() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <CardTitle>Sender Highlights</CardTitle>
-              <CardDescription>
-                Define sender decoration rules. Exact EMAIL matches override DOMAIN rules.
-              </CardDescription>
+      {showSenderHighlightsInSettings && (
+        <Card>
+          <CardHeader>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <CardTitle>Sender Highlights</CardTitle>
+                <CardDescription>
+                  Define sender decoration rules. Exact EMAIL matches override DOMAIN rules.
+                </CardDescription>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button onClick={() => void loadSenderRules()} size="sm" variant="outline">
+                  Refresh
+                </Button>
+                <Button onClick={openCreateRuleDialog} size="sm">
+                  Add rule
+                </Button>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <Button onClick={() => void loadSenderRules()} size="sm" variant="outline">
-                Refresh
-              </Button>
-              <Button onClick={openCreateRuleDialog} size="sm">
-                Add rule
-              </Button>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {ruleActionMessage && (
-            <p className="rounded-md border border-border bg-card px-3 py-2 text-sm text-muted-foreground">
-              {ruleActionMessage}
-            </p>
-          )}
-          {ruleActionError && (
-            <p className="rounded-md border border-border bg-card px-3 py-2 text-sm text-destructive">
-              {ruleActionError}
-            </p>
-          )}
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {ruleActionMessage && (
+              <p className="rounded-md border border-border bg-card px-3 py-2 text-sm text-muted-foreground">
+                {ruleActionMessage}
+              </p>
+            )}
+            {ruleActionError && (
+              <p className="rounded-md border border-border bg-card px-3 py-2 text-sm text-destructive">
+                {ruleActionError}
+              </p>
+            )}
 
-          {isLoadingRules && (
-            <div className="space-y-2">
-              {Array.from({ length: 4 }, (_, index) => (
-                <div className="h-12 animate-pulse rounded-lg border border-border bg-muted" key={index} />
-              ))}
-            </div>
-          )}
+            {isLoadingRules && (
+              <div className="space-y-2">
+                {Array.from({ length: 4 }, (_, index) => (
+                  <div className="h-12 animate-pulse rounded-lg border border-border bg-muted" key={index} />
+                ))}
+              </div>
+            )}
 
-          {!isLoadingRules && rulesError && (
-            <div className="rounded-md border border-border bg-card p-3 text-sm text-muted-foreground">
-              <p>{rulesError}</p>
-              <Button className="mt-3" onClick={() => void loadSenderRules()} size="sm" variant="outline">
-                Retry
-              </Button>
-            </div>
-          )}
+            {!isLoadingRules && rulesError && (
+              <div className="rounded-md border border-border bg-card p-3 text-sm text-muted-foreground">
+                <p>{rulesError}</p>
+                <Button className="mt-3" onClick={() => void loadSenderRules()} size="sm" variant="outline">
+                  Retry
+                </Button>
+              </div>
+            )}
 
-          {!isLoadingRules && !rulesError && senderRules.length === 0 && (
-            <p className="rounded-md border border-border bg-card p-3 text-sm text-muted-foreground">
-              No sender highlight rules yet.
-            </p>
-          )}
+            {!isLoadingRules && !rulesError && senderRules.length === 0 && (
+              <p className="rounded-md border border-border bg-card p-3 text-sm text-muted-foreground">
+                No sender highlight rules yet.
+              </p>
+            )}
 
-          {!isLoadingRules && !rulesError && senderRules.length > 0 && (
-            <div className="space-y-2">
-              {senderRules.map((rule) => {
-                const accent = getAccentClasses(rule.accent);
-                return (
-                  <div
-                    className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card p-3"
-                    key={rule.id}
-                  >
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Badge variant="outline">{rule.matchType}</Badge>
-                        <p className="truncate text-sm font-medium">{rule.matchValue}</p>
-                        <Badge className={cn("border uppercase", accent.badge)} variant="outline">
-                          {rule.label}
-                        </Badge>
+            {!isLoadingRules && !rulesError && senderRules.length > 0 && (
+              <div className="space-y-2">
+                {senderRules.map((rule) => {
+                  const accent = getAccentClasses(rule.accent);
+                  return (
+                    <div
+                      className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card p-3"
+                      key={rule.id}
+                    >
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge variant="outline">{rule.matchType}</Badge>
+                          <p className="truncate text-sm font-medium">{rule.matchValue}</p>
+                          <Badge className={cn("border uppercase", accent.badge)} variant="outline">
+                            {rule.label}
+                          </Badge>
+                        </div>
+                        <p className="pt-1 text-xs text-muted-foreground">Accent token: {rule.accent}</p>
                       </div>
-                      <p className="pt-1 text-xs text-muted-foreground">Accent token: {rule.accent}</p>
+                      <div className="flex items-center gap-2">
+                        <Button onClick={() => openEditRuleDialog(rule)} size="sm" variant="outline">
+                          Edit
+                        </Button>
+                        <Button
+                          disabled={deletingRuleId === rule.id}
+                          onClick={() => void handleDeleteRule(rule)}
+                          size="sm"
+                          variant="outline"
+                        >
+                          {deletingRuleId === rule.id ? "Deleting..." : "Delete"}
+                        </Button>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Button onClick={() => openEditRuleDialog(rule)} size="sm" variant="outline">
-                        Edit
-                      </Button>
-                      <Button
-                        disabled={deletingRuleId === rule.id}
-                        onClick={() => void handleDeleteRule(rule)}
-                        size="sm"
-                        variant="outline"
-                      >
-                        {deletingRuleId === rule.id ? "Deleting..." : "Delete"}
-                      </Button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <Dialog onOpenChange={closeDetachDialog} open={detachDialogAccount !== null}>
         <DialogContent className="max-w-lg">
@@ -1206,98 +1209,100 @@ export function SettingsPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog onOpenChange={setRuleDialogOpen} open={ruleDialogOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>{editingRuleId ? "Edit sender highlight rule" : "Create sender highlight rule"}</DialogTitle>
-            <DialogDescription>
-              Use EMAIL for exact sender matches and DOMAIN for broader sender groups.
-            </DialogDescription>
-          </DialogHeader>
+      {showSenderHighlightsInSettings && (
+        <Dialog onOpenChange={setRuleDialogOpen} open={ruleDialogOpen}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>{editingRuleId ? "Edit sender highlight rule" : "Create sender highlight rule"}</DialogTitle>
+              <DialogDescription>
+                Use EMAIL for exact sender matches and DOMAIN for broader sender groups.
+              </DialogDescription>
+            </DialogHeader>
 
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <p className="text-xs font-medium text-muted-foreground">Match type</p>
-              <select
-                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                onChange={(event) =>
-                  setRuleForm((previous) => ({
-                    ...previous,
-                    matchType: event.target.value as SenderRuleMatchType,
-                  }))
-                }
-                value={ruleForm.matchType}
-              >
-                <option value="EMAIL">EMAIL</option>
-                <option value="DOMAIN">DOMAIN</option>
-              </select>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-muted-foreground">Match type</p>
+                <select
+                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  onChange={(event) =>
+                    setRuleForm((previous) => ({
+                      ...previous,
+                      matchType: event.target.value as SenderRuleMatchType,
+                    }))
+                  }
+                  value={ruleForm.matchType}
+                >
+                  <option value="EMAIL">EMAIL</option>
+                  <option value="DOMAIN">DOMAIN</option>
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-muted-foreground">Match value</p>
+                <Input
+                  onChange={(event) =>
+                    setRuleForm((previous) => ({
+                      ...previous,
+                      matchValue: event.target.value,
+                    }))
+                  }
+                  placeholder={ruleForm.matchType === "EMAIL" ? "boss@company.com" : "company.com"}
+                  value={ruleForm.matchValue}
+                />
+                {ruleFormErrors.matchValue && (
+                  <p className="text-xs text-destructive">{ruleFormErrors.matchValue}</p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-muted-foreground">Label</p>
+                <Input
+                  onChange={(event) =>
+                    setRuleForm((previous) => ({
+                      ...previous,
+                      label: event.target.value,
+                    }))
+                  }
+                  placeholder="BOSS"
+                  value={ruleForm.label}
+                />
+                {ruleFormErrors.label && <p className="text-xs text-destructive">{ruleFormErrors.label}</p>}
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-muted-foreground">Accent</p>
+                <select
+                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  onChange={(event) =>
+                    setRuleForm((previous) => ({
+                      ...previous,
+                      accent: event.target.value as AccentToken,
+                    }))
+                  }
+                  value={ruleForm.accent}
+                >
+                  {ACCENT_TOKENS.map((accentToken) => (
+                    <option key={accentToken} value={accentToken}>
+                      {accentToken}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {ruleActionError && <p className="text-sm text-destructive">{ruleActionError}</p>}
             </div>
 
-            <div className="space-y-2">
-              <p className="text-xs font-medium text-muted-foreground">Match value</p>
-              <Input
-                onChange={(event) =>
-                  setRuleForm((previous) => ({
-                    ...previous,
-                    matchValue: event.target.value,
-                  }))
-                }
-                placeholder={ruleForm.matchType === "EMAIL" ? "boss@company.com" : "company.com"}
-                value={ruleForm.matchValue}
-              />
-              {ruleFormErrors.matchValue && (
-                <p className="text-xs text-destructive">{ruleFormErrors.matchValue}</p>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <p className="text-xs font-medium text-muted-foreground">Label</p>
-              <Input
-                onChange={(event) =>
-                  setRuleForm((previous) => ({
-                    ...previous,
-                    label: event.target.value,
-                  }))
-                }
-                placeholder="BOSS"
-                value={ruleForm.label}
-              />
-              {ruleFormErrors.label && <p className="text-xs text-destructive">{ruleFormErrors.label}</p>}
-            </div>
-
-            <div className="space-y-2">
-              <p className="text-xs font-medium text-muted-foreground">Accent</p>
-              <select
-                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                onChange={(event) =>
-                  setRuleForm((previous) => ({
-                    ...previous,
-                    accent: event.target.value as AccentToken,
-                  }))
-                }
-                value={ruleForm.accent}
-              >
-                {ACCENT_TOKENS.map((accentToken) => (
-                  <option key={accentToken} value={accentToken}>
-                    {accentToken}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {ruleActionError && <p className="text-sm text-destructive">{ruleActionError}</p>}
-          </div>
-
-          <DialogFooter>
-            <Button onClick={() => setRuleDialogOpen(false)} type="button" variant="outline">
-              Cancel
-            </Button>
-            <Button disabled={isSavingRule} onClick={() => void handleSaveRule()} type="button">
-              {isSavingRule ? "Saving..." : "Save rule"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            <DialogFooter>
+              <Button onClick={() => setRuleDialogOpen(false)} type="button" variant="outline">
+                Cancel
+              </Button>
+              <Button disabled={isSavingRule} onClick={() => void handleSaveRule()} type="button">
+                {isSavingRule ? "Saving..." : "Save rule"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {notice && (
         <div className="mailbox-toast fixed bottom-5 right-5 z-[60] rounded-lg border border-border bg-card px-3 py-2 text-xs shadow-lg">

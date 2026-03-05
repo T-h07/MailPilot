@@ -35,6 +35,8 @@ function MailRowComponent({ message, isSelected, onSelect, searchQuery }: MailRo
 
   const visibleTags = message.tags.slice(0, 2);
   const overflowTagCount = Math.max(message.tags.length - visibleTags.length, 0);
+  const visibleViewLabels = message.viewLabels.slice(0, 2);
+  const overflowViewLabelCount = Math.max(message.viewLabels.length - visibleViewLabels.length, 0);
   const followupChips: FollowupChip[] = [];
   if (message.flags.needsReply) {
     followupChips.push({ key: "needs-reply", label: "NeedsReply", className: "", variant: "secondary" });
@@ -145,6 +147,23 @@ function MailRowComponent({ message, isSelected, onSelect, searchQuery }: MailRo
               +{overflowFollowupChipCount}
             </Badge>
           )}
+          {visibleViewLabels.map((label) => {
+            const accent = getAccentClasses(label.colorToken);
+            return (
+              <Badge
+                className={cn("shrink-0 border text-[10px]", accent.badge)}
+                key={`${message.id}-view-label-${label.id}`}
+                variant="outline"
+              >
+                {label.name}
+              </Badge>
+            );
+          })}
+          {overflowViewLabelCount > 0 && (
+            <Badge className="shrink-0 text-[10px]" variant="outline">
+              +{overflowViewLabelCount}
+            </Badge>
+          )}
           {visibleTags.map((tag) => (
             <Badge className="shrink-0 text-[10px]" key={`${message.id}-tag-${tag}`} variant="outline">
               #{tag}
@@ -163,8 +182,7 @@ function MailRowComponent({ message, isSelected, onSelect, searchQuery }: MailRo
 
 export const MailRow = memo(MailRowComponent, (previous, next) => {
   return (
-    previous.message.id === next.message.id &&
-    previous.message.isUnread === next.message.isUnread &&
+    previous.message === next.message &&
     previous.isSelected === next.isSelected &&
     previous.searchQuery === next.searchQuery
   );

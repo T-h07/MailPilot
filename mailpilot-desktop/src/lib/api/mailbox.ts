@@ -3,6 +3,12 @@ import { fetchJson } from "@/lib/api/client";
 export type MailboxSortOrder = "RECEIVED_DESC" | "RECEIVED_ASC";
 export type MailboxMode = "INBOX" | "SENT";
 
+export type ViewLabelChip = {
+  id: string;
+  name: string;
+  colorToken: string;
+};
+
 export type MailboxQueryRequest = {
   scope?: {
     accountIds?: string[];
@@ -60,6 +66,7 @@ export type MailboxListItem = {
     label: string;
     accent: string;
   } | null;
+  viewLabels: ViewLabelChip[];
 };
 
 export type MailboxQueryResponse = {

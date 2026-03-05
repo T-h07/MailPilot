@@ -2,15 +2,23 @@ import { useEffect, useMemo, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { Plus, Pencil, Copy, Trash2, RefreshCw } from "lucide-react";
 import type { AppOutletContext } from "@/App";
+import { cn } from "@/lib/utils";
 import { ApiClientError } from "@/lib/api/client";
 import { listAccounts, type AccountRecord } from "@/lib/api/accounts";
 import {
+  createViewLabel,
   createView,
+  deleteViewLabel,
   deleteView,
+  listViewLabels,
+  updateViewLabel,
   updateView,
+  type ViewLabelRecord,
   type ViewRecord,
   type ViewUpsertPayload,
 } from "@/lib/api/views";
+import { ACCENT_TOKENS, getAccentClasses, type AccentToken } from "@/features/mailbox/utils/accent";
+import { SenderHighlightsManager } from "@/features/sender-highlights/components/SenderHighlightsManager";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -38,6 +46,13 @@ type FormState = {
   senderEmails: string[];
   keywords: string[];
   unreadOnly: boolean;
+  labels: LabelDraft[];
+};
+
+type LabelDraft = {
+  id?: string;
+  name: string;
+  colorToken: AccentToken;
 };
 
 type FormErrors = {
@@ -46,6 +61,7 @@ type FormErrors = {
   senderDomains?: string;
   senderEmails?: string;
   keywords?: string;
+  labels?: string;
 };
 
 const ICON_OPTIONS = ["briefcase", "network", "gamepad-2", "megaphone", "star", "folder"];
@@ -72,10 +88,11 @@ function createEmptyForm(): FormState {
     senderEmails: [],
     keywords: [],
     unreadOnly: false,
+    labels: [],
   };
 }
 
-function toFormState(view: ViewRecord): FormState {
+function toFormState(view: ViewRecord, labels: ViewLabelRecord[]): FormState {
   return {
     name: view.name,
     priority: view.priority,
@@ -87,6 +104,11 @@ function toFormState(view: ViewRecord): FormState {
     senderEmails: [...view.rules.senderEmails],
     keywords: [...view.rules.keywords],
     unreadOnly: view.rules.unreadOnly,
+    labels: labels.map((label) => ({
+      id: label.id,
+      name: label.name,
+      colorToken: label.colorToken,
+    })),
   };
 }
 
@@ -143,6 +165,24 @@ function validateForm(form: FormState): FormErrors {
   }
   if (form.keywords.length > 50) {
     errors.keywords = "Maximum 50 keywords";
+  }
+
+  if (form.labels.length > 50) {
+    errors.labels = "Maximum 50 view labels";
+  }
+
+  const normalizedNames = new Set<string>();
+  for (const label of form.labels) {
+    const normalizedName = label.name.trim().toLowerCase();
+    if (normalizedName.length === 0 || normalizedName.length > 30) {
+      errors.labels = "Each label name must be between 1 and 30 characters";
+      break;
+    }
+    if (normalizedNames.has(normalizedName)) {
+      errors.labels = "Label names must be unique per view";
+      break;
+    }
+    normalizedNames.add(normalizedName);
   }
 
   return errors;
@@ -227,6 +267,10 @@ export function ViewsHubPage() {
   const [banner, setBanner] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [deletingViewId, setDeletingViewId] = useState<string | null>(null);
+  const [viewLabelsByViewId, setViewLabelsByViewId] = useState<Record<string, ViewLabelRecord[]>>({});
+  const [isLoadingSelectedViewLabels, setIsLoadingSelectedViewLabels] = useState(false);
+  const [labelDraftName, setLabelDraftName] = useState("");
+  const [labelDraftColor, setLabelDraftColor] = useState<AccentToken>("blue");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -261,35 +305,142 @@ export function ViewsHubPage() {
     [accounts],
   );
 
+  const selectedViewLabels = selectedViewId ? (viewLabelsByViewId[selectedViewId] ?? []) : [];
+
+  const loadLabelsForView = async (viewId: string, signal?: AbortSignal): Promise<ViewLabelRecord[]> => {
+    const labels = await listViewLabels(viewId, signal);
+    setViewLabelsByViewId((previous) => ({
+      ...previous,
+      [viewId]: labels,
+    }));
+    return labels;
+  };
+
+  useEffect(() => {
+    if (!selectedViewId) {
+      return;
+    }
+    const controller = new AbortController();
+    setIsLoadingSelectedViewLabels(true);
+    void loadLabelsForView(selectedViewId, controller.signal)
+      .catch(() => {
+        // Keep view details visible even if labels fetch fails.
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setIsLoadingSelectedViewLabels(false);
+        }
+      });
+    return () => controller.abort();
+  }, [selectedViewId]);
+
   const openCreateDialog = () => {
     setDialogMode("create");
     setEditingViewId(null);
     setForm(createEmptyForm());
+    setLabelDraftName("");
+    setLabelDraftColor("blue");
     setFormErrors({});
     setActionError(null);
     setDialogOpen(true);
   };
 
-  const openEditDialog = (view: ViewRecord) => {
+  const openEditDialog = async (view: ViewRecord) => {
+    let labels = viewLabelsByViewId[view.id] ?? [];
+    if (labels.length === 0) {
+      try {
+        labels = await loadLabelsForView(view.id);
+      } catch {
+        labels = [];
+      }
+    }
     setDialogMode("edit");
     setEditingViewId(view.id);
-    setForm(toFormState(view));
+    setForm(toFormState(view, labels));
+    setLabelDraftName("");
+    setLabelDraftColor("blue");
     setFormErrors({});
     setActionError(null);
     setDialogOpen(true);
   };
 
-  const openDuplicateDialog = (view: ViewRecord) => {
-    const duplicateForm = toFormState(view);
+  const openDuplicateDialog = async (view: ViewRecord) => {
+    let labels = viewLabelsByViewId[view.id] ?? [];
+    if (labels.length === 0) {
+      try {
+        labels = await loadLabelsForView(view.id);
+      } catch {
+        labels = [];
+      }
+    }
+
+    const duplicateForm = toFormState(view, labels);
     duplicateForm.name = `${view.name} (copy)`;
     duplicateForm.sortOrder = Math.min(9999, view.sortOrder + 1);
+    duplicateForm.labels = duplicateForm.labels.map((label) => ({ ...label, id: undefined }));
 
     setDialogMode("duplicate");
     setEditingViewId(null);
     setForm(duplicateForm);
+    setLabelDraftName("");
+    setLabelDraftColor("blue");
     setFormErrors({});
     setActionError(null);
     setDialogOpen(true);
+  };
+
+  const addLabelDraft = () => {
+    const normalizedName = labelDraftName.trim();
+    if (!normalizedName) {
+      return;
+    }
+    setForm((previous) => ({
+      ...previous,
+      labels: [
+        ...previous.labels,
+        {
+          name: normalizedName,
+          colorToken: labelDraftColor,
+        },
+      ],
+    }));
+    setLabelDraftName("");
+  };
+
+  const syncViewLabels = async (viewId: string, labels: LabelDraft[]) => {
+    const existing = await listViewLabels(viewId);
+    const desired = labels.map((label, index) => ({
+      id: label.id,
+      name: label.name.trim(),
+      colorToken: label.colorToken,
+      sortOrder: index,
+    }));
+
+    const desiredIdSet = new Set(desired.map((label) => label.id).filter((id): id is string => Boolean(id)));
+    for (const existingLabel of existing) {
+      if (!desiredIdSet.has(existingLabel.id)) {
+        await deleteViewLabel(viewId, existingLabel.id);
+      }
+    }
+
+    for (const label of desired) {
+      const payload = {
+        name: label.name,
+        colorToken: label.colorToken,
+        sortOrder: label.sortOrder,
+      };
+      if (label.id) {
+        await updateViewLabel(viewId, label.id, payload);
+      } else {
+        await createViewLabel(viewId, payload);
+      }
+    }
+
+    const refreshed = await listViewLabels(viewId);
+    setViewLabelsByViewId((previous) => ({
+      ...previous,
+      [viewId]: refreshed,
+    }));
   };
 
   const handleSave = async () => {
@@ -308,6 +459,7 @@ export function ViewsHubPage() {
         dialogMode === "edit" && editingViewId
           ? await updateView(editingViewId, payload)
           : await createView(payload);
+      await syncViewLabels(savedView.id, form.labels);
 
       setBanner(
         dialogMode === "edit"
@@ -344,6 +496,11 @@ export function ViewsHubPage() {
       await deleteView(viewId);
       setBanner("View deleted");
       await refreshViews();
+      setViewLabelsByViewId((previous) => {
+        const next = { ...previous };
+        delete next[viewId];
+        return next;
+      });
       if (selectedViewId === viewId) {
         setSelectedViewId(null);
       }
@@ -440,7 +597,7 @@ export function ViewsHubPage() {
                   <Button
                     onClick={(event) => {
                       event.stopPropagation();
-                      openEditDialog(view);
+                      void openEditDialog(view);
                     }}
                     size="sm"
                     variant="outline"
@@ -451,7 +608,7 @@ export function ViewsHubPage() {
                   <Button
                     onClick={(event) => {
                       event.stopPropagation();
-                      openDuplicateDialog(view);
+                      void openDuplicateDialog(view);
                     }}
                     size="sm"
                     variant="outline"
@@ -532,14 +689,32 @@ export function ViewsHubPage() {
 
                 <Separator />
 
-                <p className="text-xs text-muted-foreground">
-                  Highlight rules UI is coming in MP-PT08. Current count: 0 configurable in this hub.
-                </p>
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground">View Labels</p>
+                  {isLoadingSelectedViewLabels ? (
+                    <p className="text-xs text-muted-foreground">Loading labels...</p>
+                  ) : selectedViewLabels.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">No labels configured for this view.</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5">
+                      {selectedViewLabels.map((label) => {
+                        const accent = getAccentClasses(label.colorToken);
+                        return (
+                          <Badge className={cn("border text-[10px]", accent.badge)} key={label.id} variant="outline">
+                            {label.name}
+                          </Badge>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </>
             )}
           </CardContent>
         </Card>
       </div>
+
+      <SenderHighlightsManager />
 
       <Dialog onOpenChange={setDialogOpen} open={dialogOpen}>
         <DialogContent className="max-w-3xl">
@@ -688,11 +863,119 @@ export function ViewsHubPage() {
             />
           </div>
 
+          <div className="space-y-3 rounded-lg border border-border bg-background p-3">
+            <div className="space-y-1">
+              <p className="text-xs font-medium text-muted-foreground">View Labels</p>
+              <p className="text-xs text-muted-foreground">
+                Labels are scoped to this view and can be assigned per message.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Input
+                className="min-w-[200px] flex-1"
+                maxLength={30}
+                onChange={(event) => setLabelDraftName(event.target.value)}
+                placeholder="Label name (e.g. Boss)"
+                value={labelDraftName}
+              />
+              <select
+                className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                onChange={(event) => setLabelDraftColor(event.target.value as AccentToken)}
+                value={labelDraftColor}
+              >
+                {ACCENT_TOKENS.map((accentToken) => (
+                  <option key={accentToken} value={accentToken}>
+                    {accentToken}
+                  </option>
+                ))}
+              </select>
+              <Button onClick={addLabelDraft} size="sm" type="button" variant="outline">
+                Add label
+              </Button>
+            </div>
+
+            {form.labels.length > 0 ? (
+              <div className="space-y-2">
+                {form.labels.map((label, index) => {
+                  const accent = getAccentClasses(label.colorToken);
+                  return (
+                    <div
+                      className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-card px-2 py-2"
+                      key={`${label.id ?? "new"}-${index}`}
+                    >
+                      <Input
+                        className="min-w-[180px] flex-1"
+                        maxLength={30}
+                        onChange={(event) =>
+                          setForm((previous) => ({
+                            ...previous,
+                            labels: previous.labels.map((candidate, candidateIndex) =>
+                              candidateIndex === index
+                                ? {
+                                    ...candidate,
+                                    name: event.target.value,
+                                  }
+                                : candidate,
+                            ),
+                          }))
+                        }
+                        value={label.name}
+                      />
+                      <select
+                        className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                        onChange={(event) =>
+                          setForm((previous) => ({
+                            ...previous,
+                            labels: previous.labels.map((candidate, candidateIndex) =>
+                              candidateIndex === index
+                                ? {
+                                    ...candidate,
+                                    colorToken: event.target.value as AccentToken,
+                                  }
+                                : candidate,
+                            ),
+                          }))
+                        }
+                        value={label.colorToken}
+                      >
+                        {ACCENT_TOKENS.map((accentToken) => (
+                          <option key={accentToken} value={accentToken}>
+                            {accentToken}
+                          </option>
+                        ))}
+                      </select>
+                      <Badge className={cn("border text-[10px]", accent.badge)} variant="outline">
+                        Preview
+                      </Badge>
+                      <Button
+                        onClick={() =>
+                          setForm((previous) => ({
+                            ...previous,
+                            labels: previous.labels.filter((_, candidateIndex) => candidateIndex !== index),
+                          }))
+                        }
+                        size="sm"
+                        type="button"
+                        variant="outline"
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">No labels configured yet.</p>
+            )}
+          </div>
+
           {(formErrors.senderDomains || formErrors.senderEmails || formErrors.keywords) && (
             <p className="text-xs text-destructive">
               {formErrors.senderDomains ?? formErrors.senderEmails ?? formErrors.keywords}
             </p>
           )}
+          {formErrors.labels && <p className="text-xs text-destructive">{formErrors.labels}</p>}
 
           <label className="flex items-center gap-2 text-sm">
             <input

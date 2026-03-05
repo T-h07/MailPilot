@@ -1,21 +1,36 @@
 import { forwardRef, useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { accountPillClasses, formatLongDate } from "@/features/mailbox/utils/format";
-import type { MailMessage } from "@/features/mailbox/model/types";
+import type { MailMessage, ViewLabelChip as MailViewLabelChip } from "@/features/mailbox/model/types";
 import { getAccentClasses } from "@/features/mailbox/utils/accent";
 import { MailActions } from "@/features/mailbox/components/MailActions";
 import { EmailHtmlViewer } from "@/features/mailbox/components/EmailHtmlViewer";
 import { AttachmentList } from "@/features/mailbox/components/AttachmentList";
 import { ThreadList } from "@/features/mailbox/components/ThreadList";
 import { cn } from "@/lib/utils";
+import type { ViewLabelRecord } from "@/lib/api/views";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { MessageFollowup } from "@/features/mailbox/model/types";
 
 type PreviewPanelProps = {
+  isViewContext?: boolean;
+  availableViewLabels?: ViewLabelRecord[];
+  selectedViewLabels?: MailViewLabelChip[];
+  selectedViewLabelIds?: string[];
+  onSaveViewLabels?: (labelIds: string[]) => void;
+  isLoadingViewLabels?: boolean;
+  isSavingViewLabels?: boolean;
   selectedMessage: MailMessage | null;
   bodyViewMode: "collapsed" | "inline" | "modal";
   onCollapseBody: () => void;
@@ -65,6 +80,13 @@ export const PreviewPanel = forwardRef<HTMLDivElement, PreviewPanelProps>(
   function PreviewPanel(
     {
       selectedMessage,
+      isViewContext = false,
+      availableViewLabels = [],
+      selectedViewLabels = [],
+      selectedViewLabelIds = [],
+      onSaveViewLabels,
+      isLoadingViewLabels = false,
+      isSavingViewLabels = false,
       bodyViewMode,
       onCollapseBody,
       onSelectThreadMessage,
@@ -96,11 +118,18 @@ export const PreviewPanel = forwardRef<HTMLDivElement, PreviewPanelProps>(
   ) {
     const [inlineZoom, setInlineZoom] = useState<number>(90);
     const [modalZoom, setModalZoom] = useState<number>(90);
+    const [viewLabelsDialogOpen, setViewLabelsDialogOpen] = useState(false);
+    const [pendingViewLabelIds, setPendingViewLabelIds] = useState<string[]>([]);
 
     useEffect(() => {
       setInlineZoom(90);
       setModalZoom(90);
+      setViewLabelsDialogOpen(false);
     }, [selectedMessage?.id]);
+
+    useEffect(() => {
+      setPendingViewLabelIds(selectedViewLabelIds);
+    }, [selectedViewLabelIds]);
 
     if (!selectedMessage) {
       return (
@@ -244,6 +273,53 @@ export const PreviewPanel = forwardRef<HTMLDivElement, PreviewPanelProps>(
                     </Button>
                   </div>
                 </div>
+                {isViewContext && (
+                  <div className="rounded-lg border border-border bg-background p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        View Labels
+                      </p>
+                      <Button
+                        disabled={isLoadingViewLabels || availableViewLabels.length === 0}
+                        onClick={() => {
+                          setPendingViewLabelIds(selectedViewLabelIds);
+                          setViewLabelsDialogOpen(true);
+                        }}
+                        size="sm"
+                        variant="outline"
+                      >
+                        Edit labels
+                      </Button>
+                    </div>
+                    {isLoadingViewLabels ? (
+                      <p className="pt-2 text-xs text-muted-foreground">Loading assigned labels...</p>
+                    ) : selectedViewLabels.length > 0 ? (
+                      <div className="flex flex-wrap gap-1.5 pt-2">
+                        {selectedViewLabels.map((label) => {
+                          const accent = getAccentClasses(label.colorToken);
+                          return (
+                            <Badge
+                              className={cn("border text-[10px]", accent.badge)}
+                              key={label.id}
+                              variant="outline"
+                            >
+                              {label.name}
+                            </Badge>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="pt-2 text-xs text-muted-foreground">
+                        No view labels assigned to this message.
+                      </p>
+                    )}
+                    {availableViewLabels.length === 0 && (
+                      <p className="pt-2 text-xs text-muted-foreground">
+                        Create labels in Manage Views first.
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
               <MailActions
                 isUnread={selectedMessage.isUnread}
@@ -442,6 +518,78 @@ export const PreviewPanel = forwardRef<HTMLDivElement, PreviewPanelProps>(
                   </div>
                 )}
               </div>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog
+            onOpenChange={setViewLabelsDialogOpen}
+            open={isViewContext && viewLabelsDialogOpen}
+          >
+            <DialogContent className="max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Edit View Labels</DialogTitle>
+                <DialogDescription>
+                  Select labels to attach to this message for the current view.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="max-h-[50vh] space-y-2 overflow-y-auto pr-1">
+                {availableViewLabels.length === 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    No labels available for this view yet.
+                  </p>
+                )}
+                {availableViewLabels.map((label) => {
+                  const accent = getAccentClasses(label.colorToken);
+                  const checked = pendingViewLabelIds.includes(label.id);
+                  return (
+                    <label
+                      className="flex cursor-pointer items-center justify-between gap-3 rounded-md border border-border bg-background px-3 py-2"
+                      key={label.id}
+                    >
+                      <span className="flex items-center gap-2">
+                        <input
+                          checked={checked}
+                          onChange={(event) => {
+                            const nextChecked = event.target.checked;
+                            setPendingViewLabelIds((previous) => {
+                              if (nextChecked) {
+                                return previous.includes(label.id) ? previous : [...previous, label.id];
+                              }
+                              return previous.filter((id) => id !== label.id);
+                            });
+                          }}
+                          type="checkbox"
+                        />
+                        <span className="text-sm">{label.name}</span>
+                      </span>
+                      <Badge className={cn("border text-[10px]", accent.badge)} variant="outline">
+                        {label.colorToken}
+                      </Badge>
+                    </label>
+                  );
+                })}
+              </div>
+              <DialogFooter>
+                <Button
+                  onClick={() => {
+                    setViewLabelsDialogOpen(false);
+                  }}
+                  type="button"
+                  variant="outline"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  disabled={isSavingViewLabels}
+                  onClick={() => {
+                    onSaveViewLabels?.(pendingViewLabelIds);
+                    setViewLabelsDialogOpen(false);
+                  }}
+                  type="button"
+                >
+                  {isSavingViewLabels ? "Saving..." : "Save labels"}
+                </Button>
+              </DialogFooter>
             </DialogContent>
           </Dialog>
 

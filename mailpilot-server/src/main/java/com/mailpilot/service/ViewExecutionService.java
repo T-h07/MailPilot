@@ -5,6 +5,8 @@ import com.mailpilot.api.model.MailboxQueryRequest;
 import com.mailpilot.api.model.MailboxQueryResponse;
 import com.mailpilot.api.model.ViewMailboxQueryRequest;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -12,10 +14,16 @@ public class ViewExecutionService {
 
   private final ViewService viewService;
   private final MailboxQueryService mailboxQueryService;
+  private final ViewLabelService viewLabelService;
 
-  public ViewExecutionService(ViewService viewService, MailboxQueryService mailboxQueryService) {
+  public ViewExecutionService(
+    ViewService viewService,
+    MailboxQueryService mailboxQueryService,
+    ViewLabelService viewLabelService
+  ) {
     this.viewService = viewService;
     this.mailboxQueryService = mailboxQueryService;
+    this.viewLabelService = viewLabelService;
   }
 
   public MailboxQueryResponse queryView(ViewMailboxQueryRequest request) {
@@ -54,6 +62,37 @@ public class ViewExecutionService {
       request.cursor()
     );
 
-    return mailboxQueryService.query(mailboxQueryRequest);
+    MailboxQueryResponse baseResponse = mailboxQueryService.query(mailboxQueryRequest);
+    if (baseResponse.items().isEmpty()) {
+      return baseResponse;
+    }
+
+    List<UUID> messageIds = baseResponse.items().stream().map(MailboxQueryResponse.Item::id).toList();
+    Map<UUID, List<MailboxQueryResponse.ViewLabel>> labelsByMessageId = viewLabelService
+      .loadViewLabelsByMessageIds(view.id(), messageIds);
+
+    List<MailboxQueryResponse.Item> itemsWithViewLabels = baseResponse.items().stream()
+      .map(item ->
+        new MailboxQueryResponse.Item(
+          item.id(),
+          item.accountId(),
+          item.accountEmail(),
+          item.senderName(),
+          item.senderEmail(),
+          item.senderDomain(),
+          item.subject(),
+          item.snippet(),
+          item.receivedAt(),
+          item.isUnread(),
+          item.hasAttachments(),
+          item.chips(),
+          item.tags(),
+          item.highlight(),
+          labelsByMessageId.getOrDefault(item.id(), List.of())
+        )
+      )
+      .toList();
+
+    return new MailboxQueryResponse(itemsWithViewLabels, baseResponse.nextCursor());
   }
 }

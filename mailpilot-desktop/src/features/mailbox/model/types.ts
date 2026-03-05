@@ -25,6 +25,12 @@ export type MailFlags = {
   snoozed: boolean;
 };
 
+export type ViewLabelChip = {
+  id: string;
+  name: string;
+  colorToken: string;
+};
+
 export type MessageFollowup = {
   status: "OPEN" | "DONE";
   needsReply: boolean;
@@ -57,6 +63,7 @@ export type MailMessage = {
   isUnread: boolean;
   flags: MailFlags;
   tags: string[];
+  viewLabels: ViewLabelChip[];
   hasAttachments: boolean;
   attachments: MailAttachment[];
   threadId: string | null;

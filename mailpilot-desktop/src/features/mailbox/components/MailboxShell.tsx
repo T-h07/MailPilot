@@ -9,6 +9,7 @@ import type {
   MailMessage,
   QuickFilterKey,
   ThreadMessageSummary,
+  ViewLabelChip as MailViewLabelChip,
 } from "@/features/mailbox/model/types";
 import { CommandBar } from "@/features/mailbox/components/CommandBar";
 import { MailList } from "@/features/mailbox/components/MailList";
@@ -31,7 +32,13 @@ import {
 import { runFollowupAction, updateFollowup, type FollowupState } from "@/lib/api/followups";
 import { emitFollowupUpdated } from "@/lib/events/followups";
 import { useLiveEvents } from "@/lib/events/live-events-context";
-import type { ViewRecord } from "@/lib/api/views";
+import {
+  listMessageViewLabels,
+  listViewLabels,
+  replaceMessageViewLabels,
+  type ViewLabelRecord,
+  type ViewRecord,
+} from "@/lib/api/views";
 import { ApiClientError } from "@/lib/api/client";
 import { saveBinaryWithDialog } from "@/lib/files/save-binary";
 import { Badge } from "@/components/ui/badge";
@@ -164,6 +171,7 @@ function toSummaryMessage(item: MailboxListItem): MailMessage {
     isUnread: item.isUnread,
     flags: inferredFlags,
     tags: item.tags,
+    viewLabels: item.viewLabels ?? [],
     hasAttachments: item.hasAttachments,
     attachments: [],
     threadId: null,
@@ -255,6 +263,7 @@ function buildPreviewMessage(
     threadId: detail.threadId ?? summary.threadId,
     threadMessages: detail.thread.messages.map((threadMessage) => toThreadSummary(threadMessage)),
     tags: detail.tags,
+    viewLabels: summary.viewLabels,
     flags: followupToFlags(detail.followup),
     followup: toMessageFollowup(detail.followup),
     highlight: detail.highlight,
@@ -322,6 +331,14 @@ function summarizeViewRules(view: ViewRecord | null): string[] {
     chips.push("UnreadOnly");
   }
   return chips;
+}
+
+function toLabelChips(records: ViewLabelRecord[]): MailViewLabelChip[] {
+  return records.map((record) => ({
+    id: record.id,
+    name: record.name,
+    colorToken: record.colorToken,
+  }));
 }
 
 function sanitizeFilename(value: string | null | undefined, fallback: string): string {
@@ -425,6 +442,8 @@ export function MailboxShell({
   const hideNoticeTimeoutRef = useRef<number | null>(null);
   const listAbortRef = useRef<AbortController | null>(null);
   const detailAbortRef = useRef<AbortController | null>(null);
+  const viewLabelsAbortRef = useRef<AbortController | null>(null);
+  const messageViewLabelsAbortRef = useRef<AbortController | null>(null);
   const detailRequestSequenceRef = useRef(0);
   const openedMailboxKeyRef = useRef<string | null>(null);
   const previousMailboxQueryKeyRef = useRef<string | null>(null);
@@ -461,6 +480,10 @@ export function MailboxShell({
   const [isUpdatingFollowup, setIsUpdatingFollowup] = useState(false);
   const [activeAttachmentDownloadId, setActiveAttachmentDownloadId] = useState<string | null>(null);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const [viewLabelOptions, setViewLabelOptions] = useState<ViewLabelRecord[]>([]);
+  const [selectedViewLabels, setSelectedViewLabels] = useState<MailViewLabelChip[]>([]);
+  const [isLoadingViewLabels, setIsLoadingViewLabels] = useState(false);
+  const [isSavingViewLabels, setIsSavingViewLabels] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeDraft, setComposeDraft] = useState<ComposeDraft>({
     mode: "NEW",
@@ -506,6 +529,11 @@ export function MailboxShell({
     ],
   );
   const hideScope = hideAccountScope || context === "view";
+  const isViewContext = context === "view" && Boolean(view);
+  const selectedViewLabelIds = useMemo(
+    () => selectedViewLabels.map((label) => label.id),
+    [selectedViewLabels],
+  );
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -559,6 +587,8 @@ export function MailboxShell({
     return () => {
       listAbortRef.current?.abort();
       detailAbortRef.current?.abort();
+      viewLabelsAbortRef.current?.abort();
+      messageViewLabelsAbortRef.current?.abort();
       if (hideNoticeTimeoutRef.current !== null) {
         window.clearTimeout(hideNoticeTimeoutRef.current);
       }
@@ -593,6 +623,30 @@ export function MailboxShell({
     });
     return () => controller.abort();
   }, [loadAccountRecords]);
+
+  useEffect(() => {
+    viewLabelsAbortRef.current?.abort();
+    if (!isViewContext || !view?.id) {
+      setViewLabelOptions([]);
+      return;
+    }
+
+    const controller = new AbortController();
+    viewLabelsAbortRef.current = controller;
+
+    void listViewLabels(view.id, controller.signal)
+      .then((labels) => {
+        setViewLabelOptions(labels);
+      })
+      .catch((error) => {
+        const message = toErrorMessage(error);
+        if (message) {
+          showNotice(`Failed to load view labels: ${message}`);
+        }
+      });
+
+    return () => controller.abort();
+  }, [isViewContext, showNotice, view?.id]);
 
   const applyFetchedDetail = useCallback((detail: MessageDetailResponse) => {
     setSelectedMessageDetail((current) => {
@@ -798,6 +852,7 @@ export function MailboxShell({
     if (queryChanged) {
       setSelectedMessageId(null);
       setSelectedMessageDetail(null);
+      setSelectedViewLabels([]);
       setBodyViewMode("collapsed");
       setDetailError(null);
     }
@@ -851,6 +906,7 @@ export function MailboxShell({
     if (messages.length === 0) {
       setSelectedMessageId(null);
       setSelectedMessageDetail(null);
+      setSelectedViewLabels([]);
       setBodyViewMode("collapsed");
       return;
     }
@@ -865,11 +921,14 @@ export function MailboxShell({
   useEffect(() => {
     if (!selectedMessageId) {
       detailAbortRef.current?.abort();
+      messageViewLabelsAbortRef.current?.abort();
       detailRequestSequenceRef.current += 1;
       setSelectedMessageDetail(null);
+      setSelectedViewLabels([]);
       setBodyViewMode("collapsed");
       setDetailError(null);
       setIsLoadingDetail(false);
+      setIsLoadingViewLabels(false);
       setIsRefreshingMessage(false);
       return;
     }
@@ -881,6 +940,61 @@ export function MailboxShell({
     () => messages.find((message) => message.id === selectedMessageId) ?? null,
     [messages, selectedMessageId],
   );
+
+  useEffect(() => {
+    if (!isViewContext || !selectedSummary) {
+      setSelectedViewLabels([]);
+      return;
+    }
+    setSelectedViewLabels(selectedSummary.viewLabels);
+  }, [isViewContext, selectedSummary]);
+
+  useEffect(() => {
+    messageViewLabelsAbortRef.current?.abort();
+    if (!isViewContext || !view?.id || !selectedMessageId) {
+      setIsLoadingViewLabels(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    messageViewLabelsAbortRef.current = controller;
+    setIsLoadingViewLabels(true);
+
+    void listMessageViewLabels(view.id, selectedMessageId, controller.signal)
+      .then((labels) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+        const nextLabels = toLabelChips(labels);
+        setSelectedViewLabels(nextLabels);
+        setMessages((previous) =>
+          previous.map((message) =>
+            message.id === selectedMessageId
+              ? {
+                  ...message,
+                  viewLabels: nextLabels,
+                }
+              : message,
+          ),
+        );
+      })
+      .catch((error) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+        const message = toErrorMessage(error);
+        if (message) {
+          showNotice(`Failed to load assigned labels: ${message}`);
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setIsLoadingViewLabels(false);
+        }
+      });
+
+    return () => controller.abort();
+  }, [isViewContext, selectedMessageId, showNotice, view?.id]);
 
   const selectedMessage = useMemo(() => {
     if (!selectedSummary) {
@@ -1108,6 +1222,43 @@ export function MailboxShell({
       showNotice(toErrorMessage(error) || "Failed to open Gmail");
     }
   }, [selectedMessage, showNotice]);
+
+  const handleSaveViewLabels = useCallback(
+    async (nextLabelIds: string[]) => {
+      if (!isViewContext || !view?.id || !selectedMessageId) {
+        return;
+      }
+
+      const labelById = new Map(viewLabelOptions.map((label) => [label.id, label]));
+      const normalizedIds = Array.from(new Set(nextLabelIds.filter((labelId) => labelById.has(labelId))));
+      const nextLabels = normalizedIds
+        .map((labelId) => labelById.get(labelId))
+        .filter((label): label is ViewLabelRecord => Boolean(label));
+      const nextChips = toLabelChips(nextLabels);
+
+      setIsSavingViewLabels(true);
+      try {
+        await replaceMessageViewLabels(view.id, selectedMessageId, normalizedIds);
+        setSelectedViewLabels(nextChips);
+        setMessages((previous) =>
+          previous.map((message) =>
+            message.id === selectedMessageId
+              ? {
+                  ...message,
+                  viewLabels: nextChips,
+                }
+              : message,
+          ),
+        );
+        showNotice("View labels updated");
+      } catch (error) {
+        showNotice(toErrorMessage(error) || "Failed to save view labels");
+      } finally {
+        setIsSavingViewLabels(false);
+      }
+    },
+    [isViewContext, selectedMessageId, showNotice, view?.id, viewLabelOptions],
+  );
 
   const handleDownloadAttachment = useCallback(
     async (attachmentId: string, attachmentFilename: string) => {
@@ -1592,6 +1743,15 @@ export function MailboxShell({
         </div>
 
         <PreviewPanel
+          isViewContext={isViewContext}
+          availableViewLabels={viewLabelOptions}
+          selectedViewLabels={selectedViewLabels}
+          selectedViewLabelIds={selectedViewLabelIds}
+          onSaveViewLabels={(labelIds) => {
+            void handleSaveViewLabels(labelIds);
+          }}
+          isLoadingViewLabels={isLoadingViewLabels}
+          isSavingViewLabels={isSavingViewLabels}
           bodyViewMode={bodyViewMode}
           onCollapseBody={handleCollapseBody}
           isLoading={isLoadingDetail}
