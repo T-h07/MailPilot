@@ -13,6 +13,7 @@ import {
   BarChart3,
   ChevronDown,
   Cog,
+  Gauge,
   LayoutDashboard,
   Mailbox,
   Menu,
@@ -21,6 +22,7 @@ import {
   Target,
 } from "lucide-react";
 import { InboxPage } from "@/pages/inbox-page";
+import { DashboardPage } from "@/pages/dashboard-page";
 import { SentPage } from "@/pages/sent-page";
 import { FocusPage } from "@/pages/focus-page";
 import { FocusDrillPage } from "@/pages/focus-drill-page";
@@ -92,6 +94,7 @@ type AppToast = {
 };
 
 const navItems: SidebarLink[] = [
+  { label: "Dashboard", to: "/dashboard", icon: Gauge },
   { label: "Inbox", to: "/inbox", icon: Mailbox },
   { label: "Sent", to: "/sent", icon: Send },
   { label: "Focus", to: "/focus", icon: Target },
@@ -138,6 +141,8 @@ function resolveHeaderTitle(pathname: string, views: ViewRecord[]): string {
   }
 
   switch (pathname) {
+    case "/dashboard":
+      return "Dashboard";
     case "/focus":
       return "Focus";
     case "/sent":
@@ -167,6 +172,9 @@ function isSidebarRouteActive(pathname: string, to: string): boolean {
   }
   if (to === "/inbox") {
     return pathname === "/inbox";
+  }
+  if (to === "/dashboard") {
+    return pathname === "/dashboard";
   }
   if (to === "/sent") {
     return pathname === "/sent";
@@ -555,6 +563,7 @@ function App() {
         <Routes>
           <Route element={<AppShell />} path="/">
             <Route element={<Navigate replace to="/inbox" />} index />
+            <Route element={<DashboardPage />} path="dashboard" />
             <Route element={<InboxPage />} path="inbox" />
             <Route element={<SentPage />} path="sent" />
             <Route element={<FocusPage />} path="focus" />
