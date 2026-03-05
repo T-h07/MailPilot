@@ -1,16 +1,17 @@
-import { forwardRef } from "react";
+import { forwardRef, useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { accountPillClasses, formatLongDate } from "@/features/mailbox/utils/format";
 import type { MailMessage } from "@/features/mailbox/model/types";
 import { getAccentClasses } from "@/features/mailbox/utils/accent";
 import { MailActions } from "@/features/mailbox/components/MailActions";
-import { EmailHtmlView } from "@/features/mailbox/components/EmailHtmlView";
+import { EmailHtmlViewer } from "@/features/mailbox/components/EmailHtmlViewer";
 import { AttachmentList } from "@/features/mailbox/components/AttachmentList";
 import { ThreadList } from "@/features/mailbox/components/ThreadList";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { MessageFollowup } from "@/features/mailbox/model/types";
 
@@ -53,6 +54,8 @@ function formatFollowupLine(followup: MessageFollowup): string {
   return parts.join(" • ");
 }
 
+const HTML_ZOOM_LEVELS = [80, 90, 100, 110, 125] as const;
+
 export const PreviewPanel = forwardRef<HTMLDivElement, PreviewPanelProps>(
   function PreviewPanel(
     {
@@ -81,6 +84,16 @@ export const PreviewPanel = forwardRef<HTMLDivElement, PreviewPanelProps>(
     },
     ref,
   ) {
+    const [inlineZoom, setInlineZoom] = useState<number>(90);
+    const [modalZoom, setModalZoom] = useState<number>(90);
+    const [fullBodyOpen, setFullBodyOpen] = useState(false);
+
+    useEffect(() => {
+      setInlineZoom(90);
+      setModalZoom(90);
+      setFullBodyOpen(false);
+    }, [selectedMessage?.id]);
+
     if (!selectedMessage) {
       return (
         <div className="mailbox-empty-state flex h-full items-center justify-center p-8 text-center">
@@ -102,9 +115,6 @@ export const PreviewPanel = forwardRef<HTMLDivElement, PreviewPanelProps>(
       : null;
     const hasCachedBody = selectedMessage.bodyCache !== null;
     const isHtmlBody = selectedMessage.bodyMime?.toLowerCase().startsWith("text/html") ?? false;
-    const isDark = typeof window !== "undefined"
-      ? window.document.documentElement.classList.contains("dark")
-      : false;
     const bodyText = selectedMessage.bodyCache ?? "";
 
     return (
@@ -240,31 +250,144 @@ export const PreviewPanel = forwardRef<HTMLDivElement, PreviewPanelProps>(
             <CardContent className="space-y-3 min-h-0">
               {hasCachedBody ? (
                 isHtmlBody ? (
-                  <div className="flex h-[65vh] min-h-0 flex-1 overflow-hidden rounded-lg border border-border bg-background">
-                    <EmailHtmlView html={bodyText} isDark={isDark} />
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground">Zoom</span>
+                        <select
+                          className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+                          onChange={(event) => setInlineZoom(Number(event.target.value))}
+                          value={inlineZoom}
+                        >
+                          {HTML_ZOOM_LEVELS.map((zoomLevel) => (
+                            <option key={`inline-zoom-${zoomLevel}`} value={zoomLevel}>
+                              {zoomLevel}%
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <Button onClick={() => setFullBodyOpen(true)} size="sm" variant="outline">
+                        View full body
+                      </Button>
+                    </div>
+                    <div className="flex h-[65vh] min-h-0 flex-1 overflow-hidden rounded-lg border border-border bg-background">
+                      <EmailHtmlViewer html={bodyText} zoomPercent={inlineZoom} />
+                    </div>
                   </div>
                 ) : (
-                  <div className="rounded-lg border border-border bg-background p-3 text-sm leading-relaxed whitespace-pre-wrap">
-                    {bodyText}
+                  <div className="space-y-2">
+                    <div className="flex justify-end">
+                      <Button onClick={() => setFullBodyOpen(true)} size="sm" variant="outline">
+                        View full body
+                      </Button>
+                    </div>
+                    <div className="rounded-lg border border-border bg-background p-3 text-sm leading-relaxed whitespace-pre-wrap">
+                      {bodyText}
+                    </div>
                   </div>
                 )
               ) : (
                 <div className="space-y-3 rounded-lg border border-border bg-background p-3">
                   <p className="text-sm text-muted-foreground">{selectedMessage.snippet}</p>
-                  <Button
-                    className="gap-2"
-                    disabled={isLoadingBody}
-                    onClick={onLoadFullBody}
-                    size="sm"
-                    variant="outline"
-                  >
-                    {isLoadingBody && <Loader2 className="h-4 w-4 animate-spin" />}
-                    {isLoadingBody ? "Loading..." : "Load full body"}
-                  </Button>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      className="gap-2"
+                      disabled={isLoadingBody}
+                      onClick={onLoadFullBody}
+                      size="sm"
+                      variant="outline"
+                    >
+                      {isLoadingBody && <Loader2 className="h-4 w-4 animate-spin" />}
+                      {isLoadingBody ? "Loading..." : "Load full body"}
+                    </Button>
+                    <Button onClick={() => setFullBodyOpen(true)} size="sm" variant="outline">
+                      View full body
+                    </Button>
+                  </div>
                 </div>
               )}
             </CardContent>
           </Card>
+
+          <Dialog onOpenChange={setFullBodyOpen} open={fullBodyOpen}>
+            <DialogContent className="flex h-[90vh] w-[90vw] max-w-none flex-col gap-0 overflow-hidden p-0">
+              <DialogHeader className="border-b border-border px-4 py-3">
+                <DialogTitle className="pr-8 text-base">{selectedMessage.subject}</DialogTitle>
+                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                  <span>From {selectedMessage.senderName} &lt;{selectedMessage.senderEmail}&gt;</span>
+                  <span>•</span>
+                  <span>{formatLongDate(selectedMessage.receivedAt)}</span>
+                </div>
+                <Badge
+                  className={cn(
+                    "w-fit border text-[10px]",
+                    accountPillClasses(selectedMessage.accountColorToken),
+                  )}
+                >
+                  {selectedMessage.accountLabel}
+                </Badge>
+              </DialogHeader>
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">Zoom</span>
+                  <select
+                    className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+                    disabled={!hasCachedBody || !isHtmlBody}
+                    onChange={(event) => setModalZoom(Number(event.target.value))}
+                    value={modalZoom}
+                  >
+                    {HTML_ZOOM_LEVELS.map((zoomLevel) => (
+                      <option key={`modal-zoom-${zoomLevel}`} value={zoomLevel}>
+                        {zoomLevel}%
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button onClick={onOpenInGmail} size="sm" variant="outline">
+                    Open in Gmail
+                  </Button>
+                  {!hasCachedBody && (
+                    <Button
+                      className="gap-2"
+                      disabled={isLoadingBody}
+                      onClick={onLoadFullBody}
+                      size="sm"
+                      variant="outline"
+                    >
+                      {isLoadingBody && <Loader2 className="h-4 w-4 animate-spin" />}
+                      {isLoadingBody ? "Loading..." : "Load full body"}
+                    </Button>
+                  )}
+                  <Button onClick={() => setFullBodyOpen(false)} size="sm" variant="secondary">
+                    Close
+                  </Button>
+                </div>
+              </div>
+              <div className="flex-1 min-h-0 p-4">
+                {hasCachedBody ? (
+                  isHtmlBody ? (
+                    <div className="h-full overflow-hidden rounded-lg border border-border bg-background">
+                      <EmailHtmlViewer html={bodyText} zoomPercent={modalZoom} />
+                    </div>
+                  ) : (
+                    <ScrollArea className="h-full rounded-lg border border-border bg-background p-3">
+                      <div className="text-sm leading-relaxed whitespace-pre-wrap">{bodyText}</div>
+                    </ScrollArea>
+                  )
+                ) : (
+                  <div className="mailbox-empty-state flex h-full items-center justify-center p-8 text-center">
+                    <div>
+                      <p className="text-sm font-medium">Full body is not loaded yet.</p>
+                      <p className="pt-1 text-xs text-muted-foreground">
+                        Load full body to render this message in the large viewer.
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </DialogContent>
+          </Dialog>
 
           <AttachmentList
             attachments={selectedMessage.attachments}
