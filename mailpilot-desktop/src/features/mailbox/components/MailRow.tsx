@@ -130,51 +130,53 @@ function MailRowComponent({ message, isSelected, onSelect, searchQuery }: MailRo
                 {message.highlight.label}
               </Badge>
             )}
+            {visibleFollowupChips.map((chip) => (
+              <Badge
+                className={cn("shrink-0 text-[10px]", chip.className)}
+                key={`${message.id}-${chip.key}`}
+                variant={chip.variant}
+              >
+                {chip.label}
+              </Badge>
+            ))}
+            {overflowFollowupChipCount > 0 && (
+              <Badge className="shrink-0 text-[10px]" variant="outline">
+                +{overflowFollowupChipCount}
+              </Badge>
+            )}
+            {visibleViewLabels.map((label) => {
+              const accent = getAccentClasses(label.colorToken);
+              return (
+                <Badge
+                  className={cn("shrink-0 border text-[10px]", accent.badge)}
+                  key={`${message.id}-view-label-${label.id}`}
+                  variant="outline"
+                >
+                  {label.name}
+                </Badge>
+              );
+            })}
+            {overflowViewLabelCount > 0 && (
+              <Badge className="shrink-0 text-[10px]" variant="outline">
+                +{overflowViewLabelCount}
+              </Badge>
+            )}
           </div>
         </div>
-        <div className="flex items-center gap-1.5 overflow-hidden whitespace-nowrap">
-          {visibleFollowupChips.map((chip) => (
-            <Badge
-              className={cn("shrink-0 text-[10px]", chip.className)}
-              key={`${message.id}-${chip.key}`}
-              variant={chip.variant}
-            >
-              {chip.label}
-            </Badge>
-          ))}
-          {overflowFollowupChipCount > 0 && (
-            <Badge className="shrink-0 text-[10px]" variant="outline">
-              +{overflowFollowupChipCount}
-            </Badge>
-          )}
-          {visibleViewLabels.map((label) => {
-            const accent = getAccentClasses(label.colorToken);
-            return (
-              <Badge
-                className={cn("shrink-0 border text-[10px]", accent.badge)}
-                key={`${message.id}-view-label-${label.id}`}
-                variant="outline"
-              >
-                {label.name}
+        {(visibleTags.length > 0 || overflowTagCount > 0) && (
+          <div className="flex items-center gap-1.5 overflow-hidden whitespace-nowrap">
+            {visibleTags.map((tag) => (
+              <Badge className="shrink-0 text-[10px]" key={`${message.id}-tag-${tag}`} variant="outline">
+                #{tag}
               </Badge>
-            );
-          })}
-          {overflowViewLabelCount > 0 && (
-            <Badge className="shrink-0 text-[10px]" variant="outline">
-              +{overflowViewLabelCount}
-            </Badge>
-          )}
-          {visibleTags.map((tag) => (
-            <Badge className="shrink-0 text-[10px]" key={`${message.id}-tag-${tag}`} variant="outline">
-              #{tag}
-            </Badge>
-          ))}
-          {overflowTagCount > 0 && (
-            <Badge className="shrink-0 text-[10px]" variant="outline">
-              +{overflowTagCount}
-            </Badge>
-          )}
-        </div>
+            ))}
+            {overflowTagCount > 0 && (
+              <Badge className="shrink-0 text-[10px]" variant="outline">
+                +{overflowTagCount}
+              </Badge>
+            )}
+          </div>
+        )}
       </div>
     </button>
   );
