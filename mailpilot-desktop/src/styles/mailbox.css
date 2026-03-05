@@ -50,6 +50,19 @@
   animation: mailbox-toast-in 180ms ease-out;
 }
 
+.mailbox-chip-scroll {
+  scrollbar-width: thin;
+}
+
+.mailbox-chip-scroll::-webkit-scrollbar {
+  height: 6px;
+}
+
+.mailbox-chip-scroll::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 9999px;
+}
+
 @keyframes mailbox-toast-in {
   from {
     opacity: 0;

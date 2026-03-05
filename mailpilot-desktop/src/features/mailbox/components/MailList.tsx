@@ -11,7 +11,7 @@ type MailListProps = {
   onFocusPreview: () => void;
 };
 
-const ROW_HEIGHT_PX = 124;
+const ROW_HEIGHT_PX = 136;
 
 export function MailList({
   messages,

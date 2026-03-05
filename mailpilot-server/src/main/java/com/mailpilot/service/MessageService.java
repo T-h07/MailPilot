@@ -277,14 +277,14 @@ public class MessageService {
     BodyCollector collector = new BodyCollector(new ArrayList<>(), new ArrayList<>());
     collectBodyParts(payload, collector);
 
-    String plain = joinCollectedParts(collector.plainParts());
-    if (StringUtils.hasText(plain)) {
-      return new CachedBody("text/plain", plain);
-    }
-
     String html = joinCollectedParts(collector.htmlParts());
     if (StringUtils.hasText(html)) {
       return new CachedBody("text/html", html);
+    }
+
+    String plain = joinCollectedParts(collector.plainParts());
+    if (StringUtils.hasText(plain)) {
+      return new CachedBody("text/plain", plain);
     }
 
     if (collector.attachmentOnlyBody()) {

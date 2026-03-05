@@ -4,6 +4,7 @@ import { accountPillClasses, formatLongDate } from "@/features/mailbox/utils/for
 import type { MailMessage } from "@/features/mailbox/model/types";
 import { getAccentClasses } from "@/features/mailbox/utils/accent";
 import { MailActions } from "@/features/mailbox/components/MailActions";
+import { EmailHtmlView } from "@/features/mailbox/components/EmailHtmlView";
 import { AttachmentList } from "@/features/mailbox/components/AttachmentList";
 import { ThreadList } from "@/features/mailbox/components/ThreadList";
 import { cn } from "@/lib/utils";
@@ -50,15 +51,6 @@ function formatFollowupLine(followup: MessageFollowup): string {
     parts.push(`Snoozed until ${formatLongDate(followup.snoozedUntil)}`);
   }
   return parts.join(" • ");
-}
-
-function htmlToPlainText(value: string): string {
-  if (typeof window === "undefined") {
-    return value.replace(/<[^>]+>/g, " ").trim();
-  }
-  const element = window.document.createElement("div");
-  element.innerHTML = value;
-  return (element.textContent ?? "").trim();
 }
 
 export const PreviewPanel = forwardRef<HTMLDivElement, PreviewPanelProps>(
@@ -110,11 +102,10 @@ export const PreviewPanel = forwardRef<HTMLDivElement, PreviewPanelProps>(
       : null;
     const hasCachedBody = selectedMessage.bodyCache !== null;
     const isHtmlBody = selectedMessage.bodyMime?.toLowerCase().startsWith("text/html") ?? false;
-    const resolvedBody = selectedMessage.bodyCache
-      ? isHtmlBody
-        ? htmlToPlainText(selectedMessage.bodyCache)
-        : selectedMessage.bodyCache
-      : "";
+    const isDark = typeof window !== "undefined"
+      ? window.document.documentElement.classList.contains("dark")
+      : false;
+    const bodyText = selectedMessage.bodyCache ?? "";
 
     return (
       <ScrollArea className="mailbox-panel h-full" ref={ref}>
@@ -246,20 +237,17 @@ export const PreviewPanel = forwardRef<HTMLDivElement, PreviewPanelProps>(
                 onToggleRead={onToggleRead}
               />
             </CardHeader>
-            <CardContent className="space-y-3">
+            <CardContent className="space-y-3 min-h-0">
               {hasCachedBody ? (
-                <div className="rounded-lg border border-border bg-background p-3 text-sm leading-relaxed">
-                  {isHtmlBody && (
-                    <p className="pb-2 text-xs text-muted-foreground">
-                      HTML body (rendering simplified)
-                    </p>
-                  )}
-                  {resolvedBody.split("\n").map((line, index) => (
-                    <p className="pt-2 first:pt-0" key={`${selectedMessage.id}-line-${index}`}>
-                      {line}
-                    </p>
-                  ))}
-                </div>
+                isHtmlBody ? (
+                  <div className="flex h-[65vh] min-h-0 flex-1 overflow-hidden rounded-lg border border-border bg-background">
+                    <EmailHtmlView html={bodyText} isDark={isDark} />
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-border bg-background p-3 text-sm leading-relaxed whitespace-pre-wrap">
+                    {bodyText}
+                  </div>
+                )
               ) : (
                 <div className="space-y-3 rounded-lg border border-border bg-background p-3">
                   <p className="text-sm text-muted-foreground">{selectedMessage.snippet}</p>

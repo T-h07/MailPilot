@@ -58,7 +58,7 @@ function MailRowComponent({ message, isSelected, onSelect, searchQuery }: MailRo
   return (
     <button
       className={cn(
-        "relative h-[116px] w-full overflow-hidden rounded-lg border bg-background p-3 text-left transition-colors",
+        "relative h-[126px] w-full overflow-hidden rounded-lg border bg-background p-3 text-left transition-colors",
         isSelected
           ? "border-primary/50 bg-accent ring-1 ring-primary/20 shadow-sm"
           : "border-border hover:bg-accent",
@@ -117,39 +117,45 @@ function MailRowComponent({ message, isSelected, onSelect, searchQuery }: MailRo
           </span>
         ))}
       </p>
-      <div className="flex items-center gap-1.5 overflow-hidden whitespace-nowrap pt-2">
-        <Badge className={cn("shrink-0 border text-[10px]", accountPillClasses(message.accountColorToken))}>
-          {message.accountLabel}
-        </Badge>
-        {message.highlight && (
-          <Badge className={cn("shrink-0 border text-[10px] uppercase", highlightAccent?.badge)} variant="outline">
-            {message.highlight.label}
-          </Badge>
-        )}
-        {visibleFollowupChips.map((chip) => (
-          <Badge
-            className={cn("shrink-0 text-[10px]", chip.className)}
-            key={`${message.id}-${chip.key}`}
-            variant={chip.variant}
-          >
-            {chip.label}
-          </Badge>
-        ))}
-        {overflowFollowupChipCount > 0 && (
-          <Badge className="shrink-0 text-[10px]" variant="outline">
-            +{overflowFollowupChipCount}
-          </Badge>
-        )}
-        {visibleTags.map((tag) => (
-          <Badge className="shrink-0 text-[10px]" key={`${message.id}-tag-${tag}`} variant="outline">
-            #{tag}
-          </Badge>
-        ))}
-        {overflowTagCount > 0 && (
-          <Badge className="shrink-0 text-[10px]" variant="outline">
-            +{overflowTagCount}
-          </Badge>
-        )}
+      <div className="space-y-1 pt-2">
+        <div className="mailbox-chip-scroll overflow-x-auto">
+          <div className="flex min-w-max items-center gap-1.5 pr-1">
+            <Badge className={cn("max-w-none shrink-0 border text-[10px]", accountPillClasses(message.accountColorToken))}>
+              {message.accountLabel}
+            </Badge>
+            {message.highlight && (
+              <Badge className={cn("shrink-0 border text-[10px] uppercase", highlightAccent?.badge)} variant="outline">
+                {message.highlight.label}
+              </Badge>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5 overflow-hidden whitespace-nowrap">
+          {visibleFollowupChips.map((chip) => (
+            <Badge
+              className={cn("shrink-0 text-[10px]", chip.className)}
+              key={`${message.id}-${chip.key}`}
+              variant={chip.variant}
+            >
+              {chip.label}
+            </Badge>
+          ))}
+          {overflowFollowupChipCount > 0 && (
+            <Badge className="shrink-0 text-[10px]" variant="outline">
+              +{overflowFollowupChipCount}
+            </Badge>
+          )}
+          {visibleTags.map((tag) => (
+            <Badge className="shrink-0 text-[10px]" key={`${message.id}-tag-${tag}`} variant="outline">
+              #{tag}
+            </Badge>
+          ))}
+          {overflowTagCount > 0 && (
+            <Badge className="shrink-0 text-[10px]" variant="outline">
+              +{overflowTagCount}
+            </Badge>
+          )}
+        </div>
       </div>
     </button>
   );
