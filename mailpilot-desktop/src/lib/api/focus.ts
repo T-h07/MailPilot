@@ -8,6 +8,18 @@ export type FocusSummary = {
   dueToday: number;
   snoozed: number;
   openTotal: number;
+  wakeupsNext24h: number;
+  byAccount: Array<{
+    accountId: string;
+    email: string;
+    count: number;
+  }>;
+  topSenders: Array<{
+    senderEmail: string;
+    senderName: string;
+    count: number;
+  }>;
+  lastUpdatedAt: string;
 };
 
 export type FocusQueueItem = {
