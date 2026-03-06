@@ -551,7 +551,7 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
       }
 
       const startedAt = Date.now();
-      let status: "PENDING" | "SUCCESS" | "ERROR" | "UNKNOWN" = "PENDING";
+      let status: "PENDING" | "SUCCESS" | "ERROR" | "EXPIRED" | "UNKNOWN" = "PENDING";
       let statusMessage = "Waiting for Google OAuth confirmation...";
       while (Date.now() - startedAt < OAUTH_POLL_TIMEOUT_MS) {
         const poll = await getGmailOAuthStatus(oauth.state);
@@ -560,7 +560,7 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
         if (status === "SUCCESS") {
           break;
         }
-        if (status === "ERROR" || status === "UNKNOWN") {
+        if (status === "ERROR" || status === "EXPIRED" || status === "UNKNOWN") {
           throw new ApiClientError(statusMessage || "OAuth flow failed.");
         }
         await new Promise((resolve) => window.setTimeout(resolve, OAUTH_POLL_INTERVAL_MS));
