@@ -60,6 +60,30 @@ public class LocalAuthService {
     }
   }
 
+  public void changePassword(
+      String currentRawPassword, String newRawPassword, String confirmNewRawPassword) {
+    Optional<LocalAuthRow> localAuth = localAuthRepository.getLocalAuth();
+    if (localAuth.isEmpty()) {
+      throw new ApiConflictException("Password not set; use /api/app/password/set.");
+    }
+
+    String normalizedCurrentPassword = normalizePassword(currentRawPassword);
+    String normalizedNewPassword = normalizePassword(newRawPassword);
+    String normalizedConfirmPassword = normalizePassword(confirmNewRawPassword);
+
+    if (!normalizedNewPassword.equals(normalizedConfirmPassword)) {
+      throw new ApiBadRequestException("New password and confirmation do not match.");
+    }
+    if (normalizedCurrentPassword.equals(normalizedNewPassword)) {
+      throw new ApiBadRequestException("New password must be different from current password.");
+    }
+    if (!passwordEncoder.matches(normalizedCurrentPassword, localAuth.get().passwordHash())) {
+      throw new UnauthorizedException("Invalid password");
+    }
+
+    localAuthRepository.updatePasswordHash(passwordEncoder.encode(normalizedNewPassword), "bcrypt");
+  }
+
   private String normalizePassword(String rawPassword) {
     if (!StringUtils.hasText(rawPassword)) {
       throw new ApiBadRequestException("Password is required.");

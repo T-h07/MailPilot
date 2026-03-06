@@ -15,6 +15,7 @@ import { ApiClientError, getApiHealth, resolveApiBase } from "@/api/client";
 import { configCheck, getGmailOAuthStatus, startGmailOAuth } from "@/lib/api/oauth";
 import { repairMessageMetadata, runAccountSync, runAllAccountsSync } from "@/lib/api/sync";
 import { resetApp } from "@/lib/api/system";
+import { changeAppPassword, getAppState, setAppPassword } from "@/lib/api/app-state";
 import { useLiveEvents } from "@/lib/events/live-events-context";
 import {
   createSenderRule,
@@ -249,6 +250,13 @@ export function SettingsPage() {
 
   const [healthStatus, setHealthStatus] = useState<string>("Unknown");
   const [isCheckingHealth, setIsCheckingHealth] = useState(false);
+  const [hasLocalPassword, setHasLocalPassword] = useState<boolean | null>(null);
+  const [authStatusError, setAuthStatusError] = useState<string | null>(null);
+  const [currentPasswordInput, setCurrentPasswordInput] = useState("");
+  const [newPasswordInput, setNewPasswordInput] = useState("");
+  const [confirmNewPasswordInput, setConfirmNewPasswordInput] = useState("");
+  const [passwordFormError, setPasswordFormError] = useState<string | null>(null);
+  const [isSavingPassword, setIsSavingPassword] = useState(false);
 
   const [accounts, setAccounts] = useState<AccountRecord[]>([]);
   const [isLoadingAccounts, setIsLoadingAccounts] = useState(false);
@@ -349,6 +357,17 @@ export function SettingsPage() {
     }
   }, [applyAccountSnapshot]);
 
+  const loadAuthStatus = useCallback(async () => {
+    setAuthStatusError(null);
+    try {
+      const response = await getAppState();
+      setHasLocalPassword(response.hasPassword);
+    } catch (error) {
+      setHasLocalPassword(null);
+      setAuthStatusError(toErrorMessage(error));
+    }
+  }, []);
+
   const loadSenderRules = useCallback(async () => {
     setIsLoadingRules(true);
     setRulesError(null);
@@ -364,6 +383,7 @@ export function SettingsPage() {
 
   useEffect(() => {
     void loadAccounts();
+    void loadAuthStatus();
     void loadSenderRules();
     void refreshSyncStatus();
 
@@ -376,7 +396,7 @@ export function SettingsPage() {
       });
       labelSaveTimeoutsRef.current.clear();
     };
-  }, [loadAccounts, loadSenderRules, refreshSyncStatus]);
+  }, [loadAccounts, loadAuthStatus, loadSenderRules, refreshSyncStatus]);
 
   useEffect(() => {
     const hasRunningSync = Object.values(syncByAccountId).some(
@@ -401,6 +421,56 @@ export function SettingsPage() {
       setIsCheckingHealth(false);
     }
   };
+
+  const handleSavePassword = useCallback(async () => {
+    setPasswordFormError(null);
+
+    const trimmedCurrent = currentPasswordInput.trim();
+    const trimmedNew = newPasswordInput.trim();
+    const trimmedConfirm = confirmNewPasswordInput.trim();
+
+    if (trimmedNew.length < 8) {
+      setPasswordFormError("New password must be at least 8 characters.");
+      return;
+    }
+    if (trimmedNew.length > 128) {
+      setPasswordFormError("New password must be at most 128 characters.");
+      return;
+    }
+    if (trimmedNew !== trimmedConfirm) {
+      setPasswordFormError("New password and confirmation do not match.");
+      return;
+    }
+    if (hasLocalPassword && trimmedCurrent.length === 0) {
+      setPasswordFormError("Current password is required.");
+      return;
+    }
+
+    setIsSavingPassword(true);
+    try {
+      if (hasLocalPassword) {
+        await changeAppPassword(trimmedCurrent, trimmedNew, trimmedConfirm);
+      } else {
+        await setAppPassword(trimmedNew);
+      }
+      setCurrentPasswordInput("");
+      setNewPasswordInput("");
+      setConfirmNewPasswordInput("");
+      await loadAuthStatus();
+      showNotice("Password updated");
+    } catch (error) {
+      setPasswordFormError(toErrorMessage(error));
+    } finally {
+      setIsSavingPassword(false);
+    }
+  }, [
+    confirmNewPasswordInput,
+    currentPasswordInput,
+    hasLocalPassword,
+    loadAuthStatus,
+    newPasswordInput,
+    showNotice,
+  ]);
 
   const pollForGmailConnection = useCallback(
     async (state: string, baselineByEmail: Map<string, string>) => {
@@ -914,11 +984,82 @@ export function SettingsPage() {
         <CardHeader>
           <CardTitle>Local App Password</CardTitle>
           <CardDescription>
-            Password change UI is planned next. PT16 adds login, lock, and logout gating.
+            Used for local login, lock/unlock, and privacy protection on this desktop.
           </CardDescription>
         </CardHeader>
-        <CardContent className="text-sm text-muted-foreground">
-          Use onboarding setup in the next milestone (MP-PT17) to manage local password flow.
+        <CardContent className="space-y-3 text-sm text-muted-foreground">
+          {authStatusError && <p className="text-destructive">{authStatusError}</p>}
+          {hasLocalPassword === null && !authStatusError && <p>Loading password status...</p>}
+
+          {hasLocalPassword !== null && (
+            <>
+              {hasLocalPassword && (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium">Current password</p>
+                  <Input
+                    autoComplete="current-password"
+                    disabled={isSavingPassword}
+                    onChange={(event) => {
+                      setCurrentPasswordInput(event.target.value);
+                      setPasswordFormError(null);
+                    }}
+                    placeholder="Current password"
+                    type="password"
+                    value={currentPasswordInput}
+                  />
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <p className="text-xs font-medium">New password</p>
+                <Input
+                  autoComplete="new-password"
+                  disabled={isSavingPassword}
+                  onChange={(event) => {
+                    setNewPasswordInput(event.target.value);
+                    setPasswordFormError(null);
+                  }}
+                  placeholder="New password"
+                  type="password"
+                  value={newPasswordInput}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-xs font-medium">Confirm new password</p>
+                <Input
+                  autoComplete="new-password"
+                  disabled={isSavingPassword}
+                  onChange={(event) => {
+                    setConfirmNewPasswordInput(event.target.value);
+                    setPasswordFormError(null);
+                  }}
+                  placeholder="Confirm new password"
+                  type="password"
+                  value={confirmNewPasswordInput}
+                />
+              </div>
+
+              {passwordFormError && <p className="text-xs text-destructive">{passwordFormError}</p>}
+
+              <div className="flex flex-wrap items-center gap-3">
+                <Button
+                  disabled={isSavingPassword || hasLocalPassword === null}
+                  onClick={() => void handleSavePassword()}
+                  size="sm"
+                >
+                  {isSavingPassword
+                    ? "Saving..."
+                    : hasLocalPassword
+                      ? "Change password"
+                      : "Set password"}
+                </Button>
+                <p className="text-xs text-muted-foreground">
+                  Password must be 8-128 characters.
+                </p>
+              </div>
+            </>
+          )}
         </CardContent>
       </Card>
 
