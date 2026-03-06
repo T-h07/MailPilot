@@ -855,6 +855,18 @@ export function SettingsPage() {
 
       <Card>
         <CardHeader>
+          <CardTitle>Local App Password</CardTitle>
+          <CardDescription>
+            Password change UI is planned next. PT16 adds login, lock, and logout gating.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="text-sm text-muted-foreground">
+          Use onboarding setup in the next milestone (MP-PT17) to manage local password flow.
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle>System</CardTitle>
           <CardDescription>Connection checks for local development.</CardDescription>
         </CardHeader>
