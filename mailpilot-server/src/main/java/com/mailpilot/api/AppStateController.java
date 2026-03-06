@@ -90,7 +90,10 @@ public class AppStateController {
     LocalPasswordRecoveryService.RecoveryAvailability availability =
         localPasswordRecoveryService.getRecoveryAvailability();
     return new AppRecoveryOptionsResponse(
-        availability.canRecover(), availability.maskedEmail(), availability.reason());
+        availability.canRecover(),
+        availability.maskedEmail(),
+        availability.primaryEmail(),
+        availability.reason());
   }
 
   @PostMapping("/recovery/request")

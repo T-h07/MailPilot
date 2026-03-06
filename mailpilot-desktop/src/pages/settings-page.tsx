@@ -571,7 +571,8 @@ export function SettingsPage() {
 
       const startResponse = await startGmailOAuth({
         returnTo: "mailpilot://oauth-done",
-        mode: "READONLY",
+        mode: "SEND",
+        context: "SETTINGS_CONNECT",
       });
 
       try {
@@ -591,7 +592,7 @@ export function SettingsPage() {
 
       await loadAccounts();
       await refreshSyncStatus();
-      showNotice("Gmail account connected");
+      showNotice("Gmail account connected with send access");
     } catch (error) {
       setOauthError(toErrorMessage(error));
     } finally {
@@ -604,6 +605,7 @@ export function SettingsPage() {
     setIsConnectingGmail(true);
 
     try {
+      const targetAccount = accounts.find((account) => account.id === accountId);
       const config = await configCheck();
       if (!config.configured) {
         setOauthConfigPath(config.path ?? WINDOWS_OAUTH_JSON_PATH);
@@ -615,6 +617,8 @@ export function SettingsPage() {
       const startResponse = await startGmailOAuth({
         returnTo: "mailpilot://oauth-done",
         mode: "SEND",
+        context: "SETTINGS_REAUTH_SEND",
+        accountHint: targetAccount?.email ?? undefined,
       });
 
       try {
@@ -633,7 +637,7 @@ export function SettingsPage() {
       }
 
       await loadAccounts();
-      showNotice("Sending scope granted");
+      showNotice("Gmail sending access granted");
     } catch (error) {
       setOauthError(toErrorMessage(error));
     } finally {
@@ -1289,6 +1293,9 @@ export function SettingsPage() {
                 const roleSaveError = labelSaveErrorByAccountId[account.id] ?? null;
                 const isSavingLabel = savingLabelByAccountId[account.id] ?? false;
                 const isDetaching = detachingAccountId === account.id;
+                const requiresSendReauth = account.provider === "GMAIL" && !account.canSend;
+                const connectionLabel = account.canRead ? "Connected" : "Read access missing";
+                const connectionBadgeVariant = account.canRead ? "secondary" : "outline";
 
                 return (
                   <div
@@ -1299,11 +1306,17 @@ export function SettingsPage() {
                       <div className="flex flex-wrap items-center gap-2">
                         <Badge variant="outline">{account.provider}</Badge>
                         <p className="truncate text-sm font-medium">{account.email}</p>
-                        <Badge variant={account.status === "CONNECTED" ? "secondary" : "outline"}>
-                          {account.status}
+                        <Badge variant={connectionBadgeVariant}>
+                          {connectionLabel}
+                        </Badge>
+                        <Badge variant={account.canRead ? "secondary" : "outline"}>
+                          {account.canRead ? "Can read" : "Read access missing"}
                         </Badge>
                         <Badge variant={account.canSend ? "secondary" : "outline"}>
-                          {account.canSend ? "Can send" : "Send disabled"}
+                          {account.canSend ? "Can send" : "Send not enabled"}
+                        </Badge>
+                        <Badge variant={requiresSendReauth ? "outline" : "secondary"}>
+                          {requiresSendReauth ? "Re-auth required" : "Send ready"}
                         </Badge>
                         <Badge variant={account.role === "PRIMARY" ? "secondary" : "outline"}>
                           {roleBadgeLabel(account)}
@@ -1359,14 +1372,14 @@ export function SettingsPage() {
                         <p className="text-xs text-destructive sm:text-right">{roleSaveError}</p>
                       )}
                       <div className="flex flex-wrap items-center justify-end gap-2">
-                        {!account.canSend && account.provider === "GMAIL" && (
+                        {requiresSendReauth && (
                           <Button
                             disabled={isConnectingGmail || isDetaching}
                             onClick={() => void handleReauthForSending(account.id)}
                             size="sm"
                             variant="outline"
                           >
-                            {isConnectingGmail ? "Starting..." : "Re-auth for sending"}
+                            {isConnectingGmail ? "Starting..." : "Reconnect Gmail"}
                           </Button>
                         )}
                         <Button

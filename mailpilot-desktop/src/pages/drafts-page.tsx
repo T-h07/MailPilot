@@ -179,6 +179,7 @@ export function DraftsPage() {
   const handleRequestSendReauth = useCallback(
     async (accountId: string) => {
       try {
+        const targetAccount = accounts.find((account) => account.id === accountId);
         const config = await configCheck();
         if (!config.configured) {
           setListError(config.message || "Google OAuth configuration is missing.");
@@ -187,6 +188,8 @@ export function DraftsPage() {
 
         const startResponse = await startGmailOAuth({
           mode: "SEND",
+          context: "DRAFTS_REAUTH_SEND",
+          accountHint: targetAccount?.email,
           returnTo: "mailpilot://oauth-done",
         });
 
@@ -229,7 +232,7 @@ export function DraftsPage() {
         return false;
       }
     },
-    [loadAccounts]
+    [accounts, loadAccounts]
   );
 
   return (

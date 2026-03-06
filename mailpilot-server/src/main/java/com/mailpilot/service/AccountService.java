@@ -15,6 +15,7 @@ import org.springframework.util.StringUtils;
 @Service
 public class AccountService {
 
+  private static final String GMAIL_READ_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
   private static final String GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
   private static final Set<String> ALLOWED_ROLES = Set.of("PRIMARY", "SECONDARY", "CUSTOM");
   private static final int CUSTOM_LABEL_MAX_LENGTH = 30;
@@ -36,8 +37,7 @@ public class AccountService {
         a.last_sync_at,
         a.role,
         a.custom_label,
-        ot.scope,
-        ot.refresh_token_enc
+        ot.scope
       FROM accounts a
       LEFT JOIN oauth_tokens ot ON ot.account_id = a.id
       ORDER BY
@@ -52,9 +52,10 @@ public class AccountService {
         (resultSet, rowNum) -> {
           String provider = resultSet.getString("provider");
           String scope = resultSet.getString("scope");
-          String refreshTokenEncrypted = resultSet.getString("refresh_token_enc");
-          boolean canSend = isGmailSendEnabled(provider, scope, refreshTokenEncrypted);
-          String effectiveStatus = resolveStatus(provider, resultSet.getString("status"), canSend);
+          boolean canRead = isGmailReadEnabled(provider, scope);
+          boolean canSend = isGmailSendEnabled(provider, scope);
+          String effectiveStatus =
+              resolveStatus(provider, resultSet.getString("status"), canRead, canSend);
           String role = normalizeRoleForResponse(resultSet.getString("role"));
           String customLabel =
               "CUSTOM".equals(role)
@@ -66,6 +67,7 @@ public class AccountService {
               resultSet.getString("email"),
               provider,
               effectiveStatus,
+              canRead,
               canSend,
               resultSet.getObject("last_sync_at", java.time.OffsetDateTime.class),
               role,
@@ -195,28 +197,32 @@ public class AccountService {
     return normalized.isEmpty() ? null : normalized;
   }
 
-  private boolean isGmailSendEnabled(String provider, String scope, String refreshTokenEncrypted) {
+  private boolean isGmailReadEnabled(String provider, String scope) {
     if (!"GMAIL".equalsIgnoreCase(provider)) {
       return false;
     }
-    if (!StringUtils.hasText(refreshTokenEncrypted)) {
+    return hasScope(scope, GMAIL_READ_SCOPE);
+  }
+
+  private boolean isGmailSendEnabled(String provider, String scope) {
+    if (!"GMAIL".equalsIgnoreCase(provider)) {
       return false;
     }
     return hasScope(scope, GMAIL_SEND_SCOPE);
   }
 
-  private String resolveStatus(String provider, String existingStatus, boolean canSend) {
+  private String resolveStatus(String provider, String existingStatus, boolean canRead, boolean canSend) {
     if (!"GMAIL".equalsIgnoreCase(provider)) {
       return existingStatus;
     }
-    return canSend ? "CONNECTED" : "REAUTH_REQUIRED";
+    return (canRead && canSend) ? "CONNECTED" : "REAUTH_REQUIRED";
   }
 
   private boolean hasScope(String scopeValue, String requiredScope) {
     if (!StringUtils.hasText(scopeValue)) {
       return false;
     }
-    String[] scopes = scopeValue.trim().split("\\s+");
+    String[] scopes = scopeValue.trim().split("[\\s,]+");
     String required = requiredScope.toLowerCase(Locale.ROOT);
     for (String scope : scopes) {
       if (required.equals(scope.toLowerCase(Locale.ROOT))) {

@@ -23,6 +23,7 @@ export type RecoveryReason = "NO_PRIMARY" | "PRIMARY_REAUTH_REQUIRED" | "SEND_DI
 export type RecoveryOptionsResponse = {
   canRecover: boolean;
   maskedEmail: string | null;
+  primaryEmail: string | null;
   reason: RecoveryReason | null;
 };
 

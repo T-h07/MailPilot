@@ -95,10 +95,14 @@ public class OAuthStateStore {
               AND status = 'PENDING'
               AND consumed_at IS NULL
               AND expires_at > now()
-            RETURNING code_verifier, mode
+            RETURNING code_verifier, mode, context, account_hint
             """,
             (resultSet, rowNum) ->
-                new PkceVerification(resultSet.getString("code_verifier"), resultSet.getString("mode")),
+                new PkceVerification(
+                    resultSet.getString("code_verifier"),
+                    resultSet.getString("mode"),
+                    resultSet.getString("context"),
+                    resultSet.getString("account_hint")),
             state.trim())
         .stream()
         .findFirst();
@@ -321,7 +325,7 @@ public class OAuthStateStore {
 
   public record PkceState(String state, String codeVerifier, String codeChallenge) {}
 
-  public record PkceVerification(String codeVerifier, String mode) {}
+  public record PkceVerification(String codeVerifier, String mode, String context, String accountHint) {}
 
   public record OAuthFlowStatus(String status, String message, UUID accountId, String email) {}
 }

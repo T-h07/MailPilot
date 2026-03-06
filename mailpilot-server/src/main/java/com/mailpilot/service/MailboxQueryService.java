@@ -49,10 +49,14 @@ public class MailboxQueryService {
     SortDirection sortDirection = resolveSort(request.sort());
     MailboxMode mailboxMode = resolveMode(request.mode());
     Cursor cursor = decodeCursor(request.cursor());
+    boolean matchAnyViewRules = request.viewId() != null;
 
     MailboxQueryRequest.Filters filters = request.filters();
     List<String> keywords = normalizeList(filters == null ? null : filters.keywords());
-    String searchText = buildSearchText(normalize(request.q()), keywords);
+    String searchText =
+        matchAnyViewRules
+            ? normalize(request.q())
+            : buildSearchText(normalize(request.q()), keywords);
 
     StringBuilder fromWhere =
         new StringBuilder(
@@ -115,21 +119,25 @@ public class MailboxQueryService {
     }
 
     List<String> senderDomains = normalizeList(filters == null ? null : filters.senderDomains());
-    if (!senderDomains.isEmpty()) {
-      fromWhere
-          .append(" AND lower(m.sender_domain) IN (")
-          .append(placeholders(senderDomains.size()))
-          .append(")");
-      baseParams.addAll(senderDomains);
-    }
-
     List<String> senderEmails = normalizeList(filters == null ? null : filters.senderEmails());
-    if (!senderEmails.isEmpty()) {
-      fromWhere
-          .append(" AND lower(m.sender_email) IN (")
-          .append(placeholders(senderEmails.size()))
-          .append(")");
-      baseParams.addAll(senderEmails);
+    if (matchAnyViewRules) {
+      appendMatchAnyRuleClause(fromWhere, baseParams, senderDomains, senderEmails, keywords);
+    } else {
+      if (!senderDomains.isEmpty()) {
+        fromWhere
+            .append(" AND lower(m.sender_domain) IN (")
+            .append(placeholders(senderDomains.size()))
+            .append(")");
+        baseParams.addAll(senderDomains);
+      }
+
+      if (!senderEmails.isEmpty()) {
+        fromWhere
+            .append(" AND lower(m.sender_email) IN (")
+            .append(placeholders(senderEmails.size()))
+            .append(")");
+        baseParams.addAll(senderEmails);
+      }
     }
 
     List<String> labelNames = normalizeList(filters == null ? null : filters.labelNames());
@@ -555,6 +563,45 @@ public class MailboxQueryService {
       parts.addAll(keywords);
     }
     return String.join(" ", parts).trim();
+  }
+
+  private void appendMatchAnyRuleClause(
+      StringBuilder fromWhere,
+      List<Object> params,
+      List<String> senderDomains,
+      List<String> senderEmails,
+      List<String> keywords) {
+    List<String> disjunctions = new ArrayList<>();
+
+    if (!senderDomains.isEmpty()) {
+      disjunctions.add("lower(m.sender_domain) IN (" + placeholders(senderDomains.size()) + ")");
+      params.addAll(senderDomains);
+    }
+
+    if (!senderEmails.isEmpty()) {
+      disjunctions.add("lower(m.sender_email) IN (" + placeholders(senderEmails.size()) + ")");
+      params.addAll(senderEmails);
+    }
+
+    if (!keywords.isEmpty()) {
+      StringBuilder keywordClause = new StringBuilder("(");
+      for (int index = 0; index < keywords.size(); index++) {
+        if (index > 0) {
+          keywordClause.append(" OR ");
+        }
+        keywordClause.append(
+            "(lower(COALESCE(m.subject, '')) LIKE ? OR lower(COALESCE(m.snippet, '')) LIKE ?)");
+        String pattern = "%" + keywords.get(index) + "%";
+        params.add(pattern);
+        params.add(pattern);
+      }
+      keywordClause.append(")");
+      disjunctions.add(keywordClause.toString());
+    }
+
+    if (!disjunctions.isEmpty()) {
+      fromWhere.append(" AND (").append(String.join(" OR ", disjunctions)).append(")");
+    }
   }
 
   private Map<UUID, List<String>> loadTagsByMessage(List<UUID> messageIds) {

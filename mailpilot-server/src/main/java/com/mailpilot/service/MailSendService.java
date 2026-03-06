@@ -72,8 +72,9 @@ public class MailSendService {
     if (!"GMAIL".equalsIgnoreCase(account.provider())) {
       throw new ApiBadRequestException("Account provider must be GMAIL");
     }
-    if (!canSend(account.scope(), account.refreshTokenEncrypted())) {
-      throw new ApiConflictException("Re-auth required to send email (missing gmail.send scope).");
+    if (!canSend(account.scope())) {
+      throw new ApiConflictException(
+          "Your Gmail account needs re-authentication to enable sending.");
     }
 
     OriginalContext original = mode == SendMode.NEW ? null : loadOriginalContext(command, account.id());
@@ -394,8 +395,7 @@ public class MailSendService {
         a.provider,
         a.email,
         a.display_name,
-        ot.scope,
-        ot.refresh_token_enc
+        ot.scope
       FROM accounts a
       LEFT JOIN oauth_tokens ot ON ot.account_id = a.id
       WHERE a.id = ?
@@ -406,8 +406,7 @@ public class MailSendService {
           resultSet.getString("provider"),
           resultSet.getString("email"),
           resultSet.getString("display_name"),
-          resultSet.getString("scope"),
-          resultSet.getString("refresh_token_enc")
+          resultSet.getString("scope")
         ),
       accountId
     ).stream().findFirst().orElseThrow(() -> new ApiBadRequestException("Account not found"));
@@ -598,10 +597,7 @@ public class MailSendService {
     }
   }
 
-  private boolean canSend(String scope, String refreshTokenEncrypted) {
-    if (!StringUtils.hasText(refreshTokenEncrypted)) {
-      return false;
-    }
+  private boolean canSend(String scope) {
     return hasScope(scope, GMAIL_SEND_SCOPE);
   }
 
@@ -610,7 +606,7 @@ public class MailSendService {
       return false;
     }
     String required = requiredScope.toLowerCase(Locale.ROOT);
-    for (String scope : scopeValue.trim().split("\\s+")) {
+    for (String scope : scopeValue.trim().split("[\\s,]+")) {
       if (required.equals(scope.toLowerCase(Locale.ROOT))) {
         return true;
       }
@@ -815,8 +811,7 @@ public class MailSendService {
     String provider,
     String email,
     String displayName,
-    String scope,
-    String refreshTokenEncrypted
+    String scope
   ) {}
 
   private record OriginalMessageRow(
