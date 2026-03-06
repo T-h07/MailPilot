@@ -1,3 +1,6 @@
 package com.mailpilot.api.model;
 
-public record GmailOAuthStatusResponse(String state, String status, String message) {}
+import java.util.UUID;
+
+public record GmailOAuthStatusResponse(
+    String state, String status, String message, UUID accountId, String email) {}

@@ -9,6 +9,8 @@ export type GmailOAuthConfigCheckResponse = {
 export type GmailOAuthStartRequest = {
   returnTo?: string;
   mode?: "READONLY" | "SEND";
+  context?: string;
+  accountHint?: string;
 };
 
 export type GmailOAuthStartResponse = {
@@ -18,8 +20,10 @@ export type GmailOAuthStartResponse = {
 
 export type GmailOAuthStatusResponse = {
   state: string;
-  status: "PENDING" | "SUCCESS" | "ERROR" | "UNKNOWN";
+  status: "PENDING" | "SUCCESS" | "ERROR" | "EXPIRED" | "UNKNOWN";
   message: string;
+  accountId: string | null;
+  email: string | null;
 };
 
 export function configCheck(signal?: AbortSignal) {
