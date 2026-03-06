@@ -554,75 +554,145 @@ public class GmailSyncService {
 
   private void upsertAttachmentMetadata(
       UUID messageId, List<GmailMessageMapper.AttachmentMetadata> attachments) {
-    if (attachments.isEmpty()) {
+    List<GmailMessageMapper.AttachmentMetadata> downloadableAttachments =
+        attachments.stream().filter((attachment) -> !attachment.isInline()).toList();
+
+    if (downloadableAttachments.isEmpty()) {
       jdbcTemplate.update("DELETE FROM attachments WHERE message_id = ?", messageId);
       return;
     }
 
-    for (GmailMessageMapper.AttachmentMetadata attachment : attachments) {
+    for (GmailMessageMapper.AttachmentMetadata attachment : downloadableAttachments) {
       if (StringUtils.hasText(attachment.providerAttachmentId())) {
         int updatedRows =
             jdbcTemplate.update(
                 """
           UPDATE attachments
-          SET filename = ?, mime_type = ?, size_bytes = ?
+          SET filename = ?, mime_type = ?, size_bytes = ?, is_inline = ?, part_id = ?, content_id = ?
           WHERE message_id = ? AND provider_attachment_id = ?
           """,
                 attachment.filename(),
                 attachment.mimeType(),
                 attachment.sizeBytes(),
+                attachment.isInline(),
+                attachment.partId(),
+                attachment.contentId(),
                 messageId,
                 attachment.providerAttachmentId());
 
         if (updatedRows == 0) {
           jdbcTemplate.update(
               """
-            INSERT INTO attachments (message_id, provider_attachment_id, filename, mime_type, size_bytes)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO attachments (
+              message_id,
+              provider_attachment_id,
+              filename,
+              mime_type,
+              size_bytes,
+              is_inline,
+              part_id,
+              content_id
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
               messageId,
               attachment.providerAttachmentId(),
               attachment.filename(),
               attachment.mimeType(),
-              attachment.sizeBytes());
+              attachment.sizeBytes(),
+              attachment.isInline(),
+              attachment.partId(),
+              attachment.contentId());
         }
         continue;
       }
 
-      UUID existingId =
-          jdbcTemplate
-              .query(
-                  """
-        SELECT id
-        FROM attachments
-        WHERE message_id = ?
-          AND provider_attachment_id IS NULL
-          AND filename = ?
-          AND size_bytes = ?
-        ORDER BY created_at DESC
-        LIMIT 1
-        """,
-                  (resultSet, rowNum) -> resultSet.getObject("id", UUID.class),
-                  messageId,
-                  attachment.filename(),
-                  attachment.sizeBytes())
-              .stream()
-              .findFirst()
-              .orElse(null);
+      UUID existingId = null;
+      if (StringUtils.hasText(attachment.partId())) {
+        existingId =
+            jdbcTemplate
+                .query(
+                    """
+          SELECT id
+          FROM attachments
+          WHERE message_id = ?
+            AND part_id = ?
+          ORDER BY created_at DESC
+          LIMIT 1
+          """,
+                    (resultSet, rowNum) -> resultSet.getObject("id", UUID.class),
+                    messageId,
+                    attachment.partId())
+                .stream()
+                .findFirst()
+                .orElse(null);
+      }
+
+      if (existingId == null) {
+        existingId =
+            jdbcTemplate
+                .query(
+                    """
+          SELECT id
+          FROM attachments
+          WHERE message_id = ?
+            AND provider_attachment_id IS NULL
+            AND filename = ?
+            AND size_bytes = ?
+          ORDER BY created_at DESC
+          LIMIT 1
+          """,
+                    (resultSet, rowNum) -> resultSet.getObject("id", UUID.class),
+                    messageId,
+                    attachment.filename(),
+                    attachment.sizeBytes())
+                .stream()
+                .findFirst()
+                .orElse(null);
+      }
 
       if (existingId != null) {
         jdbcTemplate.update(
-            "UPDATE attachments SET mime_type = ? WHERE id = ?", attachment.mimeType(), existingId);
+            """
+          UPDATE attachments
+          SET
+            filename = ?,
+            mime_type = ?,
+            size_bytes = ?,
+            is_inline = ?,
+            part_id = ?,
+            content_id = ?
+          WHERE id = ?
+          """,
+            attachment.filename(),
+            attachment.mimeType(),
+            attachment.sizeBytes(),
+            attachment.isInline(),
+            attachment.partId(),
+            attachment.contentId(),
+            existingId);
       } else {
         jdbcTemplate.update(
             """
-          INSERT INTO attachments (message_id, provider_attachment_id, filename, mime_type, size_bytes)
-          VALUES (?, NULL, ?, ?, ?)
+          INSERT INTO attachments (
+            message_id,
+            provider_attachment_id,
+            filename,
+            mime_type,
+            size_bytes,
+            is_inline,
+            part_id,
+            content_id
+          )
+          VALUES (?, NULL, ?, ?, ?, ?, ?, ?)
           """,
             messageId,
             attachment.filename(),
             attachment.mimeType(),
-            attachment.sizeBytes());
+            attachment.sizeBytes(),
+            attachment.isInline(),
+            attachment.partId(),
+            attachment.contentId());
       }
     }
   }

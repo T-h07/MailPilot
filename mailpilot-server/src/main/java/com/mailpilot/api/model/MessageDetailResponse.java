@@ -26,7 +26,13 @@ public record MessageDetailResponse(
 
   public record Body(String mime, String content, boolean isCached) {}
 
-  public record Attachment(UUID id, String filename, String mimeType, long sizeBytes) {}
+  public record Attachment(
+      UUID id,
+      String filename,
+      String mimeType,
+      long sizeBytes,
+      boolean isInline,
+      boolean downloadable) {}
 
   public record Thread(List<ThreadMessage> messages) {}
 

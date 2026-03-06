@@ -10,6 +10,7 @@ import com.mailpilot.service.gmail.GmailClient.GmailMessageResponse;
 import com.mailpilot.service.gmail.GmailClient.GmailPayload;
 import com.mailpilot.service.gmail.GmailClient.GmailUnauthorizedException;
 import com.mailpilot.service.oauth.TokenService;
+import com.mailpilot.service.sync.GmailMessageMapper;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.sql.ResultSet;
@@ -22,6 +23,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
 import java.util.function.Function;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -29,6 +32,7 @@ import org.springframework.util.StringUtils;
 @Service
 public class MessageService {
 
+  private static final Logger LOGGER = LoggerFactory.getLogger(MessageService.class);
   private static final int MAX_BODY_CACHE_BYTES = 5 * 1024 * 1024;
   private static final String GMAIL_PROVIDER = "GMAIL";
 
@@ -36,16 +40,19 @@ public class MessageService {
   private final SenderHighlightResolver senderHighlightResolver;
   private final GmailClient gmailClient;
   private final TokenService tokenService;
+  private final GmailMessageMapper gmailMessageMapper;
 
   public MessageService(
       JdbcTemplate jdbcTemplate,
       SenderHighlightResolver senderHighlightResolver,
       GmailClient gmailClient,
-      TokenService tokenService) {
+      TokenService tokenService,
+      GmailMessageMapper gmailMessageMapper) {
     this.jdbcTemplate = jdbcTemplate;
     this.senderHighlightResolver = senderHighlightResolver;
     this.gmailClient = gmailClient;
     this.tokenService = tokenService;
+    this.gmailMessageMapper = gmailMessageMapper;
   }
 
   public MessageDetailResponse getMessageDetail(UUID messageId) {
@@ -55,6 +62,7 @@ public class MessageService {
         m.id,
         m.account_id,
         a.email AS account_email,
+        a.provider AS account_provider,
         m.provider_message_id,
         m.thread_id,
         COALESCE(m.sender_name, split_part(m.sender_email, '@', 1)) AS sender_name,
@@ -87,16 +95,11 @@ public class MessageService {
 
     MessageRow messageRow = messageRows.getFirst();
 
-    List<MessageDetailResponse.Attachment> attachments =
-        jdbcTemplate.query(
-            "SELECT id, filename, mime_type, size_bytes FROM attachments WHERE message_id = ? ORDER BY filename",
-            (resultSet, rowNum) ->
-                new MessageDetailResponse.Attachment(
-                    resultSet.getObject("id", UUID.class),
-                    resultSet.getString("filename"),
-                    resultSet.getString("mime_type"),
-                    resultSet.getLong("size_bytes")),
-            messageId);
+    List<MessageDetailResponse.Attachment> attachments = loadMessageAttachments(messageId);
+    if (attachments.isEmpty() && shouldRefreshAttachments(messageRow)) {
+      refreshAttachmentMetadata(messageRow);
+      attachments = loadMessageAttachments(messageId);
+    }
 
     List<MessageDetailResponse.ThreadMessage> threadMessages;
     if (messageRow.threadId() != null) {
@@ -212,16 +215,22 @@ public class MessageService {
     }
 
     OffsetDateTime cachedAt = OffsetDateTime.now(ZoneOffset.UTC);
+    List<GmailMessageMapper.AttachmentMetadata> refreshedAttachments =
+        extractDownloadableAttachments(response.payload());
+    upsertAttachmentMetadata(message.id(), refreshedAttachments);
+    boolean hasAttachments = !refreshedAttachments.isEmpty();
+
     int updatedRows =
         jdbcTemplate.update(
             """
       UPDATE messages
-      SET body_cache = ?, body_cache_mime = ?, body_cached_at = ?
+      SET body_cache = ?, body_cache_mime = ?, body_cached_at = ?, has_attachments = ?
       WHERE id = ?
       """,
             extractedBody.content(),
             extractedBody.mime(),
             cachedAt,
+            hasAttachments,
             message.id());
     if (updatedRows == 0) {
       throw new ApiNotFoundException("Message not found");
@@ -385,6 +394,7 @@ public class MessageService {
         resultSet.getObject("id", UUID.class),
         resultSet.getObject("account_id", UUID.class),
         resultSet.getString("account_email"),
+        resultSet.getString("account_provider"),
         resultSet.getString("provider_message_id"),
         resultSet.getObject("thread_id", UUID.class),
         resultSet.getString("sender_name"),
@@ -418,6 +428,7 @@ public class MessageService {
       UUID id,
       UUID accountId,
       String accountEmail,
+      String accountProvider,
       String providerMessageId,
       UUID threadId,
       String senderName,
@@ -511,5 +522,204 @@ public class MessageService {
     private void markAttachmentOnlyBody() {
       attachmentOnlyBody = true;
     }
+  }
+
+  private List<MessageDetailResponse.Attachment> loadMessageAttachments(UUID messageId) {
+    return jdbcTemplate.query(
+        """
+      SELECT id, filename, mime_type, size_bytes, provider_attachment_id, COALESCE(is_inline, false) AS is_inline
+      FROM attachments
+      WHERE message_id = ?
+        AND COALESCE(is_inline, false) = false
+      ORDER BY filename
+      """,
+        (resultSet, rowNum) ->
+            new MessageDetailResponse.Attachment(
+                resultSet.getObject("id", UUID.class),
+                resultSet.getString("filename"),
+                resultSet.getString("mime_type"),
+                resultSet.getLong("size_bytes"),
+                resultSet.getBoolean("is_inline"),
+                true),
+        messageId);
+  }
+
+  private boolean shouldRefreshAttachments(MessageRow messageRow) {
+    return GMAIL_PROVIDER.equalsIgnoreCase(messageRow.accountProvider())
+        && StringUtils.hasText(messageRow.providerMessageId());
+  }
+
+  private void refreshAttachmentMetadata(MessageRow messageRow) {
+    try {
+      GmailMessageResponse response =
+          executeWithTokenRetry(
+              messageRow.accountId(),
+              (accessToken) ->
+                  gmailClient.getMessageFull(accessToken, messageRow.providerMessageId()));
+      List<GmailMessageMapper.AttachmentMetadata> attachments =
+          extractDownloadableAttachments(response.payload());
+      upsertAttachmentMetadata(messageRow.id(), attachments);
+      jdbcTemplate.update(
+          "UPDATE messages SET has_attachments = ? WHERE id = ?",
+          !attachments.isEmpty(),
+          messageRow.id());
+    } catch (Exception exception) {
+      LOGGER.debug(
+          "Unable to refresh attachment metadata for message {}: {}",
+          messageRow.id(),
+          exception.getMessage());
+    }
+  }
+
+  private List<GmailMessageMapper.AttachmentMetadata> extractDownloadableAttachments(
+      GmailPayload payload) {
+    return gmailMessageMapper.extractBodyParts(payload).stream()
+        .filter((attachment) -> !attachment.isInline())
+        .toList();
+  }
+
+  private void upsertAttachmentMetadata(
+      UUID messageId, List<GmailMessageMapper.AttachmentMetadata> attachments) {
+    if (attachments.isEmpty()) {
+      jdbcTemplate.update("DELETE FROM attachments WHERE message_id = ?", messageId);
+      return;
+    }
+
+    for (GmailMessageMapper.AttachmentMetadata attachment : attachments) {
+      if (StringUtils.hasText(attachment.providerAttachmentId())) {
+        int updatedRows =
+            jdbcTemplate.update(
+                """
+          UPDATE attachments
+          SET filename = ?, mime_type = ?, size_bytes = ?, is_inline = ?, part_id = ?, content_id = ?
+          WHERE message_id = ? AND provider_attachment_id = ?
+          """,
+                attachment.filename(),
+                attachment.mimeType(),
+                attachment.sizeBytes(),
+                attachment.isInline(),
+                attachment.partId(),
+                attachment.contentId(),
+                messageId,
+                attachment.providerAttachmentId());
+
+        if (updatedRows == 0) {
+          jdbcTemplate.update(
+              """
+            INSERT INTO attachments (
+              message_id,
+              provider_attachment_id,
+              filename,
+              mime_type,
+              size_bytes,
+              is_inline,
+              part_id,
+              content_id
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+              messageId,
+              attachment.providerAttachmentId(),
+              attachment.filename(),
+              attachment.mimeType(),
+              attachment.sizeBytes(),
+              attachment.isInline(),
+              attachment.partId(),
+              attachment.contentId());
+        }
+        continue;
+      }
+
+      UUID existingId = findExistingAttachmentId(messageId, attachment);
+      if (existingId != null) {
+        jdbcTemplate.update(
+            """
+          UPDATE attachments
+          SET
+            filename = ?,
+            mime_type = ?,
+            size_bytes = ?,
+            is_inline = ?,
+            part_id = ?,
+            content_id = ?
+          WHERE id = ?
+          """,
+            attachment.filename(),
+            attachment.mimeType(),
+            attachment.sizeBytes(),
+            attachment.isInline(),
+            attachment.partId(),
+            attachment.contentId(),
+            existingId);
+      } else {
+        jdbcTemplate.update(
+            """
+          INSERT INTO attachments (
+            message_id,
+            provider_attachment_id,
+            filename,
+            mime_type,
+            size_bytes,
+            is_inline,
+            part_id,
+            content_id
+          )
+          VALUES (?, NULL, ?, ?, ?, ?, ?, ?)
+          """,
+            messageId,
+            attachment.filename(),
+            attachment.mimeType(),
+            attachment.sizeBytes(),
+            attachment.isInline(),
+            attachment.partId(),
+            attachment.contentId());
+      }
+    }
+  }
+
+  private UUID findExistingAttachmentId(
+      UUID messageId, GmailMessageMapper.AttachmentMetadata attachment) {
+    if (StringUtils.hasText(attachment.partId())) {
+      UUID byPartId =
+          jdbcTemplate
+              .query(
+                  """
+          SELECT id
+          FROM attachments
+          WHERE message_id = ?
+            AND part_id = ?
+          ORDER BY created_at DESC
+          LIMIT 1
+          """,
+                  (resultSet, rowNum) -> resultSet.getObject("id", UUID.class),
+                  messageId,
+                  attachment.partId())
+              .stream()
+              .findFirst()
+              .orElse(null);
+      if (byPartId != null) {
+        return byPartId;
+      }
+    }
+
+    return jdbcTemplate
+        .query(
+            """
+        SELECT id
+        FROM attachments
+        WHERE message_id = ?
+          AND provider_attachment_id IS NULL
+          AND filename = ?
+          AND size_bytes = ?
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+            (resultSet, rowNum) -> resultSet.getObject("id", UUID.class),
+            messageId,
+            attachment.filename(),
+            attachment.sizeBytes())
+        .stream()
+        .findFirst()
+        .orElse(null);
   }
 }
