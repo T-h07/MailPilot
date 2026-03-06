@@ -271,6 +271,8 @@ function buildPreviewMessage(
       filename: attachment.filename,
       mimeType: attachment.mimeType,
       sizeBytes: attachment.sizeBytes,
+      isInline: attachment.isInline,
+      downloadable: attachment.downloadable,
     })),
     threadId: detail.threadId ?? summary.threadId,
     threadMessages: detail.thread.messages.map((threadMessage) => toThreadSummary(threadMessage)),

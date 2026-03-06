@@ -5,6 +5,8 @@ export type MailAttachment = {
   filename: string;
   mimeType: string;
   sizeBytes: number;
+  isInline: boolean;
+  downloadable: boolean;
 };
 
 export type ThreadMessageSummary = {

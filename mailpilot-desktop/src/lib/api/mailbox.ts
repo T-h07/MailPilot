@@ -100,6 +100,8 @@ export type MessageDetailResponse = {
     filename: string;
     mimeType: string;
     sizeBytes: number;
+    isInline: boolean;
+    downloadable: boolean;
   }>;
   thread: {
     messages: Array<{

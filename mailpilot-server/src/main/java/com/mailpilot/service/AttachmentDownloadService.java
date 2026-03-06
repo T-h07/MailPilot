@@ -8,6 +8,7 @@ import com.mailpilot.service.gmail.GmailClient;
 import com.mailpilot.service.gmail.GmailClient.GmailApiException;
 import com.mailpilot.service.gmail.GmailClient.GmailAttachmentNotFoundException;
 import com.mailpilot.service.gmail.GmailClient.GmailAttachmentResponse;
+import com.mailpilot.service.gmail.GmailClient.GmailHeader;
 import com.mailpilot.service.gmail.GmailClient.GmailMessageNotFoundException;
 import com.mailpilot.service.gmail.GmailClient.GmailMessageResponse;
 import com.mailpilot.service.gmail.GmailClient.GmailPayload;
@@ -84,6 +85,9 @@ public class AttachmentDownloadService {
         a.id,
         a.message_id,
         a.provider_attachment_id,
+        a.part_id,
+        a.content_id,
+        COALESCE(a.is_inline, false) AS is_inline,
         a.filename,
         a.mime_type,
         a.size_bytes,
@@ -98,6 +102,9 @@ public class AttachmentDownloadService {
                     resultSet.getObject("id", UUID.class),
                     resultSet.getObject("message_id", UUID.class),
                     resultSet.getString("provider_attachment_id"),
+                    resultSet.getString("part_id"),
+                    resultSet.getString("content_id"),
+                    resultSet.getBoolean("is_inline"),
                     resultSet.getString("filename"),
                     resultSet.getString("mime_type"),
                     resultSet.getLong("size_bytes"),
@@ -112,8 +119,16 @@ public class AttachmentDownloadService {
   private byte[] downloadFromGmail(AttachmentRow attachment) {
     try {
       if (StringUtils.hasText(attachment.providerAttachmentId())) {
+        LOGGER.info(
+            "Downloading attachment {} for message {} via Gmail attachment endpoint",
+            attachment.id(),
+            attachment.messageId());
         return downloadByAttachmentId(attachment);
       }
+      LOGGER.info(
+          "Downloading attachment {} for message {} via inline MIME payload",
+          attachment.id(),
+          attachment.messageId());
       return downloadInlineAttachment(attachment);
     } catch (GmailAttachmentNotFoundException exception) {
       return downloadInlineAttachment(attachment);
@@ -186,6 +201,25 @@ public class AttachmentDownloadService {
       return null;
     }
 
+    if (StringUtils.hasText(attachment.partId())) {
+      for (GmailPayload candidate : candidates) {
+        if (attachment.partId().trim().equals(candidate.partId())) {
+          return candidate;
+        }
+      }
+    }
+
+    if (StringUtils.hasText(attachment.contentId())) {
+      String expectedContentId = normalizeComparisonValue(attachment.contentId());
+      for (GmailPayload candidate : candidates) {
+        String candidateContentId = normalizeComparisonValue(extractPartContentId(candidate));
+        if (StringUtils.hasText(candidateContentId)
+            && expectedContentId.equals(candidateContentId)) {
+          return candidate;
+        }
+      }
+    }
+
     String expectedFilename = normalizeComparisonValue(attachment.filename());
     String expectedMimeType = normalizeComparisonValue(attachment.mimeType());
     long expectedSize = Math.max(attachment.sizeBytes(), 0L);
@@ -247,6 +281,29 @@ public class AttachmentDownloadService {
     }
   }
 
+  private String extractPartContentId(GmailPayload payload) {
+    List<GmailHeader> headers = payload == null ? null : payload.headers();
+    if (headers == null || headers.isEmpty()) {
+      return null;
+    }
+
+    for (GmailHeader header : headers) {
+      if (header == null
+          || !StringUtils.hasText(header.name())
+          || !StringUtils.hasText(header.value())) {
+        continue;
+      }
+      if ("content-id".equalsIgnoreCase(header.name().trim())) {
+        String value = header.value().trim();
+        if (value.startsWith("<") && value.endsWith(">") && value.length() > 2) {
+          return value.substring(1, value.length() - 1);
+        }
+        return value;
+      }
+    }
+    return null;
+  }
+
   private String normalizeComparisonValue(String value) {
     return StringUtils.hasText(value) ? value.trim().toLowerCase(Locale.ROOT) : "";
   }
@@ -266,7 +323,11 @@ public class AttachmentDownloadService {
     String accountSegment = sanitizePathSegment(attachment.accountId().toString(), "account");
     String messageSegment = sanitizePathSegment(attachment.providerMessageId(), "message");
     String providerAttachmentSegment =
-        sanitizePathSegment(attachment.providerAttachmentId(), attachment.id().toString());
+        sanitizePathSegment(
+            StringUtils.hasText(attachment.providerAttachmentId())
+                ? attachment.providerAttachmentId()
+                : attachment.partId(),
+            attachment.id().toString());
     String safeFilename = sanitizeFilename(filename);
     return attachmentCacheRoot
         .resolve(accountSegment)
@@ -340,6 +401,9 @@ public class AttachmentDownloadService {
       UUID id,
       UUID messageId,
       String providerAttachmentId,
+      String partId,
+      String contentId,
+      boolean ignoredIsInline,
       String filename,
       String mimeType,
       long sizeBytes,

@@ -179,18 +179,40 @@ public class GmailMessageMapper {
     }
 
     GmailBody body = payload.body();
+    Map<String, String> partHeaders = parseHeaders(payload);
+    String contentDisposition = nullable(partHeaders.get("content-disposition"));
+    String contentId = normalizeContentId(partHeaders.get("content-id"));
     boolean hasAttachmentId = body != null && StringUtils.hasText(body.attachmentId());
+    boolean hasEmbeddedData = body != null && StringUtils.hasText(body.data());
     boolean hasFilename = StringUtils.hasText(payload.filename());
+    String filename = hasFilename ? payload.filename().trim() : null;
+    String mimeType = nullable(payload.mimeType());
+    boolean dispositionAttachment = isDispositionType(contentDisposition, "attachment");
+    boolean dispositionInline = isDispositionType(contentDisposition, "inline");
 
-    if (hasAttachmentId || hasFilename) {
-      String filename = hasFilename ? payload.filename().trim() : "(unnamed)";
+    boolean shouldCapture =
+        (hasFilename
+                && (hasAttachmentId
+                    || hasEmbeddedData
+                    || dispositionAttachment
+                    || isLikelyFileMime(mimeType)))
+            || (dispositionAttachment && (hasAttachmentId || hasEmbeddedData));
+
+    if (shouldCapture) {
+      String resolvedFilename = hasFilename ? filename : "(unnamed)";
       long sizeBytes = body != null && body.size() != null ? Math.max(body.size(), 0L) : 0L;
+      boolean isInline =
+          !dispositionAttachment && (dispositionInline || StringUtils.hasText(contentId));
       attachments.add(
           new AttachmentMetadata(
-              filename,
-              nullable(payload.mimeType()),
+              resolvedFilename,
+              mimeType,
               sizeBytes,
-              hasAttachmentId ? body.attachmentId().trim() : null));
+              hasAttachmentId ? body.attachmentId().trim() : null,
+              nullable(payload.partId()),
+              contentId,
+              isInline,
+              hasEmbeddedData));
     }
 
     List<GmailPayload> parts = payload.parts();
@@ -231,12 +253,46 @@ public class GmailMessageMapper {
     return trimmed.isEmpty() ? null : trimmed;
   }
 
+  private boolean isLikelyFileMime(String mimeType) {
+    if (!StringUtils.hasText(mimeType)) {
+      return false;
+    }
+    String normalized = mimeType.trim().toLowerCase(Locale.ROOT);
+    return !normalized.startsWith("multipart/") && !normalized.startsWith("text/");
+  }
+
+  private boolean isDispositionType(String headerValue, String expectedPrefix) {
+    if (!StringUtils.hasText(headerValue) || !StringUtils.hasText(expectedPrefix)) {
+      return false;
+    }
+    String normalized = headerValue.trim().toLowerCase(Locale.ROOT);
+    return normalized.startsWith(expectedPrefix.toLowerCase(Locale.ROOT));
+  }
+
+  private String normalizeContentId(String contentId) {
+    if (!StringUtils.hasText(contentId)) {
+      return null;
+    }
+    String normalized = contentId.trim();
+    if (normalized.startsWith("<") && normalized.endsWith(">") && normalized.length() > 2) {
+      return normalized.substring(1, normalized.length() - 1);
+    }
+    return normalized;
+  }
+
   public record Flags(boolean isRead, boolean isInbox, boolean isSent, boolean isDraft) {}
 
   public record Sender(String name, String email, String domain) {}
 
   public record AttachmentMetadata(
-      String filename, String mimeType, long sizeBytes, String providerAttachmentId) {}
+      String filename,
+      String mimeType,
+      long sizeBytes,
+      String providerAttachmentId,
+      String partId,
+      String contentId,
+      boolean isInline,
+      boolean hasEmbeddedData) {}
 
   public record GmailMetadata(
       String providerMessageId,
