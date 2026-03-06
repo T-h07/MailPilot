@@ -55,6 +55,12 @@ public class GlobalExceptionHandler {
     return error(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", exception.getMessage(), request);
   }
 
+  @ExceptionHandler(RateLimitException.class)
+  public ResponseEntity<ApiErrorResponse> handleRateLimit(
+      RateLimitException exception, HttpServletRequest request) {
+    return error(HttpStatus.TOO_MANY_REQUESTS, "RATE_LIMITED", exception.getMessage(), request);
+  }
+
   @ExceptionHandler({UpstreamException.class, GmailClient.GmailApiException.class})
   public ResponseEntity<ApiErrorResponse> handleUpstream(
       RuntimeException exception, HttpServletRequest request) {

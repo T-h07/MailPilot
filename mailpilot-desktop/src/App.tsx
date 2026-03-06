@@ -7,6 +7,7 @@ import {
   Route,
   Routes,
   useLocation,
+  useNavigate,
 } from "react-router-dom";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -36,6 +37,7 @@ import { SettingsPage } from "@/pages/settings-page";
 import { ViewsHubPage } from "@/pages/views-hub-page";
 import { OnboardingPage } from "@/pages/onboarding-page";
 import { LocalLoginPage } from "@/pages/local-login-page";
+import { LocalPasswordRecoveryPage } from "@/pages/local-password-recovery-page";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -425,6 +427,7 @@ type AppShellProps = {
   onLock: () => Promise<void>;
   onLogout: () => Promise<void>;
   onUnlock: (password: string) => Promise<void>;
+  onForgotPassword: () => void;
 };
 
 type AppRouteGuardProps = {
@@ -439,6 +442,7 @@ type AppRouteGuardProps = {
   onLock: () => Promise<void>;
   onLogout: () => Promise<void>;
   onUnlock: (password: string) => Promise<void>;
+  onForgotPassword: () => void;
 };
 
 type OnboardingRouteProps = {
@@ -453,6 +457,7 @@ type LoginRouteProps = {
   loginInFlight: boolean;
   loginError: string | null;
   onLogin: (password: string) => Promise<void>;
+  onForgotPassword: () => void;
 };
 
 function AppShell({
@@ -466,8 +471,10 @@ function AppShell({
   onLock,
   onLogout,
   onUnlock,
+  onForgotPassword,
 }: AppShellProps) {
   const location = useLocation();
+  const navigate = useNavigate();
   const { badges, latestNewMail, newMailSequence, sseConnected, syncByAccountId } = useLiveEvents();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [toasts, setToasts] = useState<AppToast[]>([]);
@@ -670,7 +677,15 @@ function AppShell({
         </div>
       </div>
       {locked && (
-        <AppLockOverlay error={unlockError} isUnlocking={unlockInFlight} onUnlock={onUnlock} />
+        <AppLockOverlay
+          error={unlockError}
+          isUnlocking={unlockInFlight}
+          onForgotPassword={() => {
+            onForgotPassword();
+            navigate("/recover", { replace: true });
+          }}
+          onUnlock={onUnlock}
+        />
       )}
     </div>
   );
@@ -702,7 +717,15 @@ function OnboardingRoute({ appState, loggedIn, onEnterInbox }: OnboardingRoutePr
   return <OnboardingPage appState={appState} onEnterInbox={onEnterInbox} />;
 }
 
-function LoginRoute({ appState, loggedIn, loginInFlight, loginError, onLogin }: LoginRouteProps) {
+function LoginRoute({
+  appState,
+  loggedIn,
+  loginInFlight,
+  loginError,
+  onLogin,
+  onForgotPassword,
+}: LoginRouteProps) {
+  const navigate = useNavigate();
   if (!appState) {
     return <BootstrappingScreen error={null} onRetry={() => undefined} />;
   }
@@ -712,7 +735,37 @@ function LoginRoute({ appState, loggedIn, loginInFlight, loginError, onLogin }: 
   if (loggedIn) {
     return <Navigate replace to="/inbox" />;
   }
-  return <LocalLoginPage error={loginError} isLoading={loginInFlight} onLogin={onLogin} />;
+  return (
+    <LocalLoginPage
+      error={loginError}
+      isLoading={loginInFlight}
+      onForgotPassword={() => {
+        onForgotPassword();
+        navigate("/recover", { replace: true });
+      }}
+      onLogin={onLogin}
+    />
+  );
+}
+
+function RecoveryRoute({
+  appState,
+  onForgotPassword,
+}: {
+  appState: AppStateRecord | null;
+  onForgotPassword: () => void;
+}) {
+  useEffect(() => {
+    onForgotPassword();
+  }, [onForgotPassword]);
+
+  if (!appState) {
+    return <BootstrappingScreen error={null} onRetry={() => undefined} />;
+  }
+  if (!appState.onboardingComplete || !appState.hasPassword) {
+    return <Navigate replace to="/onboarding" />;
+  }
+  return <LocalPasswordRecoveryPage />;
 }
 
 function ProtectedAppShell({
@@ -727,6 +780,7 @@ function ProtectedAppShell({
   onLock,
   onLogout,
   onUnlock,
+  onForgotPassword,
 }: AppRouteGuardProps) {
   if (!appState) {
     return <BootstrappingScreen error={null} onRetry={() => undefined} />;
@@ -749,6 +803,7 @@ function ProtectedAppShell({
         setThemeVariant={setThemeVariant}
         themeVariant={themeVariant}
         onUnlock={onUnlock}
+        onForgotPassword={onForgotPassword}
         unlockError={unlockError}
         unlockInFlight={unlockInFlight}
       />
@@ -852,6 +907,12 @@ function App() {
     await refreshAppState();
   }, [refreshAppState]);
 
+  const handleForgotPassword = useCallback(() => {
+    setLoggedIn(false);
+    setLoginError(null);
+    setUnlockError(null);
+  }, []);
+
   const wildcardRedirect = useMemo(() => {
     if (!appState || !appState.onboardingComplete || !appState.hasPassword) {
       return "/onboarding";
@@ -894,10 +955,15 @@ function App() {
               loggedIn={loggedIn}
               loginError={loginError}
               loginInFlight={loginInFlight}
+              onForgotPassword={handleForgotPassword}
               onLogin={handleLogin}
             />
           }
           path="/login"
+        />
+        <Route
+          element={<RecoveryRoute appState={appState} onForgotPassword={handleForgotPassword} />}
+          path="/recover"
         />
         <Route
           element={
@@ -910,6 +976,7 @@ function App() {
               onLogout={handleLogout}
               setThemeVariant={setThemeVariant}
               themeVariant={themeVariant}
+              onForgotPassword={handleForgotPassword}
               onUnlock={handleUnlock}
               unlockError={unlockError}
               unlockInFlight={unlockInFlight}
