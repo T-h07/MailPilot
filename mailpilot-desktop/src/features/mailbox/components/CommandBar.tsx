@@ -43,6 +43,8 @@ type CommandBarProps = {
   onSettingsShortcut: () => void;
   onCompose: () => void;
   onRefresh: () => void;
+  onSyncNow: () => void;
+  isSyncing?: boolean;
   isRefreshing?: boolean;
 };
 
@@ -68,6 +70,8 @@ export function CommandBar({
   onSettingsShortcut,
   onCompose,
   onRefresh,
+  onSyncNow,
+  isSyncing = false,
   isRefreshing = false,
 }: CommandBarProps) {
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -154,7 +158,9 @@ export function CommandBar({
             align="end"
             className="z-[60] border-border bg-popover text-popover-foreground shadow-md"
           >
-            <DropdownMenuItem disabled>Sync now (coming soon)</DropdownMenuItem>
+            <DropdownMenuItem disabled={isSyncing} onClick={onSyncNow}>
+              {isSyncing ? "Starting sync..." : "Sync now"}
+            </DropdownMenuItem>
             <DropdownMenuItem disabled>Export selected (coming soon)</DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={onSettingsShortcut}>

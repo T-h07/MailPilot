@@ -33,6 +33,7 @@ import {
 import { runFollowupAction, updateFollowup, type FollowupState } from "@/lib/api/followups";
 import { emitFollowupUpdated } from "@/lib/events/followups";
 import { useLiveEvents } from "@/lib/events/live-events-context";
+import { runAccountSync, runAllAccountsSync } from "@/lib/api/sync";
 import {
   listMessageViewLabels,
   listViewLabels,
@@ -488,6 +489,7 @@ export function MailboxShell({
   const [isLoadingList, setIsLoadingList] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [isRefreshingMailbox, setIsRefreshingMailbox] = useState(false);
+  const [isSyncStarting, setIsSyncStarting] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
 
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
@@ -974,6 +976,27 @@ export function MailboxShell({
   const handleRefreshMailbox = useCallback(() => {
     refreshMailbox(true);
   }, [refreshMailbox]);
+
+  const handleSyncNow = useCallback(async () => {
+    if (isSyncStarting) {
+      return;
+    }
+
+    setIsSyncStarting(true);
+    try {
+      if (accountScope !== "ALL") {
+        await runAccountSync(accountScope, 500);
+      } else {
+        await runAllAccountsSync(500);
+      }
+      showNotice("Sync started. New messages will appear when sync finishes.");
+    } catch (error) {
+      const message = toErrorMessage(error) || "Unable to start sync.";
+      showNotice(message);
+    } finally {
+      setIsSyncStarting(false);
+    }
+  }, [accountScope, isSyncStarting, showNotice]);
 
   const handleRefreshMessage = useCallback(() => {
     void refreshSelectedMessage(true);
@@ -1852,7 +1875,9 @@ export function MailboxShell({
         onToggleFilter={toggleQuickFilter}
         onCompose={openComposeNew}
         onRefresh={handleRefreshMailbox}
-        isRefreshing={isRefreshingMailbox || isLoadingList}
+        onSyncNow={handleSyncNow}
+        isSyncing={isSyncStarting}
+        isRefreshing={isRefreshingMailbox || isLoadingList || isSyncStarting}
         searchQuery={searchQuery}
       />
 
