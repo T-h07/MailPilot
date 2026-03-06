@@ -1455,7 +1455,9 @@ export function MailboxShell({
           bytes: response.bytes,
         });
         if (savedPath) {
-          showNotice(`Attachment saved: ${savedPath}`);
+          showNotice(`Attachment saved: ${leafFilename(savedPath)}`);
+        } else {
+          showNotice("Download cancelled");
         }
       } catch (error) {
         showNotice(toErrorMessage(error) || "Failed to download attachment");
