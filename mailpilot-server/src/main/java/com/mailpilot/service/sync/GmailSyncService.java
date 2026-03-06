@@ -439,7 +439,7 @@ public class GmailSyncService {
     try {
       GmailMessageResponse response =
           executeWithTokenRetry(
-              accountId, (accessToken) -> gmailClient.getMessage(accessToken, messageId));
+              accountId, (accessToken) -> gmailClient.getMessageFull(accessToken, messageId));
       return new FetchedMessage(messageId, false, response);
     } catch (GmailMessageNotFoundException exception) {
       return new FetchedMessage(messageId, true, null);
@@ -669,7 +669,7 @@ public class GmailSyncService {
           GmailMessageResponse message =
               executeWithTokenRetry(
                   account.id(),
-                  (accessToken) -> gmailClient.getMessage(accessToken, providerMessageId));
+                  (accessToken) -> gmailClient.getMessageFull(accessToken, providerMessageId));
           GmailMessageMapper.GmailMetadata metadata = gmailMessageMapper.mapCoreFields(message);
           upsertMessageMetadata(account.id(), metadata, threadCache);
           updated += 1;
