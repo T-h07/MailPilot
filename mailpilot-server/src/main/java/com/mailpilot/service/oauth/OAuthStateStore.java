@@ -4,6 +4,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
@@ -67,7 +68,7 @@ public class OAuthStateStore {
         codeVerifier,
         resolvedContext,
         resolvedHint,
-        Instant.now().plus(PENDING_TTL));
+        Timestamp.from(Instant.now().plus(PENDING_TTL)));
 
     LOGGER.info(
         "Created OAuth pending flow state={} provider=GMAIL mode={} context={}",
@@ -267,7 +268,7 @@ public class OAuthStateStore {
     int deletedRows =
         jdbcTemplate.update(
         "DELETE FROM oauth_pending_flows WHERE expires_at < ?",
-        purgeBefore);
+        Timestamp.from(purgeBefore));
 
     if (expiredMarked > 0 || deletedRows > 0) {
       LOGGER.info(
