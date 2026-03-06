@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -69,10 +70,10 @@ public class GmailOAuthService {
     this.httpClient = HttpClient.newHttpClient();
   }
 
-  public GmailOAuthStartResponse start(String requestedMode) {
+  public GmailOAuthStartResponse start(String requestedMode, String context, String accountHint) {
     OAuthStartMode mode = OAuthStartMode.fromInput(requestedMode);
     GoogleOAuthClientConfig config = googleOAuthClientConfigService.loadRequiredConfig();
-    PkceState pkceState = oauthStateStore.create(mode.name());
+    PkceState pkceState = oauthStateStore.create(mode.name(), context, accountHint);
 
     String authUrl =
         UriComponentsBuilder.fromUriString(AUTH_ENDPOINT)
@@ -112,8 +113,20 @@ public class GmailOAuthService {
 
     PkceVerification verification = oauthStateStore.consumeCodeVerifier(state).orElse(null);
     if (verification == null || !StringUtils.hasText(verification.codeVerifier())) {
-      String message = "OAuth state is invalid or expired. Please retry Connect Gmail.";
-      oauthStateStore.markError(state, message);
+      OAuthFlowStatus flowStatus = oauthStateStore.status(state);
+      if ("SUCCESS".equals(flowStatus.status())) {
+        return successResult(
+            StringUtils.hasText(flowStatus.message())
+                ? flowStatus.message()
+                : "Gmail connected. You can close this tab.");
+      }
+      if ("PENDING".equals(flowStatus.status())) {
+        return successResult("OAuth callback is being processed. Return to MailPilot.");
+      }
+      String message =
+          StringUtils.hasText(flowStatus.message())
+              ? flowStatus.message()
+              : "OAuth flow expired. Please retry Connect Gmail.";
       return failureResult(message, HttpStatus.BAD_REQUEST);
     }
 
@@ -139,7 +152,8 @@ public class GmailOAuthService {
               ? null
               : OffsetDateTime.now(ZoneOffset.UTC).plusSeconds(tokenResponse.expiresIn());
 
-      oauthAccountService.upsertConnectedGmailAccountAndTokens(
+      UUID accountId =
+          oauthAccountService.upsertConnectedGmailAccountAndTokens(
           confirmedEmail,
           null,
           new EncryptedTokenPayload(
@@ -150,7 +164,7 @@ public class GmailOAuthService {
               tokenResponse.tokenType()));
 
       LOGGER.info("Connected Gmail account: {}", confirmedEmail);
-      oauthStateStore.markSuccess(state, "Connected " + confirmedEmail);
+      oauthStateStore.markSuccess(state, "Connected " + confirmedEmail, accountId, confirmedEmail);
       return successResult("Gmail connected. You can close this tab.");
     } catch (OAuthFlowException exception) {
       LOGGER.warn(

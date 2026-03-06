@@ -1,6 +1,7 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { CheckCircle2, Mail, ShieldCheck, Sparkles, UserRound } from "lucide-react";
 import type { AppStateRecord } from "@/lib/api/app-state";
 import {
   listAccounts,
@@ -62,6 +63,13 @@ type ProposalDraft = {
   subjectKeywords: string[];
   unreadOnly: boolean;
 };
+
+type PrimaryConnectState =
+  | "IDLE"
+  | "OPENING_BROWSER"
+  | "WAITING_FOR_CALLBACK"
+  | "CONNECTED"
+  | "ERROR";
 
 const FIELD_OF_WORK_OPTIONS = [
   "Engineering",
@@ -158,6 +166,24 @@ function withoutKey(record: Record<string, string>, key: string): Record<string,
   return rest;
 }
 
+function toFriendlyOAuthMessage(rawMessage: string | null | undefined): string {
+  const message = (rawMessage ?? "").trim();
+  const normalized = message.toLowerCase();
+  if (
+    normalized.includes("no oauth flow found") ||
+    normalized.includes("invalid or expired") ||
+    normalized.includes("oauth flow expired") ||
+    normalized.includes("authorization code expired") ||
+    normalized.includes("invalid state")
+  ) {
+    return "The Google sign-in session expired or became invalid. Please try connecting again.";
+  }
+  if (normalized.includes("timed out")) {
+    return "Google sign-in timed out. Complete consent in the browser and try again.";
+  }
+  return message || "Google sign-in failed. Please try again.";
+}
+
 function normalizeRoleDraft(account: AccountRecord): RoleDraft {
   return {
     role: account.role,
@@ -196,6 +222,10 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
   const [submittingProfile, setSubmittingProfile] = useState(false);
   const [pageError, setPageError] = useState<string | null>(null);
   const [profileError, setProfileError] = useState<string | null>(null);
+  const [primaryConnectState, setPrimaryConnectState] = useState<PrimaryConnectState>("IDLE");
+  const [primaryConnectError, setPrimaryConnectError] = useState<string | null>(null);
+  const [primaryConnectedEmail, setPrimaryConnectedEmail] = useState<string | null>(null);
+  const [activePrimaryOAuthState, setActivePrimaryOAuthState] = useState<string | null>(null);
   const [roleSavingByAccountId, setRoleSavingByAccountId] = useState<Record<string, boolean>>({});
   const [roleErrorByAccountId, setRoleErrorByAccountId] = useState<Record<string, string>>({});
   const [roleSavedHintByAccountId, setRoleSavedHintByAccountId] = useState<Record<string, boolean>>(
@@ -286,10 +316,15 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
   );
 
   useEffect(() => {
-    if (!appState.onboardingComplete && connectedPrimary && step < 3) {
-      setStep(3);
+    if (connectedPrimary) {
+      setPrimaryConnectState("CONNECTED");
+      setPrimaryConnectedEmail(connectedPrimary.email);
+      setPrimaryConnectError(null);
+    } else if (primaryConnectState === "CONNECTED") {
+      setPrimaryConnectState("IDLE");
+      setPrimaryConnectedEmail(null);
     }
-  }, [appState.onboardingComplete, connectedPrimary, step]);
+  }, [connectedPrimary, primaryConnectState]);
 
   const showSavedHint = useCallback((accountId: string) => {
     const previousHintTimeout = savedHintTimeoutsRef.current.get(accountId);
@@ -387,7 +422,7 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
   };
 
   const runOauthConnectFlow = useCallback(
-    async (beforeIds: Set<string>) => {
+    async (beforeIds: Set<string>, context: string) => {
       const config = await configCheck();
       if (!config.configured) {
         throw new ApiClientError(config.message || "Google OAuth configuration is missing.");
@@ -395,6 +430,7 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
 
       const oauth = await startGmailOAuth({
         mode: "READONLY",
+        context,
         returnTo: "/onboarding",
       });
 
@@ -405,7 +441,7 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
       }
 
       const startedAt = Date.now();
-      let status: "PENDING" | "SUCCESS" | "ERROR" | "UNKNOWN" = "PENDING";
+      let status: "PENDING" | "SUCCESS" | "ERROR" | "EXPIRED" | "UNKNOWN" = "PENDING";
       let statusMessage = "Waiting for Google OAuth confirmation...";
       while (Date.now() - startedAt < OAUTH_POLL_TIMEOUT_MS) {
         const poll = await getGmailOAuthStatus(oauth.state);
@@ -414,16 +450,14 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
         if (status === "SUCCESS") {
           break;
         }
-        if (status === "ERROR" || status === "UNKNOWN") {
-          throw new ApiClientError(statusMessage || "OAuth flow failed.");
+        if (status === "ERROR" || status === "EXPIRED" || status === "UNKNOWN") {
+          throw new ApiClientError(toFriendlyOAuthMessage(statusMessage));
         }
         await new Promise((resolve) => window.setTimeout(resolve, OAUTH_POLL_INTERVAL_MS));
       }
 
       if (status !== "SUCCESS") {
-        throw new ApiClientError(
-          "Gmail connection timed out. Complete browser consent and try again."
-        );
+        throw new ApiClientError(toFriendlyOAuthMessage("Gmail connection timed out."));
       }
 
       let selectedAccount: AccountRecord | null = null;
@@ -458,19 +492,85 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
   );
 
   const connectPrimaryAccount = async () => {
+    if (
+      primaryConnectState === "OPENING_BROWSER" ||
+      primaryConnectState === "WAITING_FOR_CALLBACK"
+    ) {
+      return;
+    }
+
     setBusy(true);
     setPageError(null);
-    try {
-      const beforeAccounts = await listAccounts();
-      const beforeIds = new Set(beforeAccounts.map((account) => account.id));
-      const selectedAccount = await runOauthConnectFlow(beforeIds);
+    setPrimaryConnectError(null);
+    setPrimaryConnectedEmail(null);
+    setActivePrimaryOAuthState(null);
+    setPrimaryConnectState("OPENING_BROWSER");
 
-      await confirmPrimaryOnboardingAccount(selectedAccount.id);
+    try {
+      const config = await configCheck();
+      if (!config.configured) {
+        throw new ApiClientError(config.message || "Google OAuth configuration is missing.");
+      }
+
+      const oauth = await startGmailOAuth({
+        mode: "READONLY",
+        context: "ONBOARDING_PRIMARY",
+        returnTo: "/onboarding",
+      });
+      setActivePrimaryOAuthState(oauth.state);
+
+      try {
+        await openUrl(oauth.authUrl);
+      } catch {
+        throw new ApiClientError("Unable to open the browser for Google OAuth.");
+      }
+
+      setPrimaryConnectState("WAITING_FOR_CALLBACK");
+
+      const pollStartedAt = Date.now();
+      let resolvedAccountId: string | null = null;
+      let resolvedEmail: string | null = null;
+
+      while (Date.now() - pollStartedAt < OAUTH_POLL_TIMEOUT_MS) {
+        const poll = await getGmailOAuthStatus(oauth.state);
+        if (poll.status === "SUCCESS") {
+          resolvedAccountId = poll.accountId;
+          resolvedEmail = poll.email;
+          break;
+        }
+        if (poll.status === "ERROR" || poll.status === "EXPIRED" || poll.status === "UNKNOWN") {
+          throw new ApiClientError(toFriendlyOAuthMessage(poll.message));
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, OAUTH_POLL_INTERVAL_MS));
+      }
+
+      if (!resolvedAccountId) {
+        const latestAccounts = await loadAccounts();
+        const primaryCandidate =
+          latestAccounts.find(
+            (account) => account.provider === "GMAIL" && account.role === "PRIMARY" && isConnected(account)
+          ) ??
+          latestAccounts.find((account) => account.provider === "GMAIL" && isConnected(account)) ??
+          null;
+        if (!primaryCandidate) {
+          throw new ApiClientError(
+            "Google sign-in finished, but MailPilot could not find the connected account. Please retry."
+          );
+        }
+        resolvedAccountId = primaryCandidate.id;
+        resolvedEmail = primaryCandidate.email;
+      }
+
+      await confirmPrimaryOnboardingAccount(resolvedAccountId);
       await loadAccounts();
-      setStep(3);
+
+      setPrimaryConnectedEmail(resolvedEmail);
+      setPrimaryConnectState("CONNECTED");
     } catch (error) {
-      setPageError(toErrorMessage(error));
+      setPrimaryConnectState("ERROR");
+      setPrimaryConnectError(toFriendlyOAuthMessage(toErrorMessage(error)));
     } finally {
+      setActivePrimaryOAuthState(null);
       setBusy(false);
     }
   };
@@ -481,7 +581,7 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
     try {
       const beforeAccounts = await listAccounts();
       const beforeIds = new Set(beforeAccounts.map((account) => account.id));
-      const selectedAccount = await runOauthConnectFlow(beforeIds);
+      const selectedAccount = await runOauthConnectFlow(beforeIds, "ONBOARDING_SECONDARY");
 
       if (selectedAccount.role !== "PRIMARY") {
         await updateAccountLabel(selectedAccount.id, {
@@ -641,10 +741,13 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-6">
-      <Card className="w-full max-w-3xl border-border bg-card">
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-background via-background to-muted/25 p-6">
+      <Card className="w-full max-w-5xl border-border/80 bg-card/95 shadow-xl shadow-black/10 backdrop-blur">
         <CardHeader>
-          <CardTitle className="text-2xl">MailPilot Setup</CardTitle>
+          <CardTitle className="flex items-center gap-2 text-2xl">
+            <Sparkles className="h-5 w-5 text-primary" />
+            MailPilot Setup
+          </CardTitle>
           <CardDescription className="pt-1 text-sm text-muted-foreground">
             Complete these steps once to start using MailPilot.
           </CardDescription>
@@ -685,50 +788,173 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
         </CardHeader>
         <CardContent className="space-y-6">
           {step === 1 && (
-            <div className="space-y-4">
-              <h2 className="text-lg font-semibold">Welcome to MailPilot</h2>
-              <p className="text-sm text-muted-foreground">
-                Setup will connect your primary Gmail account, optionally add more accounts, save
-                your profile, and configure a local app password.
-              </p>
-              <Button disabled={busy} onClick={() => void startSetup()}>
-                {busy ? "Starting..." : "Start Setup"}
-              </Button>
+            <div className="grid gap-6 lg:grid-cols-[1.45fr_0.95fr]">
+              <div className="space-y-4">
+                <h2 className="text-lg font-semibold">Welcome to MailPilot</h2>
+                <p className="text-sm text-muted-foreground">
+                  Setup will connect your primary Gmail account, optionally add more accounts, save
+                  your profile, and configure a local app password.
+                </p>
+                <div className="rounded-lg border border-border bg-muted/20 p-4">
+                  <p className="text-sm text-muted-foreground">
+                    Expect a 2-3 minute setup. You can resume onboarding if you close the app.
+                  </p>
+                </div>
+                <Button disabled={busy} onClick={() => void startSetup()}>
+                  {busy ? "Starting..." : "Start Setup"}
+                </Button>
+              </div>
+              <Card className="border-border/80 bg-muted/15">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">What setup includes</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3 text-sm text-muted-foreground">
+                  <div className="flex items-start gap-2">
+                    <Mail className="mt-0.5 h-4 w-4 text-primary" />
+                    <span>Connect your primary Gmail account for inbox sync.</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <ShieldCheck className="mt-0.5 h-4 w-4 text-primary" />
+                    <span>Create a local password for lock and login protection.</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <UserRound className="mt-0.5 h-4 w-4 text-primary" />
+                    <span>Add profile basics and get suggested starter views.</span>
+                  </div>
+                </CardContent>
+              </Card>
             </div>
           )}
 
           {step === 2 && (
-            <div className="space-y-4">
-              <h2 className="text-lg font-semibold">Connect Primary Gmail</h2>
-              <p className="text-sm text-muted-foreground">
-                Connect the Gmail account you use as your primary inbox.
-              </p>
-              <div className="rounded-md border border-border bg-muted/40 p-3 text-sm">
-                {loadingAccounts ? (
-                  <span className="text-muted-foreground">Checking connected accounts...</span>
-                ) : connectedPrimary ? (
-                  <span>
-                    Connected: <strong>{connectedPrimary.email}</strong> (Primary)
-                  </span>
-                ) : (
-                  <span className="text-muted-foreground">No primary Gmail connected yet.</span>
-                )}
+            <div className="grid gap-6 lg:grid-cols-[1.45fr_0.95fr]">
+              <div className="space-y-4">
+                <h2 className="flex items-center gap-2 text-lg font-semibold">
+                  <Mail className="h-4 w-4 text-primary" />
+                  Connect Primary Gmail
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  Connect the Gmail account that MailPilot should treat as your default workspace.
+                </p>
+
+                <Card className="border-border/80 bg-muted/20">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm">Primary account</CardTitle>
+                    <CardDescription>
+                      This account is used as your default mailbox context during onboarding.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3 text-sm">
+                    {loadingAccounts ? (
+                      <div className="text-muted-foreground">Checking connected accounts...</div>
+                    ) : primaryConnectState === "CONNECTED" && (primaryConnectedEmail || connectedPrimary) ? (
+                      <div className="flex items-center gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-emerald-300">
+                        <CheckCircle2 className="h-4 w-4" />
+                        <span className="font-medium">
+                          Connected: {primaryConnectedEmail ?? connectedPrimary?.email}
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="rounded-md border border-border/70 bg-background/50 px-3 py-2 text-muted-foreground">
+                        No primary Gmail connected yet.
+                      </div>
+                    )}
+
+                    {primaryConnectState === "OPENING_BROWSER" && (
+                      <div className="flex items-center gap-2 text-muted-foreground">
+                        <span className="h-2 w-2 animate-pulse rounded-full bg-primary" />
+                        Opening browser for Google sign-in...
+                      </div>
+                    )}
+                    {primaryConnectState === "WAITING_FOR_CALLBACK" && (
+                      <div className="flex items-center gap-2 text-muted-foreground">
+                        <span className="h-2 w-2 animate-pulse rounded-full bg-primary" />
+                        Browser opened. Waiting for Google sign-in to finish...
+                      </div>
+                    )}
+                    {activePrimaryOAuthState &&
+                      (primaryConnectState === "OPENING_BROWSER" ||
+                        primaryConnectState === "WAITING_FOR_CALLBACK") && (
+                        <p className="text-xs text-muted-foreground">
+                          Session: <span className="font-mono">{activePrimaryOAuthState.slice(0, 12)}...</span>
+                        </p>
+                      )}
+                    {primaryConnectState === "ERROR" && primaryConnectError && (
+                      <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                        {primaryConnectError}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    disabled={
+                      busy ||
+                      primaryConnectState === "OPENING_BROWSER" ||
+                      primaryConnectState === "WAITING_FOR_CALLBACK"
+                    }
+                    onClick={() => void connectPrimaryAccount()}
+                  >
+                    {primaryConnectState === "OPENING_BROWSER" || primaryConnectState === "WAITING_FOR_CALLBACK"
+                      ? "Connecting..."
+                      : primaryConnectState === "ERROR"
+                        ? "Retry Gmail Connect"
+                        : "Connect Gmail"}
+                  </Button>
+                  <Button disabled={busy} onClick={() => setStep(1)} variant="outline">
+                    Back
+                  </Button>
+                  <Button
+                    disabled={
+                      !connectedPrimary ||
+                      busy ||
+                      primaryConnectState === "OPENING_BROWSER" ||
+                      primaryConnectState === "WAITING_FOR_CALLBACK"
+                    }
+                    onClick={() => setStep(3)}
+                    variant="secondary"
+                  >
+                    Continue
+                  </Button>
+                </div>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <Button disabled={busy} onClick={() => void connectPrimaryAccount()}>
-                  {busy ? "Connecting..." : "Connect Gmail"}
-                </Button>
-                <Button onClick={() => setStep(1)} variant="outline">
-                  Back
-                </Button>
-                <Button
-                  disabled={!connectedPrimary || busy}
-                  onClick={() => setStep(3)}
-                  variant="secondary"
-                >
-                  Continue
-                </Button>
-              </div>
+
+              <Card className="border-border/80 bg-muted/15">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">Why this matters</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3 text-sm text-muted-foreground">
+                  <div className="flex items-start gap-2">
+                    <ShieldCheck className="mt-0.5 h-4 w-4 text-primary" />
+                    <span>MailPilot uses secure Gmail OAuth with scoped access.</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <Sparkles className="mt-0.5 h-4 w-4 text-primary" />
+                    <span>
+                      This primary connection unlocks suggestions and focus workflows during setup.
+                    </span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <CheckCircle2 className="mt-0.5 h-4 w-4 text-primary" />
+                    <span>You can add and relabel more accounts in the next step.</span>
+                  </div>
+                </CardContent>
+              </Card>
+              {primaryConnectState === "ERROR" && (
+                <div className="lg:col-span-2">
+                  <Button
+                    onClick={() => {
+                      setPrimaryConnectState("IDLE");
+                      setPrimaryConnectError(null);
+                      setActivePrimaryOAuthState(null);
+                    }}
+                    variant="ghost"
+                  >
+                    Clear error
+                  </Button>
+                </div>
+              )}
             </div>
           )}
 
