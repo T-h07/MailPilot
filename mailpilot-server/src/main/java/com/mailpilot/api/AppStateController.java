@@ -1,6 +1,7 @@
 package com.mailpilot.api;
 
 import com.mailpilot.api.error.ApiBadRequestException;
+import com.mailpilot.api.model.AppPasswordChangeRequest;
 import com.mailpilot.api.model.AppPasswordRequest;
 import com.mailpilot.api.model.AppPasswordSetRequest;
 import com.mailpilot.api.model.AppRecoveryOptionsResponse;
@@ -41,6 +42,16 @@ public class AppStateController {
       throw new ApiBadRequestException("Request body is required.");
     }
     appStateService.setPassword(request.password());
+    return new StatusResponse("ok");
+  }
+
+  @PostMapping("/password/change")
+  public StatusResponse changePassword(@RequestBody AppPasswordChangeRequest request) {
+    if (request == null) {
+      throw new ApiBadRequestException("Request body is required.");
+    }
+    appStateService.changePassword(
+        request.currentPassword(), request.newPassword(), request.confirmNewPassword());
     return new StatusResponse("ok");
   }
 

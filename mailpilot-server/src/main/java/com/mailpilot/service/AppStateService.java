@@ -55,6 +55,12 @@ public class AppStateService {
   }
 
   @Transactional
+  public void changePassword(
+      String currentPassword, String newPassword, String confirmNewPassword) {
+    localAuthService.changePassword(currentPassword, newPassword, confirmNewPassword);
+  }
+
+  @Transactional
   public void login(String password) {
     localAuthService.verifyPassword(password);
     appStateRepository.setLocked(false);

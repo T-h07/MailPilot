@@ -43,6 +43,19 @@ export function setAppPassword(password: string, signal?: AbortSignal) {
   });
 }
 
+export function changeAppPassword(
+  currentPassword: string,
+  newPassword: string,
+  confirmNewPassword: string,
+  signal?: AbortSignal
+) {
+  return fetchJson<StatusResponse>("/api/app/password/change", {
+    method: "POST",
+    body: { currentPassword, newPassword, confirmNewPassword },
+    signal,
+  });
+}
+
 export function loginApp(password: string, signal?: AbortSignal) {
   return fetchJson<StatusResponse>("/api/app/login", {
     method: "POST",
