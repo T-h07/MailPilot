@@ -256,7 +256,11 @@ function roleAccent(role: AccountRole): string {
   return "from-teal-500/15 to-slate-500/10 border-teal-500/25";
 }
 
-function proposalTone(category: string, id: string, name: string): {
+function proposalTone(
+  category: string,
+  id: string,
+  name: string
+): {
   badge: string;
   border: string;
   line: string;
@@ -885,7 +889,10 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
     () => accounts.filter((account) => isConnected(account)),
     [accounts]
   );
-  const additionalAccountsCount = Math.max(connectedAccounts.length - (connectedPrimary ? 1 : 0), 0);
+  const additionalAccountsCount = Math.max(
+    connectedAccounts.length - (connectedPrimary ? 1 : 0),
+    0
+  );
   const syncProgressMessage = SYNC_PROGRESS_MESSAGES[syncMessageIndex];
   const friendlyConnectError =
     pageError && pageError.toLowerCase().includes("no oauth flow found")
@@ -1126,7 +1133,8 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
                                     const nextRole = event.target.value as AccountRole;
                                     const nextDraft: RoleDraft = {
                                       role: nextRole,
-                                      customLabel: nextRole === "CUSTOM" ? roleDraft.customLabel : "",
+                                      customLabel:
+                                        nextRole === "CUSTOM" ? roleDraft.customLabel : "",
                                     };
                                     setRoleDraftByAccountId((previous) => ({
                                       ...previous,
@@ -1176,17 +1184,29 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
                 </AccentCard>
 
                 <div className="flex flex-wrap gap-2">
-                  <Button className="gap-2" disabled={busy} onClick={() => void connectSecondaryAccount()}>
+                  <Button
+                    className="gap-2"
+                    disabled={busy}
+                    onClick={() => void connectSecondaryAccount()}
+                  >
                     <MailPlus className="h-4 w-4" />
                     {busy ? "Connecting..." : "Connect another Gmail"}
                   </Button>
                   <Button disabled={busy} onClick={() => setStep(2)} variant="outline">
                     Back
                   </Button>
-                  <Button disabled={busy} onClick={() => void continueFromAccountsStep()} variant="secondary">
+                  <Button
+                    disabled={busy}
+                    onClick={() => void continueFromAccountsStep()}
+                    variant="secondary"
+                  >
                     Continue
                   </Button>
-                  <Button disabled={busy} onClick={() => void continueFromAccountsStep()} variant="ghost">
+                  <Button
+                    disabled={busy}
+                    onClick={() => void continueFromAccountsStep()}
+                    variant="ghost"
+                  >
                     Skip
                   </Button>
                 </div>
@@ -1243,7 +1263,9 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
 
               <div className="grid gap-3 md:grid-cols-4">
                 <div className="rounded-lg border border-border/70 bg-card/70 p-3">
-                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Analyzed</p>
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                    Analyzed
+                  </p>
                   <p className="pt-1 text-xl font-semibold">{analysisStats.analyzedMessages}</p>
                   <p className="text-xs text-muted-foreground">messages in the last 30 days</p>
                 </div>
@@ -1262,7 +1284,9 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
                   <p className="text-xs text-muted-foreground">high confidence proposals</p>
                 </div>
                 <div className="rounded-lg border border-border/70 bg-card/70 p-3">
-                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Suppressed</p>
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                    Suppressed
+                  </p>
                   <p className="pt-1 text-xl font-semibold">{analysisStats.suppressedCandidates}</p>
                   <p className="text-xs text-muted-foreground">overlapping or low-signal</p>
                 </div>
@@ -1272,7 +1296,11 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
                 <div className="space-y-3">
                   {proposals.map((proposal) => {
                     const tone = proposalTone(proposal.category, proposal.id, proposal.name);
-                    const ProposalIcon = proposalIcon(proposal.category, proposal.id, proposal.name);
+                    const ProposalIcon = proposalIcon(
+                      proposal.category,
+                      proposal.id,
+                      proposal.name
+                    );
                     return (
                       <div
                         className={`relative overflow-hidden rounded-xl border bg-card/70 p-4 ${tone.border}`}
@@ -1348,7 +1376,9 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
                             </summary>
                             <div className="mt-3 grid gap-2">
                               {proposal.sampleMessages.length === 0 && (
-                                <p className="text-xs text-muted-foreground">No sample messages available.</p>
+                                <p className="text-xs text-muted-foreground">
+                                  No sample messages available.
+                                </p>
                               )}
                               {proposal.sampleMessages.map((sample) => (
                                 <div
@@ -1403,13 +1433,18 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
                               {proposal.scopeType === "SELECTED" && (
                                 <div className="max-h-28 space-y-1 overflow-auto rounded-md border border-border p-2">
                                   {accounts.map((account) => (
-                                    <label className="flex items-center gap-2 text-xs" key={`${proposal.id}-acct-${account.id}`}>
+                                    <label
+                                      className="flex items-center gap-2 text-xs"
+                                      key={`${proposal.id}-acct-${account.id}`}
+                                    >
                                       <input
                                         checked={proposal.selectedAccountIds.includes(account.id)}
                                         className="h-3.5 w-3.5 accent-primary"
                                         onChange={(event) =>
                                           updateProposal(proposal.id, (previous) => {
-                                            const selectedIds = new Set(previous.selectedAccountIds);
+                                            const selectedIds = new Set(
+                                              previous.selectedAccountIds
+                                            );
                                             if (event.target.checked) {
                                               selectedIds.add(account.id);
                                             } else {
@@ -1442,7 +1477,10 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
                                 value={proposal.priority}
                               >
                                 {[1, 2, 3, 4, 5].map((priorityValue) => (
-                                  <option key={`${proposal.id}-priority-${priorityValue}`} value={priorityValue}>
+                                  <option
+                                    key={`${proposal.id}-priority-${priorityValue}`}
+                                    value={priorityValue}
+                                  >
                                     Priority {priorityValue}
                                   </option>
                                 ))}
@@ -1519,7 +1557,11 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
                   <div className="mt-3 space-y-2">
                     {moreSuggestions.map((proposal) => {
                       const tone = proposalTone(proposal.category, proposal.id, proposal.name);
-                      const ProposalIcon = proposalIcon(proposal.category, proposal.id, proposal.name);
+                      const ProposalIcon = proposalIcon(
+                        proposal.category,
+                        proposal.id,
+                        proposal.name
+                      );
                       return (
                         <div
                           className={`rounded-lg border bg-background/70 p-3 ${tone.border}`}
@@ -1536,7 +1578,9 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
                               {proposal.estimatedCount} / {proposal.estimatedPct.toFixed(1)}%
                             </Badge>
                           </div>
-                          <p className="pt-1 text-xs text-muted-foreground">{proposal.explanation}</p>
+                          <p className="pt-1 text-xs text-muted-foreground">
+                            {proposal.explanation}
+                          </p>
                         </div>
                       );
                     })}
@@ -1621,7 +1665,10 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
                           className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                           disabled={submittingProfile}
                           onChange={(event) =>
-                            setForm((previous) => ({ ...previous, fieldChoice: event.target.value }))
+                            setForm((previous) => ({
+                              ...previous,
+                              fieldChoice: event.target.value,
+                            }))
                           }
                           value={form.fieldChoice}
                         >
@@ -1635,7 +1682,10 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
                           <Input
                             disabled={submittingProfile}
                             onChange={(event) =>
-                              setForm((previous) => ({ ...previous, fieldOther: event.target.value }))
+                              setForm((previous) => ({
+                                ...previous,
+                                fieldOther: event.target.value,
+                              }))
                             }
                             placeholder="Custom industry"
                             value={form.fieldOther}
@@ -1690,7 +1740,9 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
                     {submittingProfile ? "Finishing..." : "Finish setup"}
                   </Button>
                 </div>
-                {profileError ? <p className="pt-2 text-sm text-destructive">{profileError}</p> : null}
+                {profileError ? (
+                  <p className="pt-2 text-sm text-destructive">{profileError}</p>
+                ) : null}
               </AccentCard>
             </div>
           )}

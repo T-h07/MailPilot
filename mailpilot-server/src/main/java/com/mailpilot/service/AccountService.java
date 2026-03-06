@@ -211,7 +211,8 @@ public class AccountService {
     return hasScope(scope, GMAIL_SEND_SCOPE);
   }
 
-  private String resolveStatus(String provider, String existingStatus, boolean canRead, boolean canSend) {
+  private String resolveStatus(
+      String provider, String existingStatus, boolean canRead, boolean canSend) {
     if (!"GMAIL".equalsIgnoreCase(provider)) {
       return existingStatus;
     }

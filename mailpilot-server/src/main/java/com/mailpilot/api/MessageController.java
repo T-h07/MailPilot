@@ -1,7 +1,7 @@
 package com.mailpilot.api;
 
-import com.mailpilot.api.model.MessageDetailResponse;
 import com.mailpilot.api.model.MessageBodyLoadResponse;
+import com.mailpilot.api.model.MessageDetailResponse;
 import com.mailpilot.api.model.MessageReadRequest;
 import com.mailpilot.api.model.StatusResponse;
 import com.mailpilot.service.MessageService;
@@ -44,24 +44,19 @@ public class MessageController {
   public ResponseEntity<byte[]> exportMessagePdf(@PathVariable("id") UUID id) {
     PdfDocument document = pdfExportService.exportMessage(id);
     String safeFilename = sanitizeDispositionFilename(document.filename());
-    ContentDisposition disposition = ContentDisposition
-      .attachment()
-      .filename(safeFilename, StandardCharsets.UTF_8)
-      .build();
+    ContentDisposition disposition =
+        ContentDisposition.attachment().filename(safeFilename, StandardCharsets.UTF_8).build();
 
-    return ResponseEntity
-      .ok()
-      .contentType(MediaType.APPLICATION_PDF)
-      .contentLength(document.bytes().length)
-      .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
-      .body(document.bytes());
+    return ResponseEntity.ok()
+        .contentType(MediaType.APPLICATION_PDF)
+        .contentLength(document.bytes().length)
+        .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
+        .body(document.bytes());
   }
 
   @PostMapping("/{id}/read")
   public StatusResponse setReadState(
-    @PathVariable("id") UUID id,
-    @Valid @RequestBody MessageReadRequest request
-  ) {
+      @PathVariable("id") UUID id, @Valid @RequestBody MessageReadRequest request) {
     messageService.setUnread(id, request.isUnread());
     return new StatusResponse("ok");
   }
@@ -74,9 +69,8 @@ public class MessageController {
 
   @PostMapping("/{id}/body/load")
   public MessageBodyLoadResponse loadBody(
-    @PathVariable("id") UUID id,
-    @RequestParam(name = "force", defaultValue = "false") boolean force
-  ) {
+      @PathVariable("id") UUID id,
+      @RequestParam(name = "force", defaultValue = "false") boolean force) {
     return messageService.loadBody(id, force);
   }
 
@@ -84,10 +78,8 @@ public class MessageController {
     if (value == null || value.isBlank()) {
       return "mailpilot-message-export.pdf";
     }
-    String sanitized = value
-      .replaceAll("[\\p{Cntrl}<>:\"/\\\\|?*]+", " ")
-      .replaceAll("\\s+", " ")
-      .trim();
+    String sanitized =
+        value.replaceAll("[\\p{Cntrl}<>:\"/\\\\|?*]+", " ").replaceAll("\\s+", " ").trim();
     if (sanitized.isBlank()) {
       return "mailpilot-message-export.pdf";
     }

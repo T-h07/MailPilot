@@ -171,7 +171,8 @@ public class LocalPasswordRecoveryService {
   }
 
   private PrimaryAccount loadPrimaryAccount() {
-    return jdbcTemplate.query(
+    return jdbcTemplate
+        .query(
             """
             SELECT
               a.id,
@@ -194,7 +195,8 @@ public class LocalPasswordRecoveryService {
   }
 
   private RecoveryCodeRow loadLatestActiveCode(String targetEmail) {
-    return jdbcTemplate.query(
+    return jdbcTemplate
+        .query(
             """
             SELECT id, target_email, code_hash, expires_at, attempt_count
             FROM local_auth_recovery_codes
@@ -222,7 +224,8 @@ public class LocalPasswordRecoveryService {
 
   private void enforceRequestLimits(String targetEmail, OffsetDateTime now) {
     OffsetDateTime latestRequestAt =
-        jdbcTemplate.query(
+        jdbcTemplate
+            .query(
                 """
                 SELECT created_at
                 FROM local_auth_recovery_codes
@@ -237,9 +240,11 @@ public class LocalPasswordRecoveryService {
             .findFirst()
             .orElse(null);
 
-    if (latestRequestAt != null && latestRequestAt.plusSeconds(RESEND_COOLDOWN_SECONDS).isAfter(now)) {
+    if (latestRequestAt != null
+        && latestRequestAt.plusSeconds(RESEND_COOLDOWN_SECONDS).isAfter(now)) {
       long remaining =
-          latestRequestAt.plusSeconds(RESEND_COOLDOWN_SECONDS).toEpochSecond() - now.toEpochSecond();
+          latestRequestAt.plusSeconds(RESEND_COOLDOWN_SECONDS).toEpochSecond()
+              - now.toEpochSecond();
       throw new RateLimitException(
           "Please wait " + Math.max(1, remaining) + " seconds before requesting another code.");
     }

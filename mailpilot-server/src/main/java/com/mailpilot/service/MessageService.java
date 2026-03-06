@@ -38,11 +38,10 @@ public class MessageService {
   private final TokenService tokenService;
 
   public MessageService(
-    JdbcTemplate jdbcTemplate,
-    SenderHighlightResolver senderHighlightResolver,
-    GmailClient gmailClient,
-    TokenService tokenService
-  ) {
+      JdbcTemplate jdbcTemplate,
+      SenderHighlightResolver senderHighlightResolver,
+      GmailClient gmailClient,
+      TokenService tokenService) {
     this.jdbcTemplate = jdbcTemplate;
     this.senderHighlightResolver = senderHighlightResolver;
     this.gmailClient = gmailClient;
@@ -51,7 +50,7 @@ public class MessageService {
 
   public MessageDetailResponse getMessageDetail(UUID messageId) {
     String messageSql =
-      """
+        """
       SELECT
         m.id,
         m.account_id,
@@ -79,11 +78,8 @@ public class MessageService {
       WHERE m.id = ?
       """;
 
-    List<MessageRow> messageRows = jdbcTemplate.query(
-      messageSql,
-      (resultSet, rowNum) -> mapMessageRow(resultSet),
-      messageId
-    );
+    List<MessageRow> messageRows =
+        jdbcTemplate.query(messageSql, (resultSet, rowNum) -> mapMessageRow(resultSet), messageId);
 
     if (messageRows.isEmpty()) {
       throw new ApiNotFoundException("Message not found");
@@ -91,126 +87,123 @@ public class MessageService {
 
     MessageRow messageRow = messageRows.getFirst();
 
-    List<MessageDetailResponse.Attachment> attachments = jdbcTemplate.query(
-      "SELECT id, filename, mime_type, size_bytes FROM attachments WHERE message_id = ? ORDER BY filename",
-      (resultSet, rowNum) ->
-        new MessageDetailResponse.Attachment(
-          resultSet.getObject("id", UUID.class),
-          resultSet.getString("filename"),
-          resultSet.getString("mime_type"),
-          resultSet.getLong("size_bytes")
-        ),
-      messageId
-    );
+    List<MessageDetailResponse.Attachment> attachments =
+        jdbcTemplate.query(
+            "SELECT id, filename, mime_type, size_bytes FROM attachments WHERE message_id = ? ORDER BY filename",
+            (resultSet, rowNum) ->
+                new MessageDetailResponse.Attachment(
+                    resultSet.getObject("id", UUID.class),
+                    resultSet.getString("filename"),
+                    resultSet.getString("mime_type"),
+                    resultSet.getLong("size_bytes")),
+            messageId);
 
     List<MessageDetailResponse.ThreadMessage> threadMessages;
     if (messageRow.threadId() != null) {
-      threadMessages = jdbcTemplate.query(
-        """
+      threadMessages =
+          jdbcTemplate.query(
+              """
         SELECT id, sender_email, COALESCE(subject, '(no subject)') AS subject, received_at, NOT is_read AS is_unread
         FROM messages
         WHERE thread_id = ?
         ORDER BY received_at DESC, id DESC
         LIMIT 200
         """,
-        (resultSet, rowNum) -> mapThreadMessage(resultSet),
-        messageRow.threadId()
-      );
+              (resultSet, rowNum) -> mapThreadMessage(resultSet),
+              messageRow.threadId());
     } else {
-      threadMessages = List.of(
-        new MessageDetailResponse.ThreadMessage(
-          messageRow.id(),
-          messageRow.senderEmail(),
-          messageRow.subject(),
-          messageRow.receivedAt(),
-          messageRow.isUnread()
-        )
-      );
+      threadMessages =
+          List.of(
+              new MessageDetailResponse.ThreadMessage(
+                  messageRow.id(),
+                  messageRow.senderEmail(),
+                  messageRow.subject(),
+                  messageRow.receivedAt(),
+                  messageRow.isUnread()));
     }
 
-    List<String> tags = jdbcTemplate.query(
-      """
+    List<String> tags =
+        jdbcTemplate.query(
+            """
       SELECT t.name
       FROM message_tags mt
       JOIN tags t ON t.id = mt.tag_id
       WHERE mt.message_id = ?
       ORDER BY t.name
       """,
-      (resultSet, rowNum) -> resultSet.getString("name"),
-      messageId
-    );
+            (resultSet, rowNum) -> resultSet.getString("name"),
+            messageId);
 
-    MessageDetailResponse.Body body = new MessageDetailResponse.Body(
-      messageRow.bodyCacheMime() == null ? "text/plain" : messageRow.bodyCacheMime(),
-      messageRow.bodyCache(),
-      messageRow.bodyCache() != null
-    );
+    MessageDetailResponse.Body body =
+        new MessageDetailResponse.Body(
+            messageRow.bodyCacheMime() == null ? "text/plain" : messageRow.bodyCacheMime(),
+            messageRow.bodyCache(),
+            messageRow.bodyCache() != null);
 
-    MessageDetailResponse.Followup followup = new MessageDetailResponse.Followup(
-      messageRow.followupStatus() == null ? "OPEN" : messageRow.followupStatus(),
-      Boolean.TRUE.equals(messageRow.needsReply()),
-      messageRow.dueAt(),
-      messageRow.snoozedUntil()
-    );
+    MessageDetailResponse.Followup followup =
+        new MessageDetailResponse.Followup(
+            messageRow.followupStatus() == null ? "OPEN" : messageRow.followupStatus(),
+            Boolean.TRUE.equals(messageRow.needsReply()),
+            messageRow.dueAt(),
+            messageRow.snoozedUntil());
 
-    SenderHighlightResolver.Highlight resolvedHighlight = senderHighlightResolver.resolveSingle(
-      messageRow.senderEmail(),
-      messageRow.senderDomain()
-    );
-    MessageDetailResponse.Highlight highlight = resolvedHighlight == null
-      ? null
-      : new MessageDetailResponse.Highlight(resolvedHighlight.label(), resolvedHighlight.accent());
+    SenderHighlightResolver.Highlight resolvedHighlight =
+        senderHighlightResolver.resolveSingle(messageRow.senderEmail(), messageRow.senderDomain());
+    MessageDetailResponse.Highlight highlight =
+        resolvedHighlight == null
+            ? null
+            : new MessageDetailResponse.Highlight(
+                resolvedHighlight.label(), resolvedHighlight.accent());
 
     return new MessageDetailResponse(
-      messageRow.id(),
-      messageRow.accountId(),
-      messageRow.accountEmail(),
-      messageRow.threadId(),
-      messageRow.senderName(),
-      messageRow.senderEmail(),
-      messageRow.subject(),
-      messageRow.receivedAt().toString(),
-      buildOpenInGmailUrl(messageRow.accountEmail(), messageRow.providerMessageId()),
-      messageRow.isUnread(),
-      messageRow.seenInApp(),
-      messageRow.isSent(),
-      body,
-      attachments,
-      new MessageDetailResponse.Thread(threadMessages),
-      tags,
-      followup,
-      highlight
-    );
+        messageRow.id(),
+        messageRow.accountId(),
+        messageRow.accountEmail(),
+        messageRow.threadId(),
+        messageRow.senderName(),
+        messageRow.senderEmail(),
+        messageRow.subject(),
+        messageRow.receivedAt().toString(),
+        buildOpenInGmailUrl(messageRow.accountEmail(), messageRow.providerMessageId()),
+        messageRow.isUnread(),
+        messageRow.seenInApp(),
+        messageRow.isSent(),
+        body,
+        attachments,
+        new MessageDetailResponse.Thread(threadMessages),
+        tags,
+        followup,
+        highlight);
   }
 
   public MessageBodyLoadResponse loadBody(UUID messageId, boolean force) {
     BodyLoadRow message = loadBodyRow(messageId);
 
     if (!GMAIL_PROVIDER.equalsIgnoreCase(message.accountProvider())) {
-      throw new ApiBadRequestException("Message body loading is only supported for GMAIL accounts.");
+      throw new ApiBadRequestException(
+          "Message body loading is only supported for GMAIL accounts.");
     }
     if (!StringUtils.hasText(message.providerMessageId())) {
       throw new ApiBadRequestException("provider_message_id is missing for this message.");
     }
 
-    if (!force && StringUtils.hasText(message.bodyCache()) && StringUtils.hasText(message.bodyCacheMime())) {
+    if (!force
+        && StringUtils.hasText(message.bodyCache())
+        && StringUtils.hasText(message.bodyCacheMime())) {
       String existingMime = message.bodyCacheMime().trim();
-      OffsetDateTime cachedAt = message.bodyCachedAt() == null
-        ? OffsetDateTime.now(ZoneOffset.UTC)
-        : message.bodyCachedAt();
+      OffsetDateTime cachedAt =
+          message.bodyCachedAt() == null
+              ? OffsetDateTime.now(ZoneOffset.UTC)
+              : message.bodyCachedAt();
       return new MessageBodyLoadResponse(
-        "ok",
-        message.id(),
-        existingMime,
-        cachedAt.toString(),
-        utf8Length(message.bodyCache())
-      );
+          "ok", message.id(), existingMime, cachedAt.toString(), utf8Length(message.bodyCache()));
     }
 
-    GmailMessageResponse response = executeWithTokenRetry(
-      message.accountId(),
-      (accessToken) -> gmailClient.getMessageFull(accessToken, message.providerMessageId().trim())
-    );
+    GmailMessageResponse response =
+        executeWithTokenRetry(
+            message.accountId(),
+            (accessToken) ->
+                gmailClient.getMessageFull(accessToken, message.providerMessageId().trim()));
 
     CachedBody extractedBody = extractBody(response.payload());
     int contentLength = utf8Length(extractedBody.content());
@@ -219,63 +212,56 @@ public class MessageService {
     }
 
     OffsetDateTime cachedAt = OffsetDateTime.now(ZoneOffset.UTC);
-    int updatedRows = jdbcTemplate.update(
-      """
+    int updatedRows =
+        jdbcTemplate.update(
+            """
       UPDATE messages
       SET body_cache = ?, body_cache_mime = ?, body_cached_at = ?
       WHERE id = ?
       """,
-      extractedBody.content(),
-      extractedBody.mime(),
-      cachedAt,
-      message.id()
-    );
+            extractedBody.content(),
+            extractedBody.mime(),
+            cachedAt,
+            message.id());
     if (updatedRows == 0) {
       throw new ApiNotFoundException("Message not found");
     }
 
     return new MessageBodyLoadResponse(
-      "ok",
-      message.id(),
-      extractedBody.mime(),
-      cachedAt.toString(),
-      contentLength
-    );
+        "ok", message.id(), extractedBody.mime(), cachedAt.toString(), contentLength);
   }
 
   public BodyCacheSnapshot ensureBodyCached(UUID messageId) {
     BodyLoadRow message = loadBodyRow(messageId);
-    boolean missingCache = !StringUtils.hasText(message.bodyCache()) || !StringUtils.hasText(message.bodyCacheMime());
+    boolean missingCache =
+        !StringUtils.hasText(message.bodyCache()) || !StringUtils.hasText(message.bodyCacheMime());
     if (missingCache && GMAIL_PROVIDER.equalsIgnoreCase(message.accountProvider())) {
       loadBody(messageId, true);
       message = loadBodyRow(messageId);
     }
 
     return new BodyCacheSnapshot(
-      message.id(),
-      message.accountProvider(),
-      message.bodyCache(),
-      message.bodyCacheMime()
-    );
+        message.id(), message.accountProvider(), message.bodyCache(), message.bodyCacheMime());
   }
 
   public void setUnread(UUID messageId, boolean isUnread) {
-    int updatedRows = jdbcTemplate.update("UPDATE messages SET is_read = ? WHERE id = ?", !isUnread, messageId);
+    int updatedRows =
+        jdbcTemplate.update("UPDATE messages SET is_read = ? WHERE id = ?", !isUnread, messageId);
     if (updatedRows == 0) {
       throw new ApiNotFoundException("Message not found");
     }
   }
 
   public void markSeenInApp(UUID messageId) {
-    int updatedRows = jdbcTemplate.update(
-      """
+    int updatedRows =
+        jdbcTemplate.update(
+            """
       UPDATE messages
       SET seen_in_app = true,
           seen_in_app_at = COALESCE(seen_in_app_at, now())
       WHERE id = ?
       """,
-      messageId
-    );
+            messageId);
     if (updatedRows == 0) {
       throw new ApiNotFoundException("Message not found");
     }
@@ -296,7 +282,8 @@ public class MessageService {
     }
 
     if (collector.attachmentOnlyBody()) {
-      throw new ApiBadRequestException("Message body is stored as attachment-only content and cannot be loaded yet.");
+      throw new ApiBadRequestException(
+          "Message body is stored as attachment-only content and cannot be loaded yet.");
     }
     throw new ApiBadRequestException("No body content available from Gmail for this message.");
   }
@@ -395,78 +382,76 @@ public class MessageService {
 
   private MessageRow mapMessageRow(ResultSet resultSet) throws SQLException {
     return new MessageRow(
-      resultSet.getObject("id", UUID.class),
-      resultSet.getObject("account_id", UUID.class),
-      resultSet.getString("account_email"),
-      resultSet.getString("provider_message_id"),
-      resultSet.getObject("thread_id", UUID.class),
-      resultSet.getString("sender_name"),
-      resultSet.getString("sender_email"),
-      resultSet.getString("sender_domain"),
-      resultSet.getString("subject"),
-      resultSet.getString("snippet"),
-      resultSet.getObject("received_at", OffsetDateTime.class),
-      resultSet.getBoolean("is_unread"),
-      resultSet.getBoolean("seen_in_app"),
-      resultSet.getBoolean("is_sent"),
-      resultSet.getString("body_cache"),
-      resultSet.getString("body_cache_mime"),
-      resultSet.getString("followup_status"),
-      (Boolean) resultSet.getObject("needs_reply"),
-      resultSet.getObject("due_at", OffsetDateTime.class),
-      resultSet.getObject("snoozed_until", OffsetDateTime.class)
-    );
+        resultSet.getObject("id", UUID.class),
+        resultSet.getObject("account_id", UUID.class),
+        resultSet.getString("account_email"),
+        resultSet.getString("provider_message_id"),
+        resultSet.getObject("thread_id", UUID.class),
+        resultSet.getString("sender_name"),
+        resultSet.getString("sender_email"),
+        resultSet.getString("sender_domain"),
+        resultSet.getString("subject"),
+        resultSet.getString("snippet"),
+        resultSet.getObject("received_at", OffsetDateTime.class),
+        resultSet.getBoolean("is_unread"),
+        resultSet.getBoolean("seen_in_app"),
+        resultSet.getBoolean("is_sent"),
+        resultSet.getString("body_cache"),
+        resultSet.getString("body_cache_mime"),
+        resultSet.getString("followup_status"),
+        (Boolean) resultSet.getObject("needs_reply"),
+        resultSet.getObject("due_at", OffsetDateTime.class),
+        resultSet.getObject("snoozed_until", OffsetDateTime.class));
   }
 
-  private MessageDetailResponse.ThreadMessage mapThreadMessage(ResultSet resultSet) throws SQLException {
+  private MessageDetailResponse.ThreadMessage mapThreadMessage(ResultSet resultSet)
+      throws SQLException {
     return new MessageDetailResponse.ThreadMessage(
-      resultSet.getObject("id", UUID.class),
-      resultSet.getString("sender_email"),
-      resultSet.getString("subject"),
-      resultSet.getObject("received_at", OffsetDateTime.class),
-      resultSet.getBoolean("is_unread")
-    );
+        resultSet.getObject("id", UUID.class),
+        resultSet.getString("sender_email"),
+        resultSet.getString("subject"),
+        resultSet.getObject("received_at", OffsetDateTime.class),
+        resultSet.getBoolean("is_unread"));
   }
 
   private record MessageRow(
-    UUID id,
-    UUID accountId,
-    String accountEmail,
-    String providerMessageId,
-    UUID threadId,
-    String senderName,
-    String senderEmail,
-    String senderDomain,
-    String subject,
-    String snippet,
-    OffsetDateTime receivedAt,
-    boolean isUnread,
-    boolean seenInApp,
-    boolean isSent,
-    String bodyCache,
-    String bodyCacheMime,
-    String followupStatus,
-    Boolean needsReply,
-    OffsetDateTime dueAt,
-    OffsetDateTime snoozedUntil
-  ) {}
+      UUID id,
+      UUID accountId,
+      String accountEmail,
+      String providerMessageId,
+      UUID threadId,
+      String senderName,
+      String senderEmail,
+      String senderDomain,
+      String subject,
+      String snippet,
+      OffsetDateTime receivedAt,
+      boolean isUnread,
+      boolean seenInApp,
+      boolean isSent,
+      String bodyCache,
+      String bodyCacheMime,
+      String followupStatus,
+      Boolean needsReply,
+      OffsetDateTime dueAt,
+      OffsetDateTime snoozedUntil) {}
 
   private record BodyLoadRow(
-    UUID id,
-    UUID accountId,
-    String accountEmail,
-    String accountProvider,
-    String providerMessageId,
-    String bodyCache,
-    String bodyCacheMime,
-    OffsetDateTime bodyCachedAt
-  ) {}
+      UUID id,
+      UUID accountId,
+      String accountEmail,
+      String accountProvider,
+      String providerMessageId,
+      String bodyCache,
+      String bodyCacheMime,
+      OffsetDateTime bodyCachedAt) {}
 
   private record CachedBody(String mime, String content) {}
 
   private BodyLoadRow loadBodyRow(UUID messageId) {
-    return jdbcTemplate.query(
-      """
+    return jdbcTemplate
+        .query(
+            """
       SELECT
         m.id,
         m.account_id,
@@ -480,22 +465,24 @@ public class MessageService {
       JOIN accounts a ON a.id = m.account_id
       WHERE m.id = ?
       """,
-      (resultSet, rowNum) ->
-        new BodyLoadRow(
-          resultSet.getObject("id", UUID.class),
-          resultSet.getObject("account_id", UUID.class),
-          resultSet.getString("account_email"),
-          resultSet.getString("account_provider"),
-          resultSet.getString("provider_message_id"),
-          resultSet.getString("body_cache"),
-          resultSet.getString("body_cache_mime"),
-          resultSet.getObject("body_cached_at", OffsetDateTime.class)
-        ),
-      messageId
-    ).stream().findFirst().orElseThrow(() -> new ApiNotFoundException("Message not found"));
+            (resultSet, rowNum) ->
+                new BodyLoadRow(
+                    resultSet.getObject("id", UUID.class),
+                    resultSet.getObject("account_id", UUID.class),
+                    resultSet.getString("account_email"),
+                    resultSet.getString("account_provider"),
+                    resultSet.getString("provider_message_id"),
+                    resultSet.getString("body_cache"),
+                    resultSet.getString("body_cache_mime"),
+                    resultSet.getObject("body_cached_at", OffsetDateTime.class)),
+            messageId)
+        .stream()
+        .findFirst()
+        .orElseThrow(() -> new ApiNotFoundException("Message not found"));
   }
 
-  public record BodyCacheSnapshot(UUID messageId, String accountProvider, String bodyCache, String bodyCacheMime) {}
+  public record BodyCacheSnapshot(
+      UUID messageId, String accountProvider, String bodyCache, String bodyCacheMime) {}
 
   private static final class BodyCollector {
 

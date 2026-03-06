@@ -35,7 +35,8 @@ public class OnboardingViewProposalService {
 
   public OnboardingViewProposalsResponse generateProposals(
       String rawRange, Integer rawMaxSenders, Integer rawMaxMessages) {
-    return onboardingViewSuggestionService.generateProposals(rawRange, rawMaxSenders, rawMaxMessages);
+    return onboardingViewSuggestionService.generateProposals(
+        rawRange, rawMaxSenders, rawMaxMessages);
   }
 
   @Transactional

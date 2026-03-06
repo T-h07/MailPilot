@@ -859,15 +859,18 @@ export function SettingsPage() {
     setResetError(null);
   }, []);
 
-  const closeResetDialog = useCallback((open: boolean) => {
-    if (!open && !isResettingApp) {
-      setResetDialogOpen(false);
-      setResetPassword("");
-      setResetConfirmText("");
-      setResetAcknowledgeChecked(false);
-      setResetError(null);
-    }
-  }, [isResettingApp]);
+  const closeResetDialog = useCallback(
+    (open: boolean) => {
+      if (!open && !isResettingApp) {
+        setResetDialogOpen(false);
+        setResetPassword("");
+        setResetConfirmText("");
+        setResetAcknowledgeChecked(false);
+        setResetError(null);
+      }
+    },
+    [isResettingApp]
+  );
 
   const handleResetApp = useCallback(async () => {
     setResetError(null);
@@ -1129,9 +1132,7 @@ export function SettingsPage() {
                       ? "Change password"
                       : "Set password"}
                 </Button>
-                <p className="text-xs text-muted-foreground">
-                  Password must be 8-128 characters.
-                </p>
+                <p className="text-xs text-muted-foreground">Password must be 8-128 characters.</p>
               </div>
             </>
           )}
@@ -1306,9 +1307,7 @@ export function SettingsPage() {
                       <div className="flex flex-wrap items-center gap-2">
                         <Badge variant="outline">{account.provider}</Badge>
                         <p className="truncate text-sm font-medium">{account.email}</p>
-                        <Badge variant={connectionBadgeVariant}>
-                          {connectionLabel}
-                        </Badge>
+                        <Badge variant={connectionBadgeVariant}>{connectionLabel}</Badge>
                         <Badge variant={account.canRead ? "secondary" : "outline"}>
                           {account.canRead ? "Can read" : "Read access missing"}
                         </Badge>
@@ -1570,8 +1569,8 @@ export function SettingsPage() {
           <DialogHeader>
             <DialogTitle className="text-destructive">Reset MailPilot?</DialogTitle>
             <DialogDescription>
-              This permanently deletes all local MailPilot data and closes the app. On next
-              launch, onboarding starts again.
+              This permanently deletes all local MailPilot data and closes the app. On next launch,
+              onboarding starts again.
             </DialogDescription>
           </DialogHeader>
 

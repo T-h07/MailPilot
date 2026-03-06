@@ -13,7 +13,14 @@ import {
   type RecoveryReason,
 } from "@/lib/api/app-state";
 
-type RecoveryStage = "LOADING" | "INTRO" | "SENDING" | "CODE_SENT" | "VERIFYING" | "SUCCESS" | "UNAVAILABLE";
+type RecoveryStage =
+  | "LOADING"
+  | "INTRO"
+  | "SENDING"
+  | "CODE_SENT"
+  | "VERIFYING"
+  | "SUCCESS"
+  | "UNAVAILABLE";
 const OAUTH_POLL_INTERVAL_MS = 2000;
 const OAUTH_POLL_TIMEOUT_MS = 45000;
 
@@ -170,7 +177,11 @@ export function LocalPasswordRecoveryPage() {
           await refreshRecoveryOptions();
           return;
         }
-        if (status.status === "ERROR" || status.status === "EXPIRED" || status.status === "UNKNOWN") {
+        if (
+          status.status === "ERROR" ||
+          status.status === "EXPIRED" ||
+          status.status === "UNKNOWN"
+        ) {
           throw new ApiClientError(status.message || "Gmail reconnect failed.");
         }
       }
@@ -193,7 +204,9 @@ export function LocalPasswordRecoveryPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {stage === "LOADING" && <p className="text-sm text-muted-foreground">Loading recovery options...</p>}
+          {stage === "LOADING" && (
+            <p className="text-sm text-muted-foreground">Loading recovery options...</p>
+          )}
 
           {(stage === "INTRO" || stage === "SENDING") && (
             <div className="space-y-3">
@@ -217,7 +230,8 @@ export function LocalPasswordRecoveryPage() {
           {(stage === "CODE_SENT" || stage === "VERIFYING") && (
             <div className="space-y-3">
               <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm">
-                We sent a code to <span className="font-medium">{maskedEmail ?? "your primary account"}</span>.
+                We sent a code to{" "}
+                <span className="font-medium">{maskedEmail ?? "your primary account"}</span>.
               </div>
               <Input
                 disabled={stage === "VERIFYING"}
@@ -256,10 +270,7 @@ export function LocalPasswordRecoveryPage() {
                 >
                   {cooldownSeconds > 0 ? `Resend in ${cooldownSeconds}s` : "Resend code"}
                 </Button>
-                <Button
-                  onClick={() => navigate("/login", { replace: true })}
-                  variant="ghost"
-                >
+                <Button onClick={() => navigate("/login", { replace: true })} variant="ghost">
                   Back
                 </Button>
               </div>
@@ -302,9 +313,9 @@ export function LocalPasswordRecoveryPage() {
               </div>
               {showResetHelp && (
                 <div className="rounded-md border border-border bg-background/70 px-3 py-2 text-xs text-muted-foreground">
-                  If recovery stays unavailable, use the existing reset flow from Settings &gt; Danger
-                  Zone when you can access the app, or use your ops reset procedure to return to
-                  onboarding.
+                  If recovery stays unavailable, use the existing reset flow from Settings &gt;
+                  Danger Zone when you can access the app, or use your ops reset procedure to return
+                  to onboarding.
                 </div>
               )}
             </div>

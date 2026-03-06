@@ -1,13 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  AlarmClockCheck,
-  Clock3,
-  Inbox,
-  MailWarning,
-  RefreshCw,
-  Users,
-} from "lucide-react";
+import { AlarmClockCheck, Clock3, Inbox, MailWarning, RefreshCw, Users } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -376,7 +369,9 @@ export function FocusPage() {
         return wakeMs > now && wakeMs <= next24h;
       })
       .sort((left, right) => {
-        const leftMs = left.snoozedUntil ? new Date(left.snoozedUntil).getTime() : Number.MAX_SAFE_INTEGER;
+        const leftMs = left.snoozedUntil
+          ? new Date(left.snoozedUntil).getTime()
+          : Number.MAX_SAFE_INTEGER;
         const rightMs = right.snoozedUntil
           ? new Date(right.snoozedUntil).getTime()
           : Number.MAX_SAFE_INTEGER;
@@ -496,7 +491,9 @@ export function FocusPage() {
           </div>
           <div className="rounded-lg border border-border/70 bg-card/60 p-3">
             <p className="text-xs text-muted-foreground">Wakeups next 24h</p>
-            <p className="pt-1 text-2xl font-semibold text-violet-300">{summary?.wakeupsNext24h ?? 0}</p>
+            <p className="pt-1 text-2xl font-semibold text-violet-300">
+              {summary?.wakeupsNext24h ?? 0}
+            </p>
           </div>
           <div className="rounded-lg border border-border/70 bg-card/60 p-3">
             <p className="text-xs text-muted-foreground">Open followups</p>
@@ -590,7 +587,11 @@ export function FocusPage() {
                         Open inbox
                       </Button>
                       {activeQueue !== "SNOOZED" && (
-                        <Button onClick={() => setActiveQueue("SNOOZED")} size="sm" variant="outline">
+                        <Button
+                          onClick={() => setActiveQueue("SNOOZED")}
+                          size="sm"
+                          variant="outline"
+                        >
                           Review snoozed
                         </Button>
                       )}
@@ -619,16 +620,26 @@ export function FocusPage() {
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-semibold">
-                            {item.senderName} <span className="text-muted-foreground">&lt;{item.senderEmail}&gt;</span>
+                            {item.senderName}{" "}
+                            <span className="text-muted-foreground">
+                              &lt;{item.senderEmail}&gt;
+                            </span>
                           </p>
                           <p className="truncate pt-1 text-sm">{item.subject}</p>
-                          <p className="truncate pt-1 text-xs text-muted-foreground">{item.snippet}</p>
-                          <p className="pt-1 text-xs text-muted-foreground">{formatQueueContext(item)}</p>
+                          <p className="truncate pt-1 text-xs text-muted-foreground">
+                            {item.snippet}
+                          </p>
+                          <p className="pt-1 text-xs text-muted-foreground">
+                            {formatQueueContext(item)}
+                          </p>
                         </div>
                         <div className="flex flex-wrap items-center justify-end gap-1.5">
                           <Badge variant="outline">{item.accountEmail}</Badge>
                           {item.highlight && (
-                            <Badge className={cn("border uppercase", highlight?.badge)} variant="outline">
+                            <Badge
+                              className={cn("border uppercase", highlight?.badge)}
+                              variant="outline"
+                            >
                               {item.highlight.label}
                             </Badge>
                           )}
@@ -669,7 +680,12 @@ export function FocusPage() {
                         >
                           Snooze 7d
                         </Button>
-                        <Button disabled={busy} onClick={() => openMailboxFromItem(item)} size="sm" variant="outline">
+                        <Button
+                          disabled={busy}
+                          onClick={() => openMailboxFromItem(item)}
+                          size="sm"
+                          variant="outline"
+                        >
                           Open
                         </Button>
                       </div>
@@ -695,9 +711,15 @@ export function FocusPage() {
         </div>
 
         <div className="space-y-4">
-          <AccentCard accent="purple" heading="Wakeups soon" description="Snoozed items waking within 24 hours">
+          <AccentCard
+            accent="purple"
+            heading="Wakeups soon"
+            description="Snoozed items waking within 24 hours"
+          >
             {wakeupsSoon.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No snoozed wakeups in the next 24 hours.</p>
+              <p className="text-sm text-muted-foreground">
+                No snoozed wakeups in the next 24 hours.
+              </p>
             ) : (
               <div className="space-y-2">
                 {wakeupsSoon.map((item) => (
@@ -710,7 +732,8 @@ export function FocusPage() {
                     <p className="truncate text-xs font-semibold">{item.senderName}</p>
                     <p className="truncate text-xs text-muted-foreground">{item.subject}</p>
                     <p className="pt-1 text-[11px] text-muted-foreground">
-                      Wakes {item.snoozedUntil ? new Date(item.snoozedUntil).toLocaleString() : "soon"}
+                      Wakes{" "}
+                      {item.snoozedUntil ? new Date(item.snoozedUntil).toLocaleString() : "soon"}
                     </p>
                   </button>
                 ))}
@@ -718,7 +741,11 @@ export function FocusPage() {
             )}
           </AccentCard>
 
-          <AccentCard accent="blue" heading="Top senders in focus" description="Who is driving action pressure">
+          <AccentCard
+            accent="blue"
+            heading="Top senders in focus"
+            description="Who is driving action pressure"
+          >
             {topSenders.length === 0 ? (
               <p className="text-sm text-muted-foreground">No sender pressure right now.</p>
             ) : (
@@ -738,7 +765,9 @@ export function FocusPage() {
                   >
                     <div className="min-w-0">
                       <p className="truncate text-xs font-semibold">{sender.senderName}</p>
-                      <p className="truncate text-[11px] text-muted-foreground">{sender.senderEmail}</p>
+                      <p className="truncate text-[11px] text-muted-foreground">
+                        {sender.senderEmail}
+                      </p>
                     </div>
                     <Badge variant="secondary">{sender.count}</Badge>
                   </button>
@@ -747,7 +776,11 @@ export function FocusPage() {
             )}
           </AccentCard>
 
-          <AccentCard accent="green" heading="By account" description="Open followups by connected account">
+          <AccentCard
+            accent="green"
+            heading="By account"
+            description="Open followups by connected account"
+          >
             {byAccount.length === 0 ? (
               <p className="text-sm text-muted-foreground">No account load to show.</p>
             ) : (
@@ -776,9 +809,17 @@ export function FocusPage() {
             )}
           </AccentCard>
 
-          <AccentCard accent="orange" heading="Quick links" description="Jump to focused mailbox drilldowns">
+          <AccentCard
+            accent="orange"
+            heading="Quick links"
+            description="Jump to focused mailbox drilldowns"
+          >
             <div className="grid grid-cols-1 gap-2">
-              <Button onClick={() => navigate("/focus/drill/needs-reply")} size="sm" variant="outline">
+              <Button
+                onClick={() => navigate("/focus/drill/needs-reply")}
+                size="sm"
+                variant="outline"
+              >
                 <MailWarning className="h-4 w-4" />
                 Needs reply drilldown
               </Button>

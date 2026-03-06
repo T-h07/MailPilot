@@ -7,23 +7,22 @@ import java.util.UUID;
 public record MailboxQueryResponse(List<Item> items, String nextCursor) {
 
   public record Item(
-    UUID id,
-    UUID accountId,
-    String accountEmail,
-    String senderName,
-    String senderEmail,
-    String senderDomain,
-    String subject,
-    String snippet,
-    OffsetDateTime receivedAt,
-    boolean isUnread,
-    boolean seenInApp,
-    boolean hasAttachments,
-    List<String> chips,
-    List<String> tags,
-    Highlight highlight,
-    List<ViewLabel> viewLabels
-  ) {}
+      UUID id,
+      UUID accountId,
+      String accountEmail,
+      String senderName,
+      String senderEmail,
+      String senderDomain,
+      String subject,
+      String snippet,
+      OffsetDateTime receivedAt,
+      boolean isUnread,
+      boolean seenInApp,
+      boolean hasAttachments,
+      List<String> chips,
+      List<String> tags,
+      Highlight highlight,
+      List<ViewLabel> viewLabels) {}
 
   public record Highlight(String label, String accent) {}
 

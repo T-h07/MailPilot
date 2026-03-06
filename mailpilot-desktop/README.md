@@ -41,4 +41,3 @@ npm run build
 - Preview panel + full body viewer
 - Dashboard and Insights analytics
 - Settings and account management
-

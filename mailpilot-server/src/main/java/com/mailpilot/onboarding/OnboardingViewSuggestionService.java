@@ -69,14 +69,7 @@ public class OnboardingViewSuggestionService {
       Set.of("meeting", "calendar", "task", "proposal", "project", "deadline", "client");
   private static final Set<String> SECURITY_TOKENS =
       Set.of(
-          "security",
-          "alert",
-          "verify",
-          "verification",
-          "login",
-          "password",
-          "otp",
-          "suspicious");
+          "security", "alert", "verify", "verification", "login", "password", "otp", "suspicious");
   private static final Set<String> RECEIPT_TOKENS =
       Set.of("invoice", "receipt", "payment", "billing", "order", "shipped", "delivery");
   private static final Set<String> MARKETING_TOKENS =
@@ -121,7 +114,8 @@ public class OnboardingViewSuggestionService {
     List<Candidate> all = new ArrayList<>();
     addIfNotNull(
         all,
-        buildKnown("work", "WORK", "Work", 5, mails, accountById, maxSenders, Set.of(), WORK_TOKENS));
+        buildKnown(
+            "work", "WORK", "Work", 5, mails, accountById, maxSenders, Set.of(), WORK_TOKENS));
     addIfNotNull(
         all,
         buildKnown(
@@ -243,9 +237,13 @@ public class OnboardingViewSuggestionService {
 
     Suppression suppression = suppress(all);
     List<Candidate> primary = selectPrimary(suppression.visible);
-    Set<String> primaryKeys = primary.stream().map(candidate -> candidate.key).collect(Collectors.toSet());
+    Set<String> primaryKeys =
+        primary.stream().map(candidate -> candidate.key).collect(Collectors.toSet());
     List<Candidate> more = new ArrayList<>();
-    suppression.visible.stream().filter(candidate -> !primaryKeys.contains(candidate.key)).limit(MAX_MORE).forEach(more::add);
+    suppression.visible.stream()
+        .filter(candidate -> !primaryKeys.contains(candidate.key))
+        .limit(MAX_MORE)
+        .forEach(more::add);
     if (more.size() < MAX_MORE) {
       suppression.suppressed.stream().limit(MAX_MORE - more.size()).forEach(more::add);
     }
@@ -254,7 +252,8 @@ public class OnboardingViewSuggestionService {
         rangeDays,
         mails.size(),
         accounts,
-        new OnboardingViewProposalsResponse.Summary(all.size(), primary.size(), all.size() - primary.size()),
+        new OnboardingViewProposalsResponse.Summary(
+            all.size(), primary.size(), all.size() - primary.size()),
         mapCandidates(primary, mails.size()),
         mapCandidates(more, mails.size()),
         primary.isEmpty()
@@ -302,8 +301,20 @@ public class OnboardingViewSuggestionService {
 
     List<AccountDistribution> distribution = accountDistribution(matched, accountById);
     Scope scope = decideScope(distribution, accountById.size());
-    int score = confidenceScore(category, matched.size(), mails.size(), topDomains, topSenders, topKeywords, distribution);
-    int priority = clamp(basePriority + ((score >= 85 || pct(matched.size(), mails.size()) >= 20.0) ? 1 : 0), 1, 5);
+    int score =
+        confidenceScore(
+            category,
+            matched.size(),
+            mails.size(),
+            topDomains,
+            topSenders,
+            topKeywords,
+            distribution);
+    int priority =
+        clamp(
+            basePriority + ((score >= 85 || pct(matched.size(), mails.size()) >= 20.0) ? 1 : 0),
+            1,
+            5);
     String name = smartName(category, defaultName, topDomains, topKeywords);
     String explanation = explanation(category, topDomains, topKeywords, distribution);
 
@@ -352,7 +363,8 @@ public class OnboardingViewSuggestionService {
       List<MailSignal> matched =
           mails.stream().filter(mail -> domain.equals(mail.senderDomain)).toList();
       List<String> topSenders =
-          limit(topByCount(matched.stream().map(mail -> mail.senderEmail).toList(), maxSenders), 15);
+          limit(
+              topByCount(matched.stream().map(mail -> mail.senderEmail).toList(), maxSenders), 15);
       List<String> keywords = limit(topTokens(matched), 8);
       List<AccountDistribution> distribution = accountDistribution(matched, accountById);
       Scope scope = decideScope(distribution, accountById.size());
@@ -483,7 +495,9 @@ public class OnboardingViewSuggestionService {
                         .map(
                             sample ->
                                 new OnboardingViewProposalsResponse.SampleMessage(
-                                    sample.subject, sample.senderEmail, sample.receivedAt.toString()))
+                                    sample.subject,
+                                    sample.senderEmail,
+                                    sample.receivedAt.toString()))
                         .toList(),
                     candidate.accountDistribution.stream()
                         .map(
@@ -509,7 +523,9 @@ public class OnboardingViewSuggestionService {
           || mail.senderDomain.contains("university");
     }
     if ("MARKETING".equals(category)) {
-      return keywordMatch || mail.senderEmail.contains("newsletter") || mail.senderEmail.contains("noreply");
+      return keywordMatch
+          || mail.senderEmail.contains("newsletter")
+          || mail.senderEmail.contains("noreply");
     }
     return domainMatch || keywordMatch;
   }
@@ -660,7 +676,8 @@ public class OnboardingViewSuggestionService {
             + Math.min(10, topSenders.size())
             + Math.min(10, topKeywords.size() * 2)
             + (distribution.size() > 1 ? 8 : 3);
-    if ("WORK".equals(category) && topDomains.stream().noneMatch(this::isLikelyProfessionalDomain)) {
+    if ("WORK".equals(category)
+        && topDomains.stream().noneMatch(this::isLikelyProfessionalDomain)) {
       score -= 8;
     }
     return clamp(score, 20, 98);
@@ -678,7 +695,8 @@ public class OnboardingViewSuggestionService {
 
   private String smartName(
       String category, String fallback, List<String> topDomains, List<String> topKeywords) {
-    if ("SOCIAL".equals(category) && topDomains.stream().anyMatch(domain -> domain.contains("linkedin"))) {
+    if ("SOCIAL".equals(category)
+        && topDomains.stream().anyMatch(domain -> domain.contains("linkedin"))) {
       return "LinkedIn & Recruiting";
     }
     if ("WORK".equals(category) && !topDomains.isEmpty()) {
@@ -691,10 +709,12 @@ public class OnboardingViewSuggestionService {
   }
 
   private String customName(String readableDomain, List<String> keywords) {
-    if (keywords.stream().anyMatch(keyword -> keyword.contains("security") || keyword.contains("alert"))) {
+    if (keywords.stream()
+        .anyMatch(keyword -> keyword.contains("security") || keyword.contains("alert"))) {
       return readableDomain + " Alerts";
     }
-    if (keywords.stream().anyMatch(keyword -> keyword.contains("newsletter") || keyword.contains("digest"))) {
+    if (keywords.stream()
+        .anyMatch(keyword -> keyword.contains("newsletter") || keyword.contains("digest"))) {
       return readableDomain + " Newsletters";
     }
     if (keywords.stream().anyMatch(keyword -> keyword.contains("recruit"))) {

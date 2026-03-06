@@ -47,7 +47,8 @@ public class OAuthStateStore {
     String codeChallenge = sha256Base64Url(codeVerifier);
     String resolvedMode = StringUtils.hasText(mode) ? mode.trim().toUpperCase() : "READONLY";
     String resolvedContext = StringUtils.hasText(context) ? context.trim().toUpperCase() : null;
-    String resolvedHint = StringUtils.hasText(accountHint) ? accountHint.trim().toLowerCase() : null;
+    String resolvedHint =
+        StringUtils.hasText(accountHint) ? accountHint.trim().toLowerCase() : null;
 
     jdbcTemplate.update(
         """
@@ -87,8 +88,8 @@ public class OAuthStateStore {
 
     Optional<PkceVerification> verification =
         jdbcTemplate
-        .query(
-            """
+            .query(
+                """
             UPDATE oauth_pending_flows
             SET consumed_at = now()
             WHERE state = ?
@@ -97,15 +98,15 @@ public class OAuthStateStore {
               AND expires_at > now()
             RETURNING code_verifier, mode, context, account_hint
             """,
-            (resultSet, rowNum) ->
-                new PkceVerification(
-                    resultSet.getString("code_verifier"),
-                    resultSet.getString("mode"),
-                    resultSet.getString("context"),
-                    resultSet.getString("account_hint")),
-            state.trim())
-        .stream()
-        .findFirst();
+                (resultSet, rowNum) ->
+                    new PkceVerification(
+                        resultSet.getString("code_verifier"),
+                        resultSet.getString("mode"),
+                        resultSet.getString("context"),
+                        resultSet.getString("account_hint")),
+                state.trim())
+            .stream()
+            .findFirst();
 
     if (verification.isPresent()) {
       LOGGER.info("Consumed OAuth pending flow state={}", state.trim());
@@ -141,7 +142,11 @@ public class OAuthStateStore {
         normalizeEmail(email),
         state.trim());
 
-    LOGGER.info("OAuth flow completed state={} accountId={} email={}", state.trim(), accountId, normalizeEmail(email));
+    LOGGER.info(
+        "OAuth flow completed state={} accountId={} email={}",
+        state.trim(),
+        accountId,
+        normalizeEmail(email));
   }
 
   public void markError(String state, String message) {
@@ -256,7 +261,7 @@ public class OAuthStateStore {
   private void cleanup() {
     int expiredMarked =
         jdbcTemplate.update(
-        """
+            """
         UPDATE oauth_pending_flows
         SET status = 'EXPIRED',
             message = ?,
@@ -265,14 +270,13 @@ public class OAuthStateStore {
         WHERE status = 'PENDING'
           AND expires_at < now()
         """,
-        EXPIRED_MESSAGE,
-        EXPIRED_MESSAGE);
+            EXPIRED_MESSAGE,
+            EXPIRED_MESSAGE);
 
     Instant purgeBefore = Instant.now().minus(RETENTION_AFTER_EXPIRY);
     int deletedRows =
         jdbcTemplate.update(
-        "DELETE FROM oauth_pending_flows WHERE expires_at < ?",
-        Timestamp.from(purgeBefore));
+            "DELETE FROM oauth_pending_flows WHERE expires_at < ?", Timestamp.from(purgeBefore));
 
     if (expiredMarked > 0 || deletedRows > 0) {
       LOGGER.info(
@@ -325,7 +329,8 @@ public class OAuthStateStore {
 
   public record PkceState(String state, String codeVerifier, String codeChallenge) {}
 
-  public record PkceVerification(String codeVerifier, String mode, String context, String accountHint) {}
+  public record PkceVerification(
+      String codeVerifier, String mode, String context, String accountHint) {}
 
   public record OAuthFlowStatus(String status, String message, UUID accountId, String email) {}
 }
