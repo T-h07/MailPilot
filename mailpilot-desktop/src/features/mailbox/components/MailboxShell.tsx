@@ -21,6 +21,7 @@ import { configCheck, getGmailOAuthStatus, startGmailOAuth } from "@/lib/api/oau
 import {
   getMessage,
   loadMessageBody,
+  markSeenInApp,
   type MailboxMode,
   type MailboxSortOrder,
   queryMailbox,
@@ -176,6 +177,7 @@ function toSummaryMessage(item: MailboxListItem): MailMessage {
     openInGmailUrl: null,
     receivedAt: item.receivedAt,
     isUnread: item.isUnread,
+    seenInApp: item.seenInApp,
     flags: inferredFlags,
     tags: item.tags,
     viewLabels: item.viewLabels ?? [],
@@ -258,6 +260,7 @@ function buildPreviewMessage(
     subject: detail.subject,
     receivedAt: detail.receivedAt,
     isUnread: detail.isUnread,
+    seenInApp: detail.seenInApp,
     bodyCache: detail.body.content,
     bodyMime: detail.body.mime,
     openInGmailUrl: detail.openInGmailUrl,
@@ -456,6 +459,7 @@ export function MailboxShell({
   const viewLabelsAbortRef = useRef<AbortController | null>(null);
   const messageViewLabelsAbortRef = useRef<AbortController | null>(null);
   const detailRequestSequenceRef = useRef(0);
+  const seenInFlightByMessageIdRef = useRef<Set<string>>(new Set());
   const openedMailboxKeyRef = useRef<string | null>(null);
   const previousMailboxQueryKeyRef = useRef<string | null>(null);
   const previousSyncStatesRef = useRef<Record<string, "RUNNING" | "IDLE" | "ERROR">>({});
@@ -648,6 +652,7 @@ export function MailboxShell({
       detailAbortRef.current?.abort();
       viewLabelsAbortRef.current?.abort();
       messageViewLabelsAbortRef.current?.abort();
+      seenInFlightByMessageIdRef.current.clear();
       if (hideNoticeTimeoutRef.current !== null) {
         window.clearTimeout(hideNoticeTimeoutRef.current);
       }
@@ -1123,6 +1128,51 @@ export function MailboxShell({
     }
     return buildPreviewMessage(selectedSummary, undefined, accountLookup);
   }, [accountLookup, selectedMessageDetail, selectedSummary]);
+
+  const applySeenInAppState = useCallback((messageId: string, seenInApp: boolean) => {
+    setMessages((previous) =>
+      previous.map((message) =>
+        message.id === messageId
+          ? {
+              ...message,
+              seenInApp,
+            }
+          : message
+      )
+    );
+
+    setSelectedMessageDetail((previous) => {
+      if (!previous || previous.id !== messageId) {
+        return previous;
+      }
+      return {
+        ...previous,
+        seenInApp,
+      };
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!selectedSummary || selectedSummary.seenInApp) {
+      return;
+    }
+
+    const messageId = selectedSummary.id;
+    if (seenInFlightByMessageIdRef.current.has(messageId)) {
+      return;
+    }
+
+    applySeenInAppState(messageId, true);
+    seenInFlightByMessageIdRef.current.add(messageId);
+
+    void markSeenInApp(messageId)
+      .catch(() => {
+        // Keep optimistic UI; next query/detail refresh will reconcile if needed.
+      })
+      .finally(() => {
+        seenInFlightByMessageIdRef.current.delete(messageId);
+      });
+  }, [applySeenInAppState, selectedSummary]);
 
   const applyUnreadState = useCallback((messageId: string, isUnread: boolean) => {
     setMessages((previous) =>
