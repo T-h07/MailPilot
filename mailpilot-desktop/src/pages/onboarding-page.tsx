@@ -315,6 +315,10 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
     [primaryAccount]
   );
 
+  const canContinuePrimaryStep =
+    Boolean(connectedPrimary) ||
+    (primaryConnectState === "CONNECTED" && Boolean(primaryConnectedEmail));
+
   useEffect(() => {
     if (connectedPrimary) {
       setPrimaryConnectState("CONNECTED");
@@ -907,7 +911,7 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
                   </Button>
                   <Button
                     disabled={
-                      !connectedPrimary ||
+                      !canContinuePrimaryStep ||
                       busy ||
                       primaryConnectState === "OPENING_BROWSER" ||
                       primaryConnectState === "WAITING_FOR_CALLBACK"
