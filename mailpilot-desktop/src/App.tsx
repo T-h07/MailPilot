@@ -22,7 +22,6 @@ import {
   Mailbox,
   Menu,
   Send,
-  Sparkles,
   Target,
 } from "lucide-react";
 import { InboxPage } from "@/pages/inbox-page";
@@ -237,9 +236,11 @@ function Sidebar({
     <div className="flex h-full flex-col">
       <div className="flex h-16 items-center border-b border-border px-4">
         <div className="flex items-center gap-2">
-          <div className="rounded-lg bg-primary/15 p-2 text-primary">
-            <Sparkles className="h-[18px] w-[18px]" />
-          </div>
+          <img
+            alt="MailPilot"
+            className="h-8 w-8 rounded-lg border border-border object-cover"
+            src="/mailpilot-icon.png"
+          />
           <div>
             <p className="text-base font-semibold leading-none">MailPilot</p>
             <p className="pt-0.5 text-xs text-muted-foreground">Inbox Cockpit</p>

@@ -13,6 +13,7 @@
     "windows": [
       {
         "title": "MailPilot",
+        "icon": "icons/icon.png",
         "width": 1320,
         "height": 840,
         "minWidth": 1024,
