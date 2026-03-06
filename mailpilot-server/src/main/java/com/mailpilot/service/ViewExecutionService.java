@@ -104,6 +104,7 @@ public class ViewExecutionService {
                         item.snippet(),
                         item.receivedAt(),
                         item.isUnread(),
+                        item.seenInApp(),
                         item.hasAttachments(),
                         item.chips(),
                         item.tags(),

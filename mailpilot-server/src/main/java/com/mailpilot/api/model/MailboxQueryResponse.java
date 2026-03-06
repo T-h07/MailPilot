@@ -17,6 +17,7 @@ public record MailboxQueryResponse(List<Item> items, String nextCursor) {
     String snippet,
     OffsetDateTime receivedAt,
     boolean isUnread,
+    boolean seenInApp,
     boolean hasAttachments,
     List<String> chips,
     List<String> tags,

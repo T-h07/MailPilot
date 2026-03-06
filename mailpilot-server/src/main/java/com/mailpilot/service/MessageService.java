@@ -65,6 +65,7 @@ public class MessageService {
         COALESCE(m.snippet, '') AS snippet,
         m.received_at,
         NOT m.is_read AS is_unread,
+        m.seen_in_app,
         m.is_sent,
         m.body_cache,
         m.body_cache_mime,
@@ -171,6 +172,7 @@ public class MessageService {
       messageRow.receivedAt().toString(),
       buildOpenInGmailUrl(messageRow.accountEmail(), messageRow.providerMessageId()),
       messageRow.isUnread(),
+      messageRow.seenInApp(),
       messageRow.isSent(),
       body,
       attachments,
@@ -259,6 +261,21 @@ public class MessageService {
 
   public void setUnread(UUID messageId, boolean isUnread) {
     int updatedRows = jdbcTemplate.update("UPDATE messages SET is_read = ? WHERE id = ?", !isUnread, messageId);
+    if (updatedRows == 0) {
+      throw new ApiNotFoundException("Message not found");
+    }
+  }
+
+  public void markSeenInApp(UUID messageId) {
+    int updatedRows = jdbcTemplate.update(
+      """
+      UPDATE messages
+      SET seen_in_app = true,
+          seen_in_app_at = COALESCE(seen_in_app_at, now())
+      WHERE id = ?
+      """,
+      messageId
+    );
     if (updatedRows == 0) {
       throw new ApiNotFoundException("Message not found");
     }
@@ -390,6 +407,7 @@ public class MessageService {
       resultSet.getString("snippet"),
       resultSet.getObject("received_at", OffsetDateTime.class),
       resultSet.getBoolean("is_unread"),
+      resultSet.getBoolean("seen_in_app"),
       resultSet.getBoolean("is_sent"),
       resultSet.getString("body_cache"),
       resultSet.getString("body_cache_mime"),
@@ -423,6 +441,7 @@ public class MessageService {
     String snippet,
     OffsetDateTime receivedAt,
     boolean isUnread,
+    boolean seenInApp,
     boolean isSent,
     String bodyCache,
     String bodyCacheMime,

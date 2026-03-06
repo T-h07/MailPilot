@@ -1,6 +1,18 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import {
+  BadgeCheck,
+  CheckCircle2,
+  GraduationCap,
+  KeyRound,
+  Mail,
+  MailPlus,
+  Rocket,
+  Sparkles,
+  UserRound,
+  Wand2,
+} from "lucide-react";
 import type { AppStateRecord } from "@/lib/api/app-state";
 import {
   listAccounts,
@@ -23,6 +35,7 @@ import { getSyncStatus, runAllAccountsSync } from "@/lib/api/sync";
 import { ApiClientError } from "@/api/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { AccentCard } from "@/components/ui/AccentCard";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 
@@ -65,13 +78,26 @@ type ProposalDraft = {
 
 const FIELD_OF_WORK_OPTIONS = [
   "Engineering",
-  "Product",
-  "Design",
+  "Software Development",
+  "IT / Systems",
+  "Cybersecurity",
+  "Data / Analytics",
+  "Product Management",
+  "Design / UX",
   "Marketing",
   "Sales",
   "Finance",
+  "Accounting",
+  "Human Resources",
   "Operations",
-  "Customer Success",
+  "Education",
+  "Research",
+  "Healthcare",
+  "Legal",
+  "E-commerce",
+  "Media / Content",
+  "Gaming",
+  "Student",
   "Other",
 ] as const;
 
@@ -79,6 +105,11 @@ const OAUTH_POLL_INTERVAL_MS = 2000;
 const OAUTH_POLL_TIMEOUT_MS = 45000;
 const ROLE_SAVE_DEBOUNCE_MS = 300;
 const SAVE_HINT_LIFETIME_MS = 1800;
+const SYNC_PROGRESS_MESSAGES = [
+  "Scanning recent senders...",
+  "Grouping patterns...",
+  "Building recommended views...",
+] as const;
 
 function toErrorMessage(error: unknown): string {
   if (error instanceof ApiClientError) {
@@ -183,6 +214,94 @@ function toProposalDraft(proposal: OnboardingViewProposal): ProposalDraft {
   };
 }
 
+function roleAccent(role: AccountRole): string {
+  if (role === "PRIMARY") {
+    return "from-yellow-500/20 to-sky-500/10 border-yellow-500/30";
+  }
+  if (role === "CUSTOM") {
+    return "from-violet-500/20 to-violet-500/10 border-violet-500/30";
+  }
+  return "from-teal-500/15 to-slate-500/10 border-teal-500/25";
+}
+
+function proposalTone(id: string, name: string): {
+  badge: string;
+  border: string;
+  line: string;
+} {
+  const normalized = `${id} ${name}`.toLowerCase();
+  if (normalized.includes("social")) {
+    return {
+      badge: "bg-sky-500/15 text-sky-200 border-sky-500/30",
+      border: "border-sky-500/25",
+      line: "bg-sky-500/70",
+    };
+  }
+  if (normalized.includes("gaming")) {
+    return {
+      badge: "bg-violet-500/15 text-violet-200 border-violet-500/30",
+      border: "border-violet-500/25",
+      line: "bg-violet-500/70",
+    };
+  }
+  if (normalized.includes("work")) {
+    return {
+      badge: "bg-teal-500/15 text-teal-200 border-teal-500/30",
+      border: "border-teal-500/25",
+      line: "bg-teal-500/70",
+    };
+  }
+  if (normalized.includes("receipt") || normalized.includes("finance")) {
+    return {
+      badge: "bg-emerald-500/15 text-emerald-200 border-emerald-500/30",
+      border: "border-emerald-500/25",
+      line: "bg-emerald-500/70",
+    };
+  }
+  if (normalized.includes("school")) {
+    return {
+      badge: "bg-indigo-500/15 text-indigo-200 border-indigo-500/30",
+      border: "border-indigo-500/25",
+      line: "bg-indigo-500/70",
+    };
+  }
+  if (normalized.includes("subscription") || normalized.includes("marketing")) {
+    return {
+      badge: "bg-amber-500/15 text-amber-200 border-amber-500/30",
+      border: "border-amber-500/25",
+      line: "bg-amber-500/70",
+    };
+  }
+  return {
+    badge: "bg-slate-500/15 text-slate-200 border-slate-500/30",
+    border: "border-border",
+    line: "bg-muted-foreground/70",
+  };
+}
+
+function proposalIcon(id: string, name: string) {
+  const normalized = `${id} ${name}`.toLowerCase();
+  if (normalized.includes("social")) {
+    return Mail;
+  }
+  if (normalized.includes("gaming")) {
+    return Rocket;
+  }
+  if (normalized.includes("work")) {
+    return BadgeCheck;
+  }
+  if (normalized.includes("receipt") || normalized.includes("finance")) {
+    return Sparkles;
+  }
+  if (normalized.includes("school")) {
+    return GraduationCap;
+  }
+  if (normalized.includes("subscription") || normalized.includes("marketing")) {
+    return MailPlus;
+  }
+  return Wand2;
+}
+
 export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) {
   const navigate = useNavigate();
   const initialField = initialFieldChoice(appState.profile?.fieldOfWork);
@@ -208,6 +327,11 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
   const [proposalMessage, setProposalMessage] = useState<string | null>(null);
   const [proposals, setProposals] = useState<ProposalDraft[]>([]);
   const [proposalsLoadedAtLeastOnce, setProposalsLoadedAtLeastOnce] = useState(false);
+  const [connectStage, setConnectStage] = useState<
+    "IDLE" | "OPENING_BROWSER" | "WAITING_FOR_CALLBACK" | "CONNECTED" | "ERROR"
+  >("IDLE");
+  const [syncMessageIndex, setSyncMessageIndex] = useState(0);
+  const [createdViewsCount, setCreatedViewsCount] = useState(0);
   const saveTimeoutsRef = useRef<Map<string, number>>(new Map());
   const savedHintTimeoutsRef = useRef<Map<string, number>>(new Map());
 
@@ -255,6 +379,17 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
   }, [step, loadingProposals, proposalsLoadedAtLeastOnce, loadViewProposals]);
 
   useEffect(() => {
+    if (!(loadingProposals || syncingProposals)) {
+      setSyncMessageIndex(0);
+      return;
+    }
+    const intervalId = window.setInterval(() => {
+      setSyncMessageIndex((current) => (current + 1) % SYNC_PROGRESS_MESSAGES.length);
+    }, 1600);
+    return () => window.clearInterval(intervalId);
+  }, [loadingProposals, syncingProposals]);
+
+  useEffect(() => {
     const nextDrafts: Record<string, RoleDraft> = {};
     for (const account of accounts) {
       nextDrafts[account.id] = normalizeRoleDraft(account);
@@ -290,6 +425,16 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
       setStep(3);
     }
   }, [appState.onboardingComplete, connectedPrimary, step]);
+
+  useEffect(() => {
+    if (connectedPrimary) {
+      setConnectStage("CONNECTED");
+      return;
+    }
+    if (step !== 2) {
+      setConnectStage("IDLE");
+    }
+  }, [connectedPrimary, step]);
 
   const showSavedHint = useCallback((accountId: string) => {
     const previousHintTimeout = savedHintTimeoutsRef.current.get(accountId);
@@ -387,7 +532,7 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
   };
 
   const runOauthConnectFlow = useCallback(
-    async (beforeIds: Set<string>) => {
+    async (beforeIds: Set<string>, onBrowserOpened?: () => void) => {
       const config = await configCheck();
       if (!config.configured) {
         throw new ApiClientError(config.message || "Google OAuth configuration is missing.");
@@ -400,6 +545,7 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
 
       try {
         await openUrl(oauth.authUrl);
+        onBrowserOpened?.();
       } catch (_error) {
         throw new ApiClientError("Unable to open the browser for Google OAuth.");
       }
@@ -460,15 +606,20 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
   const connectPrimaryAccount = async () => {
     setBusy(true);
     setPageError(null);
+    setConnectStage("OPENING_BROWSER");
     try {
       const beforeAccounts = await listAccounts();
       const beforeIds = new Set(beforeAccounts.map((account) => account.id));
-      const selectedAccount = await runOauthConnectFlow(beforeIds);
+      const selectedAccount = await runOauthConnectFlow(beforeIds, () =>
+        setConnectStage("WAITING_FOR_CALLBACK")
+      );
 
       await confirmPrimaryOnboardingAccount(selectedAccount.id);
       await loadAccounts();
+      setConnectStage("CONNECTED");
       setStep(3);
     } catch (error) {
+      setConnectStage("ERROR");
       setPageError(toErrorMessage(error));
     } finally {
       setBusy(false);
@@ -555,7 +706,7 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
         if (selectedProposals.some((proposal) => !proposal.name.trim())) {
           throw new ApiClientError("Each selected view must have a name.");
         }
-        await applyOnboardingViewProposals({
+        const response = await applyOnboardingViewProposals({
           create: selectedProposals.map((proposal, index) => ({
             name: proposal.name.trim(),
             priority: proposal.priority,
@@ -572,6 +723,9 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
             },
           })),
         });
+        setCreatedViewsCount(response.created.length);
+      } else {
+        setCreatedViewsCount(0);
       }
 
       await moveToProfileStep();
@@ -586,6 +740,7 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
     setApplyingProposals(true);
     setPageError(null);
     try {
+      setCreatedViewsCount(0);
       await moveToProfileStep();
     } catch (error) {
       setPageError(toErrorMessage(error));
@@ -640,547 +795,770 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
     navigate("/inbox", { replace: true });
   };
 
+  const connectedAccounts = useMemo(
+    () => accounts.filter((account) => isConnected(account)),
+    [accounts]
+  );
+  const additionalAccountsCount = Math.max(connectedAccounts.length - (connectedPrimary ? 1 : 0), 0);
+  const syncProgressMessage = SYNC_PROGRESS_MESSAGES[syncMessageIndex];
+  const friendlyConnectError =
+    pageError && pageError.toLowerCase().includes("no oauth flow found")
+      ? "The Google sign-in session expired or became invalid. Please try connecting again."
+      : pageError;
+  const stepDefinitions = [
+    { id: 1 as WizardStep, label: "Welcome", icon: Rocket },
+    { id: 2 as WizardStep, label: "Primary Gmail", icon: Mail },
+    { id: 3 as WizardStep, label: "Accounts", icon: MailPlus },
+    { id: 4 as WizardStep, label: "Recommended Views", icon: Wand2 },
+    { id: 5 as WizardStep, label: "Profile + Password", icon: KeyRound },
+    { id: 6 as WizardStep, label: "Done", icon: CheckCircle2 },
+  ];
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-6">
-      <Card className="w-full max-w-3xl border-border bg-card">
-        <CardHeader>
-          <CardTitle className="text-2xl">MailPilot Setup</CardTitle>
-          <CardDescription className="pt-1 text-sm text-muted-foreground">
-            Complete these steps once to start using MailPilot.
-          </CardDescription>
-          <div className="pt-3">
-            <div className="flex flex-wrap items-center gap-2 text-xs">
-              <span
-                className={`rounded-full px-2 py-1 ${step >= 1 ? "bg-accent text-foreground" : "bg-muted text-muted-foreground"}`}
-              >
-                Welcome
-              </span>
-              <span
-                className={`rounded-full px-2 py-1 ${step >= 2 ? "bg-accent text-foreground" : "bg-muted text-muted-foreground"}`}
-              >
-                Connect Primary
-              </span>
-              <span
-                className={`rounded-full px-2 py-1 ${step >= 3 ? "bg-accent text-foreground" : "bg-muted text-muted-foreground"}`}
-              >
-                Accounts
-              </span>
-              <span
-                className={`rounded-full px-2 py-1 ${step >= 4 ? "bg-accent text-foreground" : "bg-muted text-muted-foreground"}`}
-              >
-                Recommended Views
-              </span>
-              <span
-                className={`rounded-full px-2 py-1 ${step >= 5 ? "bg-accent text-foreground" : "bg-muted text-muted-foreground"}`}
-              >
-                Profile + Password
-              </span>
-              <span
-                className={`rounded-full px-2 py-1 ${step >= 6 ? "bg-accent text-foreground" : "bg-muted text-muted-foreground"}`}
-              >
-                Done
-              </span>
+    <div className="relative min-h-screen bg-background px-4 py-8 md:px-8">
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute -top-28 left-20 h-72 w-72 rounded-full bg-sky-500/12 blur-3xl" />
+        <div className="absolute -bottom-24 right-12 h-72 w-72 rounded-full bg-violet-500/12 blur-3xl" />
+      </div>
+      <Card className="relative mx-auto w-full max-w-6xl border-border/70 bg-card/95 shadow-2xl backdrop-blur">
+        <CardHeader className="space-y-5 border-b border-border/60 pb-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <CardTitle className="text-2xl">MailPilot Setup</CardTitle>
+              <CardDescription className="pt-1 text-sm text-muted-foreground">
+                Complete setup once, then drive your inbox workflow from one cockpit.
+              </CardDescription>
             </div>
+            <Badge className="rounded-full px-3 py-1 text-xs" variant="secondary">
+              Step {step} of {stepDefinitions.length}
+            </Badge>
+          </div>
+          <div className="grid gap-2 md:grid-cols-6">
+            {stepDefinitions.map((stepDefinition) => {
+              const Icon = stepDefinition.icon;
+              const completed = stepDefinition.id < step;
+              const active = stepDefinition.id === step;
+              return (
+                <div
+                  className={`relative rounded-lg border px-3 py-2 text-xs transition-colors ${
+                    active
+                      ? "border-primary/50 bg-primary/10 text-primary"
+                      : completed
+                        ? "border-emerald-500/35 bg-emerald-500/10 text-emerald-300"
+                        : "border-border/70 bg-muted/25 text-muted-foreground"
+                  }`}
+                  key={stepDefinition.id}
+                >
+                  <div className="flex items-center gap-2">
+                    {completed ? (
+                      <BadgeCheck className="h-3.5 w-3.5 shrink-0" />
+                    ) : (
+                      <Icon className="h-3.5 w-3.5 shrink-0" />
+                    )}
+                    <span className="truncate font-medium">{stepDefinition.label}</span>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </CardHeader>
-        <CardContent className="space-y-6">
+        <CardContent className="space-y-6 pt-6">
           {step === 1 && (
-            <div className="space-y-4">
-              <h2 className="text-lg font-semibold">Welcome to MailPilot</h2>
-              <p className="text-sm text-muted-foreground">
-                Setup will connect your primary Gmail account, optionally add more accounts, save
-                your profile, and configure a local app password.
-              </p>
-              <Button disabled={busy} onClick={() => void startSetup()}>
-                {busy ? "Starting..." : "Start Setup"}
-              </Button>
+            <div className="grid gap-4 lg:grid-cols-[1.4fr,1fr]">
+              <AccentCard
+                accent="blue"
+                description="Securely connect Gmail, configure smart views, and protect access with a local app password."
+                heading="Welcome to MailPilot"
+              >
+                <div className="space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    This setup takes a few minutes and prepares your workspace for focused inbox
+                    execution.
+                  </p>
+                  <Button className="gap-2" disabled={busy} onClick={() => void startSetup()}>
+                    <Rocket className="h-4 w-4" />
+                    {busy ? "Starting..." : "Start setup"}
+                  </Button>
+                </div>
+              </AccentCard>
+
+              <div className="grid gap-3">
+                <AccentCard accent="blue" heading="Connect Gmail securely">
+                  <p className="text-sm text-muted-foreground">
+                    OAuth is handled in your browser. MailPilot never stores your Gmail password.
+                  </p>
+                </AccentCard>
+                <AccentCard accent="purple" heading="Organize views automatically">
+                  <p className="text-sm text-muted-foreground">
+                    We analyze sender patterns and suggest starter views you can edit before
+                    creating.
+                  </p>
+                </AccentCard>
+                <AccentCard accent="green" heading="Protect with local password">
+                  <p className="text-sm text-muted-foreground">
+                    Lock and unlock MailPilot locally without changing your Gmail credentials.
+                  </p>
+                </AccentCard>
+              </div>
             </div>
           )}
 
           {step === 2 && (
-            <div className="space-y-4">
-              <h2 className="text-lg font-semibold">Connect Primary Gmail</h2>
-              <p className="text-sm text-muted-foreground">
-                Connect the Gmail account you use as your primary inbox.
-              </p>
-              <div className="rounded-md border border-border bg-muted/40 p-3 text-sm">
-                {loadingAccounts ? (
-                  <span className="text-muted-foreground">Checking connected accounts...</span>
-                ) : connectedPrimary ? (
-                  <span>
-                    Connected: <strong>{connectedPrimary.email}</strong> (Primary)
-                  </span>
-                ) : (
-                  <span className="text-muted-foreground">No primary Gmail connected yet.</span>
-                )}
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button disabled={busy} onClick={() => void connectPrimaryAccount()}>
-                  {busy ? "Connecting..." : "Connect Gmail"}
-                </Button>
-                <Button onClick={() => setStep(1)} variant="outline">
-                  Back
-                </Button>
-                <Button
-                  disabled={!connectedPrimary || busy}
-                  onClick={() => setStep(3)}
-                  variant="secondary"
-                >
-                  Continue
-                </Button>
-              </div>
+            <div className="grid gap-4 lg:grid-cols-[1.45fr,1fr]">
+              <AccentCard
+                accent="blue"
+                description="This account becomes the default workspace identity."
+                heading="Connect Primary Gmail"
+              >
+                <div className="space-y-4">
+                  <div className="rounded-lg border border-border/70 bg-background/70 p-4">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                      Primary account
+                    </p>
+                    <div className="mt-2 flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        <Mail className="h-4 w-4 text-sky-400" />
+                        <span className="text-sm font-medium">
+                          {connectedPrimary?.email ?? "Not connected yet"}
+                        </span>
+                      </div>
+                      <Badge variant={connectedPrimary ? "secondary" : "outline"}>
+                        {connectedPrimary ? "Connected" : "Pending"}
+                      </Badge>
+                    </div>
+                  </div>
+
+                  {(connectStage === "OPENING_BROWSER" ||
+                    connectStage === "WAITING_FOR_CALLBACK" ||
+                    busy) && (
+                    <div className="rounded-lg border border-sky-500/25 bg-sky-500/10 p-3">
+                      <div className="flex items-center gap-2">
+                        <span className="h-4 w-4 animate-spin rounded-full border-2 border-sky-300/70 border-t-transparent" />
+                        <p className="text-sm">
+                          {connectStage === "OPENING_BROWSER"
+                            ? "Opening browser for Google sign-in..."
+                            : "Waiting for Google sign-in to finish..."}
+                        </p>
+                      </div>
+                      <p className="pt-1 text-xs text-muted-foreground">
+                        Securing your connection and waiting for callback confirmation.
+                      </p>
+                    </div>
+                  )}
+
+                  {connectStage === "ERROR" && friendlyConnectError && (
+                    <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm">
+                      <p>{friendlyConnectError}</p>
+                      <p className="pt-1 text-xs text-muted-foreground">
+                        Retry to start a fresh Google sign-in session.
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap gap-2">
+                    <Button disabled={busy} onClick={() => void connectPrimaryAccount()}>
+                      {busy ? "Connecting..." : "Connect Gmail"}
+                    </Button>
+                    <Button onClick={() => setStep(1)} variant="outline">
+                      Back
+                    </Button>
+                    <Button
+                      disabled={!connectedPrimary || busy}
+                      onClick={() => setStep(3)}
+                      variant="secondary"
+                    >
+                      Continue
+                    </Button>
+                  </div>
+                </div>
+              </AccentCard>
+
+              <AccentCard accent="blue" heading="Why this matters">
+                <div className="space-y-3 text-sm text-muted-foreground">
+                  <p>
+                    Your primary account anchors default inbox behavior during onboarding and first
+                    run.
+                  </p>
+                  <p>You can add more accounts next and adjust roles later in Settings.</p>
+                  <p className="text-xs text-muted-foreground/85">
+                    If Google sign-in expires, retry and complete consent in the same browser flow.
+                  </p>
+                </div>
+              </AccentCard>
             </div>
           )}
 
           {step === 3 && (
-            <div className="space-y-4">
-              <h2 className="text-lg font-semibold">Add More Accounts</h2>
-              <p className="text-sm text-muted-foreground">
-                Primary account is used for default inbox behavior and sending later. You can
-                change account roles later in Settings.
-              </p>
-
-              <div className="space-y-2">
-                {loadingAccounts ? (
-                  <p className="text-sm text-muted-foreground">Loading connected accounts...</p>
-                ) : accounts.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No accounts connected yet.</p>
-                ) : (
-                  accounts.map((account) => {
-                    const roleDraft = roleDraftByAccountId[account.id] ?? normalizeRoleDraft(account);
-                    const roleSaving = roleSavingByAccountId[account.id] ?? false;
-                    const roleError = roleErrorByAccountId[account.id] ?? null;
-                    const savedHint = roleSavedHintByAccountId[account.id] ?? false;
-
-                    return (
-                      <div
-                        className="space-y-2 rounded-md border border-border bg-muted/30 p-3"
-                        key={account.id}
-                      >
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Badge variant="outline">{account.provider}</Badge>
-                          <span className="text-sm font-medium">{account.email}</span>
-                          <Badge variant={isConnected(account) ? "secondary" : "outline"}>
-                            {account.status}
-                          </Badge>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <select
-                            className="h-9 min-w-[140px] rounded-md border border-input bg-background px-2 text-xs"
-                            disabled={roleSaving || busy}
-                            onChange={(event) => {
-                              const nextRole = event.target.value as AccountRole;
-                              const nextDraft: RoleDraft = {
-                                role: nextRole,
-                                customLabel:
-                                  nextRole === "CUSTOM" ? roleDraft.customLabel : "",
-                              };
-                              setRoleDraftByAccountId((previous) => ({
-                                ...previous,
-                                [account.id]: nextDraft,
-                              }));
-                              queueRoleSave(account.id, nextDraft);
-                            }}
-                            value={roleDraft.role}
-                          >
-                            <option value="PRIMARY">Primary</option>
-                            <option value="SECONDARY">Secondary</option>
-                            <option value="CUSTOM">Custom</option>
-                          </select>
-                          {roleDraft.role === "CUSTOM" && (
-                            <Input
-                              className="h-9 w-[180px] text-xs"
-                              disabled={roleSaving || busy}
-                              maxLength={30}
-                              onChange={(event) => {
-                                const nextDraft: RoleDraft = {
-                                  role: "CUSTOM",
-                                  customLabel: event.target.value,
-                                };
-                                setRoleDraftByAccountId((previous) => ({
-                                  ...previous,
-                                  [account.id]: nextDraft,
-                                }));
-                                queueRoleSave(account.id, nextDraft);
-                              }}
-                              placeholder="Custom label"
-                              value={roleDraft.customLabel}
-                            />
-                          )}
-                          {roleSaving ? (
-                            <span className="text-xs text-muted-foreground">Saving...</span>
-                          ) : null}
-                          {!roleSaving && savedHint ? (
-                            <span className="text-xs text-muted-foreground">Saved</span>
-                          ) : null}
-                        </div>
-                        {roleError ? <p className="text-xs text-destructive">{roleError}</p> : null}
+            <div className="grid gap-4 lg:grid-cols-[1.8fr,1fr]">
+              <div className="space-y-3">
+                <AccentCard
+                  accent="green"
+                  description="Add additional Gmail accounts now or continue and configure later."
+                  heading="Add More Accounts"
+                >
+                  <div className="space-y-3">
+                    {loadingAccounts ? (
+                      <div className="rounded-lg border border-border/60 bg-muted/25 p-4 text-sm text-muted-foreground">
+                        Loading connected accounts...
                       </div>
-                    );
-                  })
-                )}
+                    ) : accounts.length === 0 ? (
+                      <div className="rounded-lg border border-border/60 bg-muted/25 p-4 text-sm text-muted-foreground">
+                        No accounts connected yet.
+                      </div>
+                    ) : (
+                      accounts.map((account) => {
+                        const roleDraft =
+                          roleDraftByAccountId[account.id] ?? normalizeRoleDraft(account);
+                        const roleSaving = roleSavingByAccountId[account.id] ?? false;
+                        const roleError = roleErrorByAccountId[account.id] ?? null;
+                        const savedHint = roleSavedHintByAccountId[account.id] ?? false;
+
+                        return (
+                          <div
+                            className={`rounded-lg border bg-gradient-to-r p-4 ${roleAccent(roleDraft.role)}`}
+                            key={account.id}
+                          >
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-2">
+                                  <Mail className="h-4 w-4 text-sky-400" />
+                                  <span className="text-sm font-medium">{account.email}</span>
+                                </div>
+                                <div className="flex flex-wrap items-center gap-2 text-xs">
+                                  <Badge variant="outline">{account.provider}</Badge>
+                                  <Badge variant={isConnected(account) ? "secondary" : "outline"}>
+                                    {account.status}
+                                  </Badge>
+                                  <Badge variant="outline">{roleDraft.role}</Badge>
+                                </div>
+                              </div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <select
+                                  className="h-9 min-w-[140px] rounded-md border border-input bg-background px-2 text-xs"
+                                  disabled={roleSaving || busy}
+                                  onChange={(event) => {
+                                    const nextRole = event.target.value as AccountRole;
+                                    const nextDraft: RoleDraft = {
+                                      role: nextRole,
+                                      customLabel: nextRole === "CUSTOM" ? roleDraft.customLabel : "",
+                                    };
+                                    setRoleDraftByAccountId((previous) => ({
+                                      ...previous,
+                                      [account.id]: nextDraft,
+                                    }));
+                                    queueRoleSave(account.id, nextDraft);
+                                  }}
+                                  value={roleDraft.role}
+                                >
+                                  <option value="PRIMARY">Primary</option>
+                                  <option value="SECONDARY">Secondary</option>
+                                  <option value="CUSTOM">Custom</option>
+                                </select>
+                                {roleDraft.role === "CUSTOM" && (
+                                  <Input
+                                    className="h-9 w-[170px] text-xs"
+                                    disabled={roleSaving || busy}
+                                    maxLength={30}
+                                    onChange={(event) => {
+                                      const nextDraft: RoleDraft = {
+                                        role: "CUSTOM",
+                                        customLabel: event.target.value,
+                                      };
+                                      setRoleDraftByAccountId((previous) => ({
+                                        ...previous,
+                                        [account.id]: nextDraft,
+                                      }));
+                                      queueRoleSave(account.id, nextDraft);
+                                    }}
+                                    placeholder="Custom label"
+                                    value={roleDraft.customLabel}
+                                  />
+                                )}
+                              </div>
+                            </div>
+                            <div className="pt-2 text-xs text-muted-foreground">
+                              {roleSaving ? "Saving role..." : savedHint ? "Saved" : " "}
+                            </div>
+                            {roleError ? (
+                              <p className="pt-1 text-xs text-destructive">{roleError}</p>
+                            ) : null}
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </AccentCard>
+
+                <div className="flex flex-wrap gap-2">
+                  <Button className="gap-2" disabled={busy} onClick={() => void connectSecondaryAccount()}>
+                    <MailPlus className="h-4 w-4" />
+                    {busy ? "Connecting..." : "Connect another Gmail"}
+                  </Button>
+                  <Button disabled={busy} onClick={() => setStep(2)} variant="outline">
+                    Back
+                  </Button>
+                  <Button disabled={busy} onClick={() => void continueFromAccountsStep()} variant="secondary">
+                    Continue
+                  </Button>
+                  <Button disabled={busy} onClick={() => void continueFromAccountsStep()} variant="ghost">
+                    Skip
+                  </Button>
+                </div>
               </div>
 
-              <div className="flex flex-wrap gap-2">
-                <Button disabled={busy} onClick={() => void connectSecondaryAccount()}>
-                  {busy ? "Connecting..." : "Connect another Gmail"}
-                </Button>
-                <Button disabled={busy} onClick={() => setStep(2)} variant="outline">
-                  Back
-                </Button>
-                <Button disabled={busy} onClick={() => void continueFromAccountsStep()} variant="secondary">
-                  Continue
-                </Button>
-                <Button disabled={busy} onClick={() => void continueFromAccountsStep()} variant="ghost">
-                  Skip
-                </Button>
+              <div className="space-y-3">
+                <AccentCard accent="green" heading="Role guidance">
+                  <ul className="space-y-2 text-sm text-muted-foreground">
+                    <li>Primary account drives default workspace behavior.</li>
+                    <li>Secondary accounts are still fully synced and searchable.</li>
+                    <li>Custom labels help organize account context quickly.</li>
+                  </ul>
+                </AccentCard>
+                <AccentCard accent="gold" heading="Connected now">
+                  <p className="text-2xl font-semibold">{connectedAccounts.length}</p>
+                  <p className="text-sm text-muted-foreground">
+                    accounts connected so far ({additionalAccountsCount} additional)
+                  </p>
+                </AccentCard>
               </div>
             </div>
           )}
 
           {step === 4 && (
             <div className="space-y-4">
-              <h2 className="text-lg font-semibold">Recommended Views</h2>
-              <p className="text-sm text-muted-foreground">
-                MailPilot analyzed recent sender patterns and prepared suggestions. Toggle the ones
-                you want, tweak rules, then create your starter views.
-              </p>
-              {loadingProposals ? (
-                <div className="rounded-md border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
-                  Generating recommended views...
+              <AccentCard
+                accent="purple"
+                description="MailPilot analyzes sender patterns and proposes starter mailbox views."
+                heading="Recommended Views"
+              >
+                <div className="space-y-3">
+                  {(loadingProposals || syncingProposals) && (
+                    <div className="rounded-lg border border-violet-500/30 bg-violet-500/10 p-4">
+                      <div className="flex items-center gap-2">
+                        <span className="h-4 w-4 animate-spin rounded-full border-2 border-violet-300/70 border-t-transparent" />
+                        <p className="text-sm">{syncProgressMessage}</p>
+                      </div>
+                      <p className="pt-1 text-xs text-muted-foreground">
+                        This can take a moment while sync and proposal analysis finish.
+                      </p>
+                    </div>
+                  )}
+
+                  {!loadingProposals && proposals.length === 0 && (
+                    <div className="rounded-lg border border-border/70 bg-muted/25 p-4">
+                      <p className="text-sm text-muted-foreground">
+                        {proposalMessage ??
+                          "Not enough mail history yet. Run initial sync and retry proposal generation."}
+                      </p>
+                    </div>
+                  )}
                 </div>
-              ) : proposals.length === 0 ? (
-                <div className="space-y-3 rounded-md border border-border bg-muted/30 p-4">
-                  <p className="text-sm text-muted-foreground">
-                    {proposalMessage ??
-                      "Not enough mail history yet. Run initial sync and retry proposal generation."}
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      disabled={syncingProposals}
-                      onClick={() => void runInitialSyncForProposals()}
-                      variant="secondary"
-                    >
-                      {syncingProposals ? "Syncing..." : "Sync now (last 30 days)"}
-                    </Button>
-                    <Button
-                      disabled={applyingProposals}
-                      onClick={() => void skipProposalsAndContinue()}
-                      variant="ghost"
-                    >
-                      Skip for now
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <div className="space-y-3">
-                    {proposals.map((proposal) => (
-                      <div className="space-y-3 rounded-md border border-border bg-muted/20 p-4" key={proposal.id}>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <input
-                            checked={proposal.enabled}
-                            className="h-4 w-4 accent-primary"
-                            onChange={(event) =>
-                              updateProposal(proposal.id, (previous) => ({
-                                ...previous,
-                                enabled: event.target.checked,
-                              }))
-                            }
-                            type="checkbox"
-                          />
-                          <Input
-                            className="h-9 max-w-[260px]"
-                            onChange={(event) =>
-                              updateProposal(proposal.id, (previous) => ({
-                                ...previous,
-                                name: event.target.value,
-                              }))
-                            }
-                            value={proposal.name}
-                          />
-                          <Badge variant="secondary">~{proposal.estimatedCount} matches</Badge>
-                          <Badge variant="outline">{proposal.estimatedPct.toFixed(1)}%</Badge>
-                        </div>
+              </AccentCard>
 
-                        <p className="text-xs text-muted-foreground">{proposal.explanation}</p>
-
-                        <div className="flex flex-wrap gap-2 text-xs">
-                          {proposal.senderDomains.slice(0, 6).map((domain) => (
-                            <span className="rounded-full border border-border px-2 py-1" key={`${proposal.id}-domain-${domain}`}>
-                              domain:{domain}
-                            </span>
-                          ))}
-                          {proposal.senderEmails.slice(0, 4).map((email) => (
-                            <span className="rounded-full border border-border px-2 py-1" key={`${proposal.id}-email-${email}`}>
-                              from:{email}
-                            </span>
-                          ))}
-                          {proposal.subjectKeywords.slice(0, 4).map((keyword) => (
-                            <span className="rounded-full border border-border px-2 py-1" key={`${proposal.id}-kw-${keyword}`}>
-                              kw:{keyword}
-                            </span>
-                          ))}
-                        </div>
-
-                        <div className="grid gap-3 md:grid-cols-2">
-                          <div className="space-y-2">
-                            <label className="text-xs text-muted-foreground">Account scope</label>
-                            <select
-                              className="h-9 w-full rounded-md border border-input bg-background px-2 text-xs"
+              {!loadingProposals && proposals.length > 0 && (
+                <div className="space-y-3">
+                  {proposals.map((proposal) => {
+                    const tone = proposalTone(proposal.id, proposal.name);
+                    const ProposalIcon = proposalIcon(proposal.id, proposal.name);
+                    return (
+                      <div
+                        className={`relative overflow-hidden rounded-xl border bg-card/70 p-4 ${tone.border}`}
+                        key={proposal.id}
+                      >
+                        <div className={`absolute inset-x-0 top-0 h-[2px] ${tone.line}`} />
+                        <div className="space-y-3">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <input
+                              checked={proposal.enabled}
+                              className="h-4 w-4 accent-primary"
                               onChange={(event) =>
                                 updateProposal(proposal.id, (previous) => ({
                                   ...previous,
-                                  scopeType: event.target.value as "ALL" | "SELECTED",
-                                  selectedAccountIds:
-                                    event.target.value === "SELECTED"
-                                      ? previous.selectedAccountIds
-                                      : [],
+                                  enabled: event.target.checked,
                                 }))
                               }
-                              value={proposal.scopeType}
-                            >
-                              <option value="ALL">All accounts</option>
-                              <option value="SELECTED">Selected accounts</option>
-                            </select>
-                            {proposal.scopeType === "SELECTED" && (
-                              <div className="max-h-28 space-y-1 overflow-auto rounded-md border border-border p-2">
-                                {accounts.map((account) => (
-                                  <label className="flex items-center gap-2 text-xs" key={`${proposal.id}-acct-${account.id}`}>
-                                    <input
-                                      checked={proposal.selectedAccountIds.includes(account.id)}
-                                      className="h-3.5 w-3.5 accent-primary"
-                                      onChange={(event) =>
-                                        updateProposal(proposal.id, (previous) => {
-                                          const selectedIds = new Set(previous.selectedAccountIds);
-                                          if (event.target.checked) {
-                                            selectedIds.add(account.id);
-                                          } else {
-                                            selectedIds.delete(account.id);
-                                          }
-                                          return {
-                                            ...previous,
-                                            selectedAccountIds: Array.from(selectedIds),
-                                          };
-                                        })
-                                      }
-                                      type="checkbox"
-                                    />
-                                    <span>{account.email}</span>
-                                  </label>
-                                ))}
-                              </div>
-                            )}
+                              type="checkbox"
+                            />
+                            <ProposalIcon className="h-4 w-4 text-muted-foreground" />
+                            <Input
+                              className="h-9 max-w-[260px]"
+                              onChange={(event) =>
+                                updateProposal(proposal.id, (previous) => ({
+                                  ...previous,
+                                  name: event.target.value,
+                                }))
+                              }
+                              value={proposal.name}
+                            />
+                            <Badge className={tone.badge} variant="outline">
+                              ~{proposal.estimatedCount} matches
+                            </Badge>
+                            <Badge variant="outline">{proposal.estimatedPct.toFixed(1)}%</Badge>
                           </div>
-                          <div className="space-y-2">
-                            <label className="text-xs text-muted-foreground">Priority</label>
-                            <select
-                              className="h-9 w-full rounded-md border border-input bg-background px-2 text-xs"
-                              onChange={(event) =>
-                                updateProposal(proposal.id, (previous) => ({
-                                  ...previous,
-                                  priority: Number(event.target.value),
-                                }))
-                              }
-                              value={proposal.priority}
-                            >
-                              {[1, 2, 3, 4, 5].map((priorityValue) => (
-                                <option key={`${proposal.id}-priority-${priorityValue}`} value={priorityValue}>
-                                  Priority {priorityValue}
-                                </option>
-                              ))}
-                            </select>
-                            <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                              <input
-                                checked={proposal.unreadOnly}
-                                className="h-3.5 w-3.5 accent-primary"
+
+                          <p className="text-xs text-muted-foreground">{proposal.explanation}</p>
+
+                          <div className="flex flex-wrap gap-2 text-xs">
+                            {proposal.senderDomains.slice(0, 6).map((domain) => (
+                              <span
+                                className="rounded-full border border-border/70 bg-background/70 px-2 py-1"
+                                key={`${proposal.id}-domain-${domain}`}
+                              >
+                                domain:{domain}
+                              </span>
+                            ))}
+                            {proposal.senderEmails.slice(0, 4).map((email) => (
+                              <span
+                                className="rounded-full border border-border/70 bg-background/70 px-2 py-1"
+                                key={`${proposal.id}-email-${email}`}
+                              >
+                                from:{email}
+                              </span>
+                            ))}
+                            {proposal.subjectKeywords.slice(0, 4).map((keyword) => (
+                              <span
+                                className="rounded-full border border-border/70 bg-background/70 px-2 py-1"
+                                key={`${proposal.id}-kw-${keyword}`}
+                              >
+                                kw:{keyword}
+                              </span>
+                            ))}
+                          </div>
+
+                          <div className="grid gap-3 md:grid-cols-2">
+                            <div className="space-y-2">
+                              <label className="text-xs text-muted-foreground">Account scope</label>
+                              <select
+                                className="h-9 w-full rounded-md border border-input bg-background px-2 text-xs"
                                 onChange={(event) =>
                                   updateProposal(proposal.id, (previous) => ({
                                     ...previous,
-                                    unreadOnly: event.target.checked,
+                                    scopeType: event.target.value as "ALL" | "SELECTED",
+                                    selectedAccountIds:
+                                      event.target.value === "SELECTED"
+                                        ? previous.selectedAccountIds
+                                        : [],
                                   }))
                                 }
-                                type="checkbox"
+                                value={proposal.scopeType}
+                              >
+                                <option value="ALL">All accounts</option>
+                                <option value="SELECTED">Selected accounts</option>
+                              </select>
+                              {proposal.scopeType === "SELECTED" && (
+                                <div className="max-h-28 space-y-1 overflow-auto rounded-md border border-border p-2">
+                                  {accounts.map((account) => (
+                                    <label className="flex items-center gap-2 text-xs" key={`${proposal.id}-acct-${account.id}`}>
+                                      <input
+                                        checked={proposal.selectedAccountIds.includes(account.id)}
+                                        className="h-3.5 w-3.5 accent-primary"
+                                        onChange={(event) =>
+                                          updateProposal(proposal.id, (previous) => {
+                                            const selectedIds = new Set(previous.selectedAccountIds);
+                                            if (event.target.checked) {
+                                              selectedIds.add(account.id);
+                                            } else {
+                                              selectedIds.delete(account.id);
+                                            }
+                                            return {
+                                              ...previous,
+                                              selectedAccountIds: Array.from(selectedIds),
+                                            };
+                                          })
+                                        }
+                                        type="checkbox"
+                                      />
+                                      <span>{account.email}</span>
+                                    </label>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                            <div className="space-y-2">
+                              <label className="text-xs text-muted-foreground">Priority</label>
+                              <select
+                                className="h-9 w-full rounded-md border border-input bg-background px-2 text-xs"
+                                onChange={(event) =>
+                                  updateProposal(proposal.id, (previous) => ({
+                                    ...previous,
+                                    priority: Number(event.target.value),
+                                  }))
+                                }
+                                value={proposal.priority}
+                              >
+                                {[1, 2, 3, 4, 5].map((priorityValue) => (
+                                  <option key={`${proposal.id}-priority-${priorityValue}`} value={priorityValue}>
+                                    Priority {priorityValue}
+                                  </option>
+                                ))}
+                              </select>
+                              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                                <input
+                                  checked={proposal.unreadOnly}
+                                  className="h-3.5 w-3.5 accent-primary"
+                                  onChange={(event) =>
+                                    updateProposal(proposal.id, (previous) => ({
+                                      ...previous,
+                                      unreadOnly: event.target.checked,
+                                    }))
+                                  }
+                                  type="checkbox"
+                                />
+                                Unread only
+                              </label>
+                            </div>
+                          </div>
+
+                          <details className="rounded-md border border-border bg-background/70 p-3">
+                            <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
+                              Edit rules
+                            </summary>
+                            <div className="mt-3 grid gap-2">
+                              <Input
+                                className="h-9 text-xs"
+                                onChange={(event) =>
+                                  updateProposal(proposal.id, (previous) => ({
+                                    ...previous,
+                                    senderDomains: parseDelimitedList(event.target.value, 20),
+                                  }))
+                                }
+                                placeholder="sender domains (comma separated)"
+                                value={formatDelimitedList(proposal.senderDomains)}
                               />
-                              Unread only
-                            </label>
-                          </div>
+                              <Input
+                                className="h-9 text-xs"
+                                onChange={(event) =>
+                                  updateProposal(proposal.id, (previous) => ({
+                                    ...previous,
+                                    senderEmails: parseDelimitedList(event.target.value, 20),
+                                  }))
+                                }
+                                placeholder="sender emails (comma separated)"
+                                value={formatDelimitedList(proposal.senderEmails)}
+                              />
+                              <Input
+                                className="h-9 text-xs"
+                                onChange={(event) =>
+                                  updateProposal(proposal.id, (previous) => ({
+                                    ...previous,
+                                    subjectKeywords: parseDelimitedList(event.target.value, 10),
+                                  }))
+                                }
+                                placeholder="subject keywords (comma separated)"
+                                value={formatDelimitedList(proposal.subjectKeywords)}
+                              />
+                            </div>
+                          </details>
                         </div>
-
-                        <details className="rounded-md border border-border bg-background/60 p-3">
-                          <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
-                            Edit rules
-                          </summary>
-                          <div className="mt-3 grid gap-2">
-                            <Input
-                              className="h-9 text-xs"
-                              onChange={(event) =>
-                                updateProposal(proposal.id, (previous) => ({
-                                  ...previous,
-                                  senderDomains: parseDelimitedList(event.target.value, 20),
-                                }))
-                              }
-                              placeholder="sender domains (comma separated)"
-                              value={formatDelimitedList(proposal.senderDomains)}
-                            />
-                            <Input
-                              className="h-9 text-xs"
-                              onChange={(event) =>
-                                updateProposal(proposal.id, (previous) => ({
-                                  ...previous,
-                                  senderEmails: parseDelimitedList(event.target.value, 20),
-                                }))
-                              }
-                              placeholder="sender emails (comma separated)"
-                              value={formatDelimitedList(proposal.senderEmails)}
-                            />
-                            <Input
-                              className="h-9 text-xs"
-                              onChange={(event) =>
-                                updateProposal(proposal.id, (previous) => ({
-                                  ...previous,
-                                  subjectKeywords: parseDelimitedList(event.target.value, 10),
-                                }))
-                              }
-                              placeholder="subject keywords (comma separated)"
-                              value={formatDelimitedList(proposal.subjectKeywords)}
-                            />
-                          </div>
-                        </details>
                       </div>
-                    ))}
-                  </div>
-
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      disabled={syncingProposals || applyingProposals}
-                      onClick={() => void runInitialSyncForProposals()}
-                      variant="outline"
-                    >
-                      {syncingProposals ? "Syncing..." : "Sync now (last 30 days)"}
-                    </Button>
-                    <Button
-                      disabled={applyingProposals}
-                      onClick={() => void applySelectedProposalsAndContinue()}
-                      variant="secondary"
-                    >
-                      {applyingProposals ? "Creating..." : "Create selected views"}
-                    </Button>
-                    <Button
-                      disabled={applyingProposals}
-                      onClick={() => void skipProposalsAndContinue()}
-                      variant="ghost"
-                    >
-                      Skip for now
-                    </Button>
-                    <Button
-                      disabled={applyingProposals || syncingProposals}
-                      onClick={() => setStep(3)}
-                      variant="outline"
-                    >
-                      Back
-                    </Button>
-                  </div>
-                </>
+                    );
+                  })}
+                </div>
               )}
+
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  disabled={syncingProposals || applyingProposals}
+                  onClick={() => void runInitialSyncForProposals()}
+                  variant="outline"
+                >
+                  {syncingProposals ? "Syncing..." : "Sync now (last 30 days)"}
+                </Button>
+                <Button
+                  disabled={applyingProposals || proposals.length === 0}
+                  onClick={() => void applySelectedProposalsAndContinue()}
+                  variant="secondary"
+                >
+                  {applyingProposals ? "Creating..." : "Create selected views"}
+                </Button>
+                <Button
+                  disabled={applyingProposals}
+                  onClick={() => void skipProposalsAndContinue()}
+                  variant="ghost"
+                >
+                  Skip for now
+                </Button>
+                <Button
+                  disabled={applyingProposals || syncingProposals}
+                  onClick={() => setStep(3)}
+                  variant="outline"
+                >
+                  Back
+                </Button>
+              </div>
             </div>
           )}
 
           {step === 5 && (
             <div className="space-y-4">
-              <h2 className="text-lg font-semibold">Profile and Password</h2>
-              <p className="text-sm text-muted-foreground">
-                This profile is local to this desktop app and used for onboarding.
-              </p>
-              <div className="grid gap-3 md:grid-cols-2">
-                <Input
-                  disabled={submittingProfile}
-                  onChange={(event) =>
-                    setForm((previous) => ({ ...previous, firstName: event.target.value }))
-                  }
-                  placeholder="First name"
-                  value={form.firstName}
-                />
-                <Input
-                  disabled={submittingProfile}
-                  onChange={(event) =>
-                    setForm((previous) => ({ ...previous, lastName: event.target.value }))
-                  }
-                  placeholder="Last name"
-                  value={form.lastName}
-                />
-              </div>
-              <div className="space-y-2">
-                <select
-                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                  disabled={submittingProfile}
-                  onChange={(event) =>
-                    setForm((previous) => ({ ...previous, fieldChoice: event.target.value }))
-                  }
-                  value={form.fieldChoice}
-                >
-                  {FIELD_OF_WORK_OPTIONS.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
-                {form.fieldChoice === "Other" && (
-                  <Input
-                    disabled={submittingProfile}
-                    onChange={(event) =>
-                      setForm((previous) => ({ ...previous, fieldOther: event.target.value }))
-                    }
-                    placeholder="Field of work"
-                    value={form.fieldOther}
-                  />
-                )}
-              </div>
-              <div className="grid gap-3 md:grid-cols-2">
-                <Input
-                  autoComplete="new-password"
-                  disabled={submittingProfile}
-                  onChange={(event) =>
-                    setForm((previous) => ({ ...previous, password: event.target.value }))
-                  }
-                  placeholder="Password"
-                  type="password"
-                  value={form.password}
-                />
-                <Input
-                  autoComplete="new-password"
-                  disabled={submittingProfile}
-                  onChange={(event) =>
-                    setForm((previous) => ({ ...previous, confirmPassword: event.target.value }))
-                  }
-                  placeholder="Confirm password"
-                  type="password"
-                  value={form.confirmPassword}
-                />
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button onClick={() => setStep(4)} variant="outline">
-                  Back
-                </Button>
-                <Button disabled={submittingProfile} onClick={() => void completeSetup()}>
-                  {submittingProfile ? "Finishing..." : "Finish setup"}
-                </Button>
-              </div>
-              {profileError ? <p className="text-sm text-destructive">{profileError}</p> : null}
+              <AccentCard
+                accent="green"
+                description="This profile and password are local to this desktop app."
+                heading="Local Profile & Security"
+              >
+                <div className="grid gap-4 lg:grid-cols-[1.3fr,1fr]">
+                  <div className="space-y-3">
+                    <div className="rounded-lg border border-border/70 bg-background/70 p-3">
+                      <p className="mb-2 flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
+                        <UserRound className="h-3.5 w-3.5" />
+                        Personal info
+                      </p>
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <Input
+                          disabled={submittingProfile}
+                          onChange={(event) =>
+                            setForm((previous) => ({ ...previous, firstName: event.target.value }))
+                          }
+                          placeholder="First name"
+                          value={form.firstName}
+                        />
+                        <Input
+                          disabled={submittingProfile}
+                          onChange={(event) =>
+                            setForm((previous) => ({ ...previous, lastName: event.target.value }))
+                          }
+                          placeholder="Last name"
+                          value={form.lastName}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border border-border/70 bg-background/70 p-3">
+                      <p className="mb-2 flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
+                        <GraduationCap className="h-3.5 w-3.5" />
+                        Work profile
+                      </p>
+                      <div className="space-y-2">
+                        <select
+                          className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                          disabled={submittingProfile}
+                          onChange={(event) =>
+                            setForm((previous) => ({ ...previous, fieldChoice: event.target.value }))
+                          }
+                          value={form.fieldChoice}
+                        >
+                          {FIELD_OF_WORK_OPTIONS.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                        {form.fieldChoice === "Other" && (
+                          <Input
+                            disabled={submittingProfile}
+                            onChange={(event) =>
+                              setForm((previous) => ({ ...previous, fieldOther: event.target.value }))
+                            }
+                            placeholder="Custom industry"
+                            value={form.fieldOther}
+                          />
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="rounded-lg border border-border/70 bg-background/70 p-3">
+                      <p className="mb-2 flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
+                        <KeyRound className="h-3.5 w-3.5" />
+                        Security
+                      </p>
+                      <div className="grid gap-3">
+                        <Input
+                          autoComplete="new-password"
+                          disabled={submittingProfile}
+                          onChange={(event) =>
+                            setForm((previous) => ({ ...previous, password: event.target.value }))
+                          }
+                          placeholder="Password"
+                          type="password"
+                          value={form.password}
+                        />
+                        <Input
+                          autoComplete="new-password"
+                          disabled={submittingProfile}
+                          onChange={(event) =>
+                            setForm((previous) => ({
+                              ...previous,
+                              confirmPassword: event.target.value,
+                            }))
+                          }
+                          placeholder="Confirm password"
+                          type="password"
+                          value={form.confirmPassword}
+                        />
+                      </div>
+                      <p className="pt-2 text-xs text-muted-foreground">
+                        This password is local to MailPilot and is used for login and lock/unlock.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2 pt-3">
+                  <Button onClick={() => setStep(4)} variant="outline">
+                    Back
+                  </Button>
+                  <Button disabled={submittingProfile} onClick={() => void completeSetup()}>
+                    {submittingProfile ? "Finishing..." : "Finish setup"}
+                  </Button>
+                </div>
+                {profileError ? <p className="pt-2 text-sm text-destructive">{profileError}</p> : null}
+              </AccentCard>
             </div>
           )}
 
           {step === 6 && (
-            <div className="space-y-4">
-              <h2 className="text-lg font-semibold">You're ready</h2>
-              <p className="text-sm text-muted-foreground">
-                Setup is complete. MailPilot is ready for your inbox workflow.
-              </p>
-              <Button onClick={() => void enterInbox()}>Go to Inbox</Button>
+            <div className="grid gap-4 lg:grid-cols-[1.4fr,1fr]">
+              <AccentCard
+                accent="green"
+                description="MailPilot is ready for your inbox workflow."
+                heading="Pheww, you did it."
+              >
+                <div className="space-y-4">
+                  <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3">
+                    <p className="flex items-center gap-2 text-sm font-medium">
+                      <CheckCircle2 className="h-4 w-4 text-emerald-300" />
+                      Setup complete
+                    </p>
+                    <p className="pt-1 text-sm text-muted-foreground">
+                      Your accounts are connected, workspace prep is done, and Inbox is ready.
+                    </p>
+                  </div>
+                  <Button className="gap-2" onClick={() => void enterInbox()}>
+                    <Sparkles className="h-4 w-4" />
+                    Go to Inbox
+                  </Button>
+                </div>
+              </AccentCard>
+
+              <AccentCard accent="gold" heading="Setup summary">
+                <div className="space-y-2 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Primary Gmail</span>
+                    <span className="font-medium">{connectedPrimary?.email ?? "Not set"}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Additional accounts</span>
+                    <span className="font-medium">{additionalAccountsCount}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Starter views created</span>
+                    <span className="font-medium">{createdViewsCount}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Local password</span>
+                    <span className="font-medium">Set</span>
+                  </div>
+                </div>
+              </AccentCard>
             </div>
           )}
 
-          {pageError ? <p className="text-sm text-destructive">{pageError}</p> : null}
+          {pageError && !(step === 2 && connectStage === "ERROR") ? (
+            <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+              {pageError}
+            </div>
+          ) : null}
         </CardContent>
       </Card>
     </div>

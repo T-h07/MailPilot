@@ -61,6 +61,7 @@ export type MailMessage = {
   openInGmailUrl: string | null;
   receivedAt: string;
   isUnread: boolean;
+  seenInApp: boolean;
   flags: MailFlags;
   tags: string[];
   viewLabels: ViewLabelChip[];
