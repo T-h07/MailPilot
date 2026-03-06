@@ -7,6 +7,7 @@ export type AccountRecord = {
   email: string;
   provider: string;
   status: string;
+  canRead: boolean;
   canSend: boolean;
   lastSyncAt: string | null;
   role: AccountRole;

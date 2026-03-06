@@ -8,6 +8,7 @@ public record AccountResponse(
   String email,
   String provider,
   String status,
+  boolean canRead,
   boolean canSend,
   OffsetDateTime lastSyncAt,
   String role,

@@ -55,18 +55,19 @@ public class LocalPasswordRecoveryService {
   public RecoveryAvailability getRecoveryAvailability() {
     PrimaryAccount account = loadPrimaryAccount();
     if (account == null) {
-      return new RecoveryAvailability(false, null, "NO_PRIMARY");
+      return new RecoveryAvailability(false, null, null, "NO_PRIMARY");
     }
 
-    if ("REAUTH_REQUIRED".equalsIgnoreCase(account.status())) {
-      return new RecoveryAvailability(false, maskEmail(account.email()), "PRIMARY_REAUTH_REQUIRED");
+    if (!canSend(account.scope())) {
+      return new RecoveryAvailability(
+          false,
+          maskEmail(account.email()),
+          normalizeNullable(account.email()),
+          "PRIMARY_REAUTH_REQUIRED");
     }
 
-    if (!canSend(account.scope(), account.refreshTokenEncrypted())) {
-      return new RecoveryAvailability(false, maskEmail(account.email()), "SEND_DISABLED");
-    }
-
-    return new RecoveryAvailability(true, maskEmail(account.email()), null);
+    return new RecoveryAvailability(
+        true, maskEmail(account.email()), normalizeNullable(account.email()), null);
   }
 
   public int requestRecoveryCode(String requestIp) {
@@ -162,11 +163,9 @@ public class LocalPasswordRecoveryService {
     if (account == null) {
       throw new ApiConflictException("No primary account is available for recovery.");
     }
-    if ("REAUTH_REQUIRED".equalsIgnoreCase(account.status())) {
-      throw new ApiConflictException("Primary account requires re-auth before recovery.");
-    }
-    if (!canSend(account.scope(), account.refreshTokenEncrypted())) {
-      throw new ApiConflictException("Recovery email sending is unavailable.");
+    if (!canSend(account.scope())) {
+      throw new ApiConflictException(
+          "Your primary Gmail account needs to be reconnected to enable sending.");
     }
     return account;
   }
@@ -177,9 +176,7 @@ public class LocalPasswordRecoveryService {
             SELECT
               a.id,
               a.email,
-              a.status,
-              ot.scope,
-              ot.refresh_token_enc
+              ot.scope
             FROM accounts a
             LEFT JOIN oauth_tokens ot ON ot.account_id = a.id
             WHERE a.role = 'PRIMARY'
@@ -190,9 +187,7 @@ public class LocalPasswordRecoveryService {
                 new PrimaryAccount(
                     resultSet.getObject("id", UUID.class),
                     resultSet.getString("email"),
-                    resultSet.getString("status"),
-                    resultSet.getString("scope"),
-                    resultSet.getString("refresh_token_enc")))
+                    resultSet.getString("scope")))
         .stream()
         .findFirst()
         .orElse(null);
@@ -368,15 +363,12 @@ public class LocalPasswordRecoveryService {
             List.of()));
   }
 
-  private boolean canSend(String scope, String refreshTokenEncrypted) {
-    if (!StringUtils.hasText(refreshTokenEncrypted)) {
-      return false;
-    }
+  private boolean canSend(String scope) {
     if (!StringUtils.hasText(scope)) {
       return false;
     }
     String required = GMAIL_SEND_SCOPE.toLowerCase(Locale.ROOT);
-    for (String token : scope.trim().split("\\s+")) {
+    for (String token : scope.trim().split("[\\s,]+")) {
       if (required.equals(token.toLowerCase(Locale.ROOT))) {
         return true;
       }
@@ -432,10 +424,10 @@ public class LocalPasswordRecoveryService {
     return normalized.isBlank() ? null : normalized;
   }
 
-  public record RecoveryAvailability(boolean canRecover, String maskedEmail, String reason) {}
+  public record RecoveryAvailability(
+      boolean canRecover, String maskedEmail, String primaryEmail, String reason) {}
 
-  private record PrimaryAccount(
-      UUID id, String email, String status, String scope, String refreshTokenEncrypted) {}
+  private record PrimaryAccount(UUID id, String email, String scope) {}
 
   private record RecoveryCodeRow(
       UUID id, String targetEmail, String codeHash, OffsetDateTime expiresAt, int attemptCount) {}

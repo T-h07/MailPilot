@@ -1686,6 +1686,7 @@ export function MailboxShell({
   const handleRequestSendReauth = useCallback(
     async (accountId: string) => {
       try {
+        const targetAccount = accountRecords.find((account) => account.id === accountId);
         const config = await configCheck();
         if (!config.configured) {
           showNotice(config.message || "Google OAuth configuration is missing.");
@@ -1694,6 +1695,8 @@ export function MailboxShell({
 
         const startResponse = await startGmailOAuth({
           mode: "SEND",
+          context: "MAILBOX_REAUTH_SEND",
+          accountHint: targetAccount?.email,
           returnTo: "mailpilot://oauth-done",
         });
 
@@ -1737,7 +1740,7 @@ export function MailboxShell({
         return false;
       }
     },
-    [loadAccountRecords, showNotice]
+    [accountRecords, loadAccountRecords, showNotice]
   );
 
   const toggleQuickFilter = useCallback((filterKey: QuickFilterKey) => {

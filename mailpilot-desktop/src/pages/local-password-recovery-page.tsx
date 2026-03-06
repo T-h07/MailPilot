@@ -1,9 +1,11 @@
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ApiClientError } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { configCheck, getGmailOAuthStatus, startGmailOAuth } from "@/lib/api/oauth";
 import {
   getRecoveryOptions,
   requestRecoveryCode,
@@ -12,6 +14,8 @@ import {
 } from "@/lib/api/app-state";
 
 type RecoveryStage = "LOADING" | "INTRO" | "SENDING" | "CODE_SENT" | "VERIFYING" | "SUCCESS" | "UNAVAILABLE";
+const OAUTH_POLL_INTERVAL_MS = 2000;
+const OAUTH_POLL_TIMEOUT_MS = 45000;
 
 function toErrorMessage(error: unknown): string {
   if (error instanceof ApiClientError) {
@@ -28,10 +32,10 @@ function unavailableReasonText(reason: RecoveryReason | null): string {
     return "No primary account is connected.";
   }
   if (reason === "PRIMARY_REAUTH_REQUIRED") {
-    return "Your primary account needs re-authentication.";
+    return "Your primary Gmail account needs to be reconnected to enable recovery sending.";
   }
   if (reason === "SEND_DISABLED") {
-    return "Recovery sending is unavailable because gmail.send is not enabled.";
+    return "Your primary Gmail account needs to be reconnected to enable recovery sending.";
   }
   return "Recovery is currently unavailable.";
 }
@@ -40,6 +44,7 @@ export function LocalPasswordRecoveryPage() {
   const navigate = useNavigate();
   const [stage, setStage] = useState<RecoveryStage>("LOADING");
   const [maskedEmail, setMaskedEmail] = useState<string | null>(null);
+  const [primaryEmail, setPrimaryEmail] = useState<string | null>(null);
   const [reason, setReason] = useState<RecoveryReason | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [code, setCode] = useState("");
@@ -47,6 +52,7 @@ export function LocalPasswordRecoveryPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [cooldownSeconds, setCooldownSeconds] = useState(0);
   const [showResetHelp, setShowResetHelp] = useState(false);
+  const [isReconnecting, setIsReconnecting] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -59,6 +65,7 @@ export function LocalPasswordRecoveryPage() {
           return;
         }
         setMaskedEmail(options.maskedEmail);
+        setPrimaryEmail(options.primaryEmail);
         setReason(options.reason);
         setStage(options.canRecover ? "INTRO" : "UNAVAILABLE");
       } catch (requestError) {
@@ -120,6 +127,59 @@ export function LocalPasswordRecoveryPage() {
     } catch (requestError) {
       setError(toErrorMessage(requestError));
       setStage("CODE_SENT");
+    }
+  };
+
+  const refreshRecoveryOptions = async () => {
+    const options = await getRecoveryOptions();
+    setMaskedEmail(options.maskedEmail);
+    setPrimaryEmail(options.primaryEmail);
+    setReason(options.reason);
+    setStage(options.canRecover ? "INTRO" : "UNAVAILABLE");
+  };
+
+  const handleReconnectGmail = async () => {
+    setError(null);
+    setIsReconnecting(true);
+    try {
+      const oauthConfig = await configCheck();
+      if (!oauthConfig.configured) {
+        throw new ApiClientError(oauthConfig.message || "Google OAuth configuration is missing.");
+      }
+
+      const startResponse = await startGmailOAuth({
+        mode: "SEND",
+        context: "RECOVERY_REAUTH",
+        accountHint: primaryEmail ?? undefined,
+      });
+
+      try {
+        await openUrl(startResponse.authUrl);
+      } catch {
+        const popup = window.open(startResponse.authUrl, "_blank", "noopener,noreferrer");
+        if (!popup) {
+          throw new ApiClientError("Unable to open the browser for Google OAuth.");
+        }
+      }
+
+      const startedAt = Date.now();
+      while (Date.now() - startedAt < OAUTH_POLL_TIMEOUT_MS) {
+        await new Promise((resolve) => window.setTimeout(resolve, OAUTH_POLL_INTERVAL_MS));
+        const status = await getGmailOAuthStatus(startResponse.state);
+        if (status.status === "SUCCESS") {
+          await refreshRecoveryOptions();
+          return;
+        }
+        if (status.status === "ERROR" || status.status === "EXPIRED" || status.status === "UNKNOWN") {
+          throw new ApiClientError(status.message || "Gmail reconnect failed.");
+        }
+      }
+
+      throw new ApiClientError("Gmail reconnect timed out. Complete consent and retry.");
+    } catch (requestError) {
+      setError(toErrorMessage(requestError));
+    } finally {
+      setIsReconnecting(false);
     }
   };
 
@@ -227,6 +287,15 @@ export function LocalPasswordRecoveryPage() {
                 <Button onClick={() => navigate("/login", { replace: true })} variant="ghost">
                   Back to login
                 </Button>
+                {reason !== "NO_PRIMARY" && (
+                  <Button
+                    disabled={isReconnecting}
+                    onClick={() => void handleReconnectGmail()}
+                    variant="outline"
+                  >
+                    {isReconnecting ? "Reconnecting..." : "Reconnect Gmail"}
+                  </Button>
+                )}
                 <Button onClick={() => setShowResetHelp((previous) => !previous)} variant="outline">
                   Reset app instead
                 </Button>

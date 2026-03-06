@@ -616,14 +616,15 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
   };
 
   const runOauthConnectFlow = useCallback(
-    async (beforeIds: Set<string>, onBrowserOpened?: () => void) => {
+    async (beforeIds: Set<string>, context: string, onBrowserOpened?: () => void) => {
       const config = await configCheck();
       if (!config.configured) {
         throw new ApiClientError(config.message || "Google OAuth configuration is missing.");
       }
 
       const oauth = await startGmailOAuth({
-        mode: "READONLY",
+        mode: "SEND",
+        context,
         returnTo: "/onboarding",
       });
 
@@ -694,7 +695,7 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
     try {
       const beforeAccounts = await listAccounts();
       const beforeIds = new Set(beforeAccounts.map((account) => account.id));
-      const selectedAccount = await runOauthConnectFlow(beforeIds, () =>
+      const selectedAccount = await runOauthConnectFlow(beforeIds, "ONBOARDING_PRIMARY", () =>
         setConnectStage("WAITING_FOR_CALLBACK")
       );
 
@@ -716,7 +717,7 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
     try {
       const beforeAccounts = await listAccounts();
       const beforeIds = new Set(beforeAccounts.map((account) => account.id));
-      const selectedAccount = await runOauthConnectFlow(beforeIds);
+      const selectedAccount = await runOauthConnectFlow(beforeIds, "ONBOARDING_SECONDARY");
 
       if (selectedAccount.role !== "PRIMARY") {
         await updateAccountLabel(selectedAccount.id, {
