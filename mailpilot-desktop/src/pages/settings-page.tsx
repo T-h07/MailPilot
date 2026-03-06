@@ -902,7 +902,7 @@ export function SettingsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             <button
               className={cn(
                 "rounded-lg border p-3 text-left transition-colors",
@@ -950,9 +950,33 @@ export function SettingsPage() {
                 <span className="h-4 w-4 rounded-full border border-white/15 bg-[#1b1b1b]" />
               </div>
             </button>
+
+            <button
+              className={cn(
+                "rounded-lg border p-3 text-left transition-colors",
+                themeVariant === "paper"
+                  ? "border-primary/40 bg-accent"
+                  : "border-border bg-card hover:bg-muted"
+              )}
+              onClick={() => setThemeVariant("paper")}
+              type="button"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold">Paper</p>
+                {themeVariant === "paper" ? <Badge variant="secondary">Active</Badge> : null}
+              </div>
+              <p className="pt-1 text-xs text-muted-foreground">
+                Soft off-white layers with gentle contrast and minimal glare.
+              </p>
+              <div className="mt-3 flex items-center gap-2">
+                <span className="h-4 w-4 rounded-full border border-black/10 bg-[#efefec]" />
+                <span className="h-4 w-4 rounded-full border border-black/10 bg-[#f5f4f1]" />
+                <span className="h-4 w-4 rounded-full border border-black/10 bg-[#fbfaf7]" />
+              </div>
+            </button>
           </div>
           <p className="text-xs text-muted-foreground">
-            Accent priority colors remain unchanged across both themes.
+            Accent priority colors remain unchanged across all themes.
           </p>
         </CardContent>
       </Card>

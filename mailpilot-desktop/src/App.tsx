@@ -57,7 +57,7 @@ import {
 } from "@/lib/api/app-state";
 import { LiveEventsProvider, useLiveEvents } from "@/lib/events/live-events-context";
 
-type ThemeVariant = "balanced" | "pure-black";
+type ThemeVariant = "balanced" | "pure-black" | "paper";
 
 const THEME_VARIANT_STORAGE_KEY = "mailpilot.themeVariant";
 
@@ -114,12 +114,15 @@ const settingsItem: SidebarLink = {
 
 function getInitialThemeVariant(): ThemeVariant {
   const storedVariant = localStorage.getItem(THEME_VARIANT_STORAGE_KEY);
-  if (storedVariant === "balanced" || storedVariant === "pure-black") {
+  if (storedVariant === "balanced" || storedVariant === "pure-black" || storedVariant === "paper") {
     return storedVariant;
   }
 
   const legacyThemeMode = localStorage.getItem("mailpilot-theme");
-  if (legacyThemeMode === "light" || legacyThemeMode === "dark") {
+  if (legacyThemeMode === "light") {
+    return "paper";
+  }
+  if (legacyThemeMode === "dark") {
     return "balanced";
   }
 
@@ -767,7 +770,7 @@ function App() {
   const [logoutInFlight, setLogoutInFlight] = useState(false);
 
   useLayoutEffect(() => {
-    document.documentElement.classList.add("dark");
+    document.documentElement.classList.toggle("dark", themeVariant !== "paper");
     document.documentElement.setAttribute("data-theme", themeVariant);
     localStorage.setItem(THEME_VARIANT_STORAGE_KEY, themeVariant);
   }, [themeVariant]);

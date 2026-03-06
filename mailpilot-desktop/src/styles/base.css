@@ -4,13 +4,17 @@
   }
 
   html {
-    color-scheme: dark;
+    color-scheme: light;
   }
 
   html.dark,
   html[data-theme="balanced"],
   html[data-theme="pure-black"] {
     color-scheme: dark;
+  }
+
+  html[data-theme="paper"] {
+    color-scheme: light;
   }
 
   body {
