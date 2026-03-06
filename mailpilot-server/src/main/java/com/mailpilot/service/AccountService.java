@@ -27,7 +27,7 @@ public class AccountService {
 
   public List<AccountResponse> listAccounts() {
     return jdbcTemplate.query(
-      """
+        """
       SELECT
         a.id,
         a.email,
@@ -49,29 +49,28 @@ public class AccountService {
         a.provider,
         a.email
       """,
-      (resultSet, rowNum) -> {
-        String provider = resultSet.getString("provider");
-        String scope = resultSet.getString("scope");
-        String refreshTokenEncrypted = resultSet.getString("refresh_token_enc");
-        boolean canSend = isGmailSendEnabled(provider, scope, refreshTokenEncrypted);
-        String effectiveStatus = resolveStatus(provider, resultSet.getString("status"), canSend);
-        String role = normalizeRoleForResponse(resultSet.getString("role"));
-        String customLabel = "CUSTOM".equals(role)
-          ? normalizeCustomLabelForResponse(resultSet.getString("custom_label"))
-          : null;
+        (resultSet, rowNum) -> {
+          String provider = resultSet.getString("provider");
+          String scope = resultSet.getString("scope");
+          String refreshTokenEncrypted = resultSet.getString("refresh_token_enc");
+          boolean canSend = isGmailSendEnabled(provider, scope, refreshTokenEncrypted);
+          String effectiveStatus = resolveStatus(provider, resultSet.getString("status"), canSend);
+          String role = normalizeRoleForResponse(resultSet.getString("role"));
+          String customLabel =
+              "CUSTOM".equals(role)
+                  ? normalizeCustomLabelForResponse(resultSet.getString("custom_label"))
+                  : null;
 
-        return new AccountResponse(
-          resultSet.getObject("id", UUID.class),
-          resultSet.getString("email"),
-          provider,
-          effectiveStatus,
-          canSend,
-          resultSet.getObject("last_sync_at", java.time.OffsetDateTime.class),
-          role,
-          customLabel
-        );
-      }
-    );
+          return new AccountResponse(
+              resultSet.getObject("id", UUID.class),
+              resultSet.getString("email"),
+              provider,
+              effectiveStatus,
+              canSend,
+              resultSet.getObject("last_sync_at", java.time.OffsetDateTime.class),
+              role,
+              customLabel);
+        });
   }
 
   @Transactional
@@ -96,33 +95,53 @@ public class AccountService {
 
     if ("PRIMARY".equals(role)) {
       jdbcTemplate.update(
-        """
+          """
         UPDATE accounts
         SET role = 'SECONDARY', custom_label = NULL, updated_at = now()
         WHERE role = 'PRIMARY' AND id <> ?
         """,
-        accountId
-      );
+          accountId);
     }
 
     jdbcTemplate.update(
-      """
+        """
       UPDATE accounts
       SET role = ?, custom_label = ?, updated_at = now()
       WHERE id = ?
       """,
-      role,
-      customLabel,
-      accountId
-    );
+        role,
+        customLabel,
+        accountId);
+  }
+
+  @Transactional
+  public void setPrimaryForOnboarding(UUID accountId) {
+    AccountProviderStatus providerStatus =
+        jdbcTemplate.queryForObject(
+            """
+        SELECT provider, status
+        FROM accounts
+        WHERE id = ?
+        """,
+            (resultSet, rowNum) ->
+                new AccountProviderStatus(
+                    resultSet.getString("provider"), resultSet.getString("status")),
+            accountId);
+
+    if (providerStatus == null) {
+      throw new ApiNotFoundException("Account not found");
+    }
+    if (!"GMAIL".equalsIgnoreCase(providerStatus.provider())) {
+      throw new ApiBadRequestException("Primary onboarding account must be a Gmail account.");
+    }
+
+    updateLabel(accountId, "PRIMARY", null);
   }
 
   private void ensureAccountExists(UUID accountId) {
-    Integer count = jdbcTemplate.queryForObject(
-      "SELECT COUNT(*) FROM accounts WHERE id = ?",
-      Integer.class,
-      accountId
-    );
+    Integer count =
+        jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM accounts WHERE id = ?", Integer.class, accountId);
     if (count == null || count == 0) {
       throw new ApiNotFoundException("Account not found");
     }
@@ -206,4 +225,6 @@ public class AccountService {
     }
     return false;
   }
+
+  private record AccountProviderStatus(String provider, String status) {}
 }
