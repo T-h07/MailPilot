@@ -57,13 +57,13 @@ import {
 } from "@/lib/api/app-state";
 import { LiveEventsProvider, useLiveEvents } from "@/lib/events/live-events-context";
 
-type ThemeMode = "light" | "dark";
+type ThemeVariant = "balanced" | "pure-black" | "paper";
 
-const THEME_STORAGE_KEY = "mailpilot-theme";
+const THEME_VARIANT_STORAGE_KEY = "mailpilot.themeVariant";
 
 export type AppOutletContext = {
-  themeMode: ThemeMode;
-  setThemeMode: (mode: ThemeMode) => void;
+  themeVariant: ThemeVariant;
+  setThemeVariant: (mode: ThemeVariant) => void;
   views: ViewRecord[];
   viewsLoading: boolean;
   viewsError: string | null;
@@ -112,12 +112,21 @@ const settingsItem: SidebarLink = {
   icon: Cog,
 };
 
-function getInitialThemeMode(): ThemeMode {
-  const storedTheme = localStorage.getItem(THEME_STORAGE_KEY);
-  if (storedTheme === "light" || storedTheme === "dark") {
-    return storedTheme;
+function getInitialThemeVariant(): ThemeVariant {
+  const storedVariant = localStorage.getItem(THEME_VARIANT_STORAGE_KEY);
+  if (storedVariant === "balanced" || storedVariant === "pure-black" || storedVariant === "paper") {
+    return storedVariant;
   }
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+
+  const legacyThemeMode = localStorage.getItem("mailpilot-theme");
+  if (legacyThemeMode === "light") {
+    return "paper";
+  }
+  if (legacyThemeMode === "dark") {
+    return "balanced";
+  }
+
+  return "balanced";
 }
 
 function toApiErrorMessage(error: unknown): string {
@@ -411,6 +420,8 @@ type AppShellProps = {
   logoutInFlight: boolean;
   unlockInFlight: boolean;
   unlockError: string | null;
+  themeVariant: ThemeVariant;
+  setThemeVariant: (variant: ThemeVariant) => void;
   onLock: () => Promise<void>;
   onLogout: () => Promise<void>;
   onUnlock: (password: string) => Promise<void>;
@@ -423,6 +434,8 @@ type AppRouteGuardProps = {
   logoutInFlight: boolean;
   unlockInFlight: boolean;
   unlockError: string | null;
+  themeVariant: ThemeVariant;
+  setThemeVariant: (variant: ThemeVariant) => void;
   onLock: () => Promise<void>;
   onLogout: () => Promise<void>;
   onUnlock: (password: string) => Promise<void>;
@@ -448,6 +461,8 @@ function AppShell({
   logoutInFlight,
   unlockInFlight,
   unlockError,
+  themeVariant,
+  setThemeVariant,
   onLock,
   onLogout,
   onUnlock,
@@ -455,7 +470,6 @@ function AppShell({
   const location = useLocation();
   const { badges, latestNewMail, newMailSequence, sseConnected, syncByAccountId } = useLiveEvents();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const [themeMode, setThemeMode] = useState<ThemeMode>(getInitialThemeMode);
   const [toasts, setToasts] = useState<AppToast[]>([]);
   const toastTimeoutsRef = useRef<Map<number, number>>(new Map());
 
@@ -511,11 +525,6 @@ function AppShell({
       variant: "secondary" as const,
     };
   }, [sseConnected, syncByAccountId]);
-
-  useLayoutEffect(() => {
-    document.documentElement.classList.toggle("dark", themeMode === "dark");
-    localStorage.setItem(THEME_STORAGE_KEY, themeMode);
-  }, [themeMode]);
 
   useEffect(() => {
     if (!latestNewMail || newMailSequence === 0) {
@@ -635,8 +644,8 @@ function AppShell({
             <div className="mx-auto max-w-7xl">
               <Outlet
                 context={{
-                  themeMode,
-                  setThemeMode,
+                  themeVariant,
+                  setThemeVariant,
                   views,
                   viewsLoading,
                   viewsError,
@@ -713,6 +722,8 @@ function ProtectedAppShell({
   logoutInFlight,
   unlockInFlight,
   unlockError,
+  themeVariant,
+  setThemeVariant,
   onLock,
   onLogout,
   onUnlock,
@@ -735,6 +746,8 @@ function ProtectedAppShell({
         logoutInFlight={logoutInFlight}
         onLock={onLock}
         onLogout={onLogout}
+        setThemeVariant={setThemeVariant}
+        themeVariant={themeVariant}
         onUnlock={onUnlock}
         unlockError={unlockError}
         unlockInFlight={unlockInFlight}
@@ -744,6 +757,7 @@ function ProtectedAppShell({
 }
 
 function App() {
+  const [themeVariant, setThemeVariant] = useState<ThemeVariant>(getInitialThemeVariant);
   const [appState, setAppState] = useState<AppStateRecord | null>(null);
   const [isBootstrapping, setIsBootstrapping] = useState(true);
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
@@ -754,6 +768,12 @@ function App() {
   const [unlockInFlight, setUnlockInFlight] = useState(false);
   const [unlockError, setUnlockError] = useState<string | null>(null);
   const [logoutInFlight, setLogoutInFlight] = useState(false);
+
+  useLayoutEffect(() => {
+    document.documentElement.classList.toggle("dark", themeVariant !== "paper");
+    document.documentElement.setAttribute("data-theme", themeVariant);
+    localStorage.setItem(THEME_VARIANT_STORAGE_KEY, themeVariant);
+  }, [themeVariant]);
 
   const refreshAppState = useCallback(async () => {
     const state = await getAppState();
@@ -888,6 +908,8 @@ function App() {
               logoutInFlight={logoutInFlight}
               onLock={handleLock}
               onLogout={handleLogout}
+              setThemeVariant={setThemeVariant}
+              themeVariant={themeVariant}
               onUnlock={handleUnlock}
               unlockError={unlockError}
               unlockInFlight={unlockInFlight}
