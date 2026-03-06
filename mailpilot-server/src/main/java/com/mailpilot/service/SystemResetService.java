@@ -42,6 +42,7 @@ public class SystemResetService {
           "views",
           "sender_rules",
           "mailbox_seen",
+          "local_auth_recovery_codes",
           "drafts",
           "accounts");
 

@@ -7,9 +7,15 @@ type AppLockOverlayProps = {
   isUnlocking: boolean;
   error: string | null;
   onUnlock: (password: string) => Promise<void>;
+  onForgotPassword: () => void;
 };
 
-export function AppLockOverlay({ isUnlocking, error, onUnlock }: AppLockOverlayProps) {
+export function AppLockOverlay({
+  isUnlocking,
+  error,
+  onUnlock,
+  onForgotPassword,
+}: AppLockOverlayProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [password, setPassword] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
@@ -59,6 +65,15 @@ export function AppLockOverlay({ isUnlocking, error, onUnlock }: AppLockOverlayP
             )}
             <Button className="w-full" disabled={isUnlocking} type="submit">
               {isUnlocking ? "Unlocking..." : "Unlock"}
+            </Button>
+            <Button
+              className="w-full"
+              disabled={isUnlocking}
+              onClick={onForgotPassword}
+              type="button"
+              variant="ghost"
+            >
+              Forgot password?
             </Button>
           </form>
         </CardContent>

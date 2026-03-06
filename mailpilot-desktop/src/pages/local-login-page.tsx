@@ -7,9 +7,15 @@ type LocalLoginPageProps = {
   isLoading: boolean;
   error: string | null;
   onLogin: (password: string) => Promise<void>;
+  onForgotPassword: () => void;
 };
 
-export function LocalLoginPage({ isLoading, error, onLogin }: LocalLoginPageProps) {
+export function LocalLoginPage({
+  isLoading,
+  error,
+  onLogin,
+  onForgotPassword,
+}: LocalLoginPageProps) {
   const [password, setPassword] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
 
@@ -54,6 +60,15 @@ export function LocalLoginPage({ isLoading, error, onLogin }: LocalLoginPageProp
             )}
             <Button className="w-full" disabled={isLoading} type="submit">
               {isLoading ? "Logging in..." : "Login"}
+            </Button>
+            <Button
+              className="w-full"
+              disabled={isLoading}
+              onClick={onForgotPassword}
+              type="button"
+              variant="ghost"
+            >
+              Forgot password?
             </Button>
           </form>
         </CardContent>
