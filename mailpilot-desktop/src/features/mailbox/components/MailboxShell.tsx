@@ -21,6 +21,7 @@ import { configCheck, getGmailOAuthStatus, startGmailOAuth } from "@/lib/api/oau
 import {
   getMessage,
   loadMessageBody,
+  markSeen,
   type MailboxMode,
   type MailboxSortOrder,
   queryMailbox,
@@ -176,6 +177,7 @@ function toSummaryMessage(item: MailboxListItem): MailMessage {
     openInGmailUrl: null,
     receivedAt: item.receivedAt,
     isUnread: item.isUnread,
+    seenInApp: item.seenInApp,
     flags: inferredFlags,
     tags: item.tags,
     viewLabels: item.viewLabels ?? [],
@@ -258,6 +260,7 @@ function buildPreviewMessage(
     subject: detail.subject,
     receivedAt: detail.receivedAt,
     isUnread: detail.isUnread,
+    seenInApp: detail.seenInApp || summary.seenInApp,
     bodyCache: detail.body.content,
     bodyMime: detail.body.mime,
     openInGmailUrl: detail.openInGmailUrl,
@@ -456,6 +459,7 @@ export function MailboxShell({
   const viewLabelsAbortRef = useRef<AbortController | null>(null);
   const messageViewLabelsAbortRef = useRef<AbortController | null>(null);
   const detailRequestSequenceRef = useRef(0);
+  const seenOptimisticMessageIdsRef = useRef<Set<string>>(new Set());
   const openedMailboxKeyRef = useRef<string | null>(null);
   const previousMailboxQueryKeyRef = useRef<string | null>(null);
   const previousSyncStatesRef = useRef<Record<string, "RUNNING" | "IDLE" | "ERROR">>({});
@@ -899,7 +903,16 @@ export function MailboxShell({
           return;
         }
 
-        const incomingMessages = response.items.map((item) => toSummaryMessage(item));
+        const seenOptimisticIds = seenOptimisticMessageIdsRef.current;
+        const incomingMessages = response.items.map((item) => {
+          const mapped = toSummaryMessage(item);
+          return seenOptimisticIds.has(mapped.id)
+            ? {
+                ...mapped,
+                seenInApp: true,
+              }
+            : mapped;
+        });
         const incomingAccounts = response.items.map((item) =>
           toMailAccount(item.accountId, item.accountEmail)
         );
@@ -1123,6 +1136,44 @@ export function MailboxShell({
     }
     return buildPreviewMessage(selectedSummary, undefined, accountLookup);
   }, [accountLookup, selectedMessageDetail, selectedSummary]);
+
+  const applySeenState = useCallback((messageId: string) => {
+    seenOptimisticMessageIdsRef.current.add(messageId);
+    setMessages((previous) =>
+      previous.map((message) =>
+        message.id === messageId
+          ? {
+              ...message,
+              seenInApp: true,
+            }
+          : message
+      )
+    );
+    setSelectedMessageDetail((previous) => {
+      if (!previous || previous.id !== messageId) {
+        return previous;
+      }
+      return {
+        ...previous,
+        seenInApp: true,
+      };
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!selectedMessageId) {
+      return;
+    }
+    const selected = messages.find((message) => message.id === selectedMessageId);
+    if (!selected || selected.seenInApp) {
+      return;
+    }
+
+    applySeenState(selectedMessageId);
+    void markSeen(selectedMessageId).catch(() => {
+      // Keep optimistic seen state and reconcile on next mailbox refresh.
+    });
+  }, [applySeenState, messages, selectedMessageId]);
 
   const applyUnreadState = useCallback((messageId: string, isUnread: boolean) => {
     setMessages((previous) =>

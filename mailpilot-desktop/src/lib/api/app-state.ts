@@ -18,6 +18,19 @@ export type StatusResponse = {
   status: "ok" | "error";
 };
 
+export type RecoveryReason = "NO_PRIMARY" | "PRIMARY_REAUTH_REQUIRED" | "SEND_DISABLED";
+
+export type RecoveryOptionsResponse = {
+  canRecover: boolean;
+  maskedEmail: string | null;
+  reason: RecoveryReason | null;
+};
+
+export type RecoveryRequestResponse = {
+  status: "ok" | "error";
+  cooldownSeconds: number;
+};
+
 export function getAppState(signal?: AbortSignal) {
   return fetchJson<AppStateRecord>("/api/app/state", { signal });
 }
@@ -58,6 +71,31 @@ export function logoutApp(signal?: AbortSignal) {
   return fetchJson<StatusResponse>("/api/app/logout", {
     method: "POST",
     body: {},
+    signal,
+  });
+}
+
+export function getRecoveryOptions(signal?: AbortSignal) {
+  return fetchJson<RecoveryOptionsResponse>("/api/app/recovery/options", { signal });
+}
+
+export function requestRecoveryCode(signal?: AbortSignal) {
+  return fetchJson<RecoveryRequestResponse>("/api/app/recovery/request", {
+    method: "POST",
+    body: {},
+    signal,
+  });
+}
+
+export function verifyRecoveryCode(
+  code: string,
+  newPassword: string,
+  confirmNewPassword: string,
+  signal?: AbortSignal
+) {
+  return fetchJson<StatusResponse>("/api/app/recovery/verify", {
+    method: "POST",
+    body: { code, newPassword, confirmNewPassword },
     signal,
   });
 }

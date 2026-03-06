@@ -4,3 +4,9 @@
     radial-gradient(circle at 0% 0%, hsl(var(--accent) / 0.2) 0%, transparent 35%),
     radial-gradient(circle at 100% 0%, hsl(var(--secondary) / 0.55) 0%, transparent 40%);
 }
+
+html[data-theme="paper"] .app-shell-main {
+  background-image:
+    radial-gradient(circle at 0% 0%, hsl(var(--accent) / 0.35) 0%, transparent 34%),
+    radial-gradient(circle at 100% 0%, hsl(var(--secondary) / 0.52) 0%, transparent 38%);
+}

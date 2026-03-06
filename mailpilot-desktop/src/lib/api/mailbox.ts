@@ -61,6 +61,7 @@ export type MailboxListItem = {
   snippet: string;
   receivedAt: string;
   isUnread: boolean;
+  seenInApp: boolean;
   hasAttachments: boolean;
   chips: string[];
   tags: string[];
@@ -87,6 +88,7 @@ export type MessageDetailResponse = {
   receivedAt: string;
   openInGmailUrl: string | null;
   isUnread: boolean;
+  seenInApp: boolean;
   isSent: boolean;
   body: {
     mime: string;
@@ -153,6 +155,14 @@ export function setRead(id: string, isUnread: boolean, signal?: AbortSignal) {
   return fetchJson<{ status: string }>(`/api/messages/${id}/read`, {
     method: "POST",
     body: { isUnread },
+    signal,
+  });
+}
+
+export function markSeen(id: string, signal?: AbortSignal) {
+  return fetchJson<{ status: string }>(`/api/messages/${id}/seen`, {
+    method: "POST",
+    body: {},
     signal,
   });
 }

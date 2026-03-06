@@ -7,6 +7,7 @@ import java.nio.charset.StandardCharsets;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.LinkedHashSet;
@@ -20,6 +21,8 @@ import org.springframework.stereotype.Service;
 public class FocusService {
 
   private static final int DEFAULT_PAGE_SIZE = 50;
+  private static final String OPEN_FOLLOWUP_CONDITION =
+      "f.status = 'OPEN' AND (f.needs_reply = true OR f.due_at IS NOT NULL OR f.snoozed_until IS NOT NULL)";
 
   private final JdbcTemplate jdbcTemplate;
   private final SenderHighlightResolver senderHighlightResolver;
@@ -46,17 +49,31 @@ public class FocusService {
           WHERE
             status = 'OPEN'
             AND (needs_reply = true OR due_at IS NOT NULL OR snoozed_until IS NOT NULL)
-        ) AS open_total
+        ) AS open_total,
+        COUNT(*) FILTER (
+          WHERE
+            status = 'OPEN'
+            AND snoozed_until IS NOT NULL
+            AND snoozed_until > now()
+            AND snoozed_until <= now() + interval '24 hours'
+        ) AS wakeups_next_24h
       FROM followups
       """
     );
+
+    List<FocusSummaryResponse.ByAccount> byAccount = loadByAccount();
+    List<FocusSummaryResponse.TopSender> topSenders = loadTopSenders();
 
     return new FocusSummaryResponse(
       toInt(row.get("needs_reply_open")),
       toInt(row.get("overdue")),
       toInt(row.get("due_today")),
       toInt(row.get("snoozed")),
-      toInt(row.get("open_total"))
+      toInt(row.get("open_total")),
+      toInt(row.get("wakeups_next_24h")),
+      byAccount,
+      topSenders,
+      OffsetDateTime.now(ZoneOffset.UTC)
     );
   }
 
@@ -249,6 +266,55 @@ public class FocusService {
       return number.intValue();
     }
     return 0;
+  }
+
+  private List<FocusSummaryResponse.ByAccount> loadByAccount() {
+    return jdbcTemplate.query(
+        """
+        SELECT
+          a.id AS account_id,
+          a.email AS account_email,
+          COUNT(*) AS item_count
+        FROM followups f
+        JOIN messages m ON m.id = f.message_id
+        JOIN accounts a ON a.id = m.account_id
+        WHERE
+        """
+            + OPEN_FOLLOWUP_CONDITION
+            + """
+        GROUP BY a.id, a.email
+        ORDER BY item_count DESC, a.email ASC
+        LIMIT 8
+        """,
+        (resultSet, rowNum) ->
+            new FocusSummaryResponse.ByAccount(
+                resultSet.getObject("account_id", UUID.class),
+                resultSet.getString("account_email"),
+                resultSet.getInt("item_count")));
+  }
+
+  private List<FocusSummaryResponse.TopSender> loadTopSenders() {
+    return jdbcTemplate.query(
+        """
+        SELECT
+          m.sender_email,
+          COALESCE(NULLIF(trim(m.sender_name), ''), split_part(m.sender_email, '@', 1)) AS sender_name,
+          COUNT(*) AS item_count
+        FROM followups f
+        JOIN messages m ON m.id = f.message_id
+        WHERE
+        """
+            + OPEN_FOLLOWUP_CONDITION
+            + """
+        GROUP BY m.sender_email, sender_name
+        ORDER BY item_count DESC, sender_name ASC
+        LIMIT 8
+        """,
+        (resultSet, rowNum) ->
+            new FocusSummaryResponse.TopSender(
+                resultSet.getString("sender_email"),
+                resultSet.getString("sender_name"),
+                resultSet.getInt("item_count")));
   }
 
   private enum QueueType {

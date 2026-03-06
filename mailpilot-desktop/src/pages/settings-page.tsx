@@ -1,4 +1,5 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import type { AppOutletContext } from "@/App";
@@ -13,6 +14,7 @@ import {
 import { ApiClientError, getApiHealth, resolveApiBase } from "@/api/client";
 import { configCheck, getGmailOAuthStatus, startGmailOAuth } from "@/lib/api/oauth";
 import { repairMessageMetadata, runAccountSync, runAllAccountsSync } from "@/lib/api/sync";
+import { resetApp } from "@/lib/api/system";
 import { useLiveEvents } from "@/lib/events/live-events-context";
 import {
   createSenderRule,
@@ -72,6 +74,14 @@ const OAUTH_POLL_INTERVAL_MS = 2000;
 const OAUTH_POLL_TIMEOUT_MS = 45000;
 const DEFAULT_SYNC_MAX_MESSAGES = 500;
 const ACCOUNT_ROLE_SAVE_DEBOUNCE_MS = 400;
+
+async function closeDesktopAppWindow() {
+  try {
+    await getCurrentWindow().close();
+  } catch {
+    window.close();
+  }
+}
 
 function toErrorMessage(error: unknown): string {
   if (error instanceof ApiClientError) {
@@ -224,13 +234,10 @@ function withoutRecordKey<T extends Record<string, unknown>>(record: T, keyToRem
 }
 
 export function SettingsPage() {
-  const { themeMode, setThemeMode } = useOutletContext<AppOutletContext>();
+  const { themeVariant, setThemeVariant } = useOutletContext<AppOutletContext>();
   const { refreshSyncStatus, sseConnected, syncByAccountId } = useLiveEvents();
   const showSenderHighlightsInSettings = false;
   const isDevMode = import.meta.env.DEV;
-  const nextTheme = themeMode === "dark" ? "light" : "dark";
-  const modeLabel = themeMode === "dark" ? "Dark" : "Light";
-  const nextThemeLabel = nextTheme === "dark" ? "Dark" : "Light";
   const apiBase = useMemo(() => resolveApiBase(), []);
 
   const noticeTimeoutRef = useRef<number | null>(null);
@@ -266,6 +273,12 @@ export function SettingsPage() {
   const [detachConfirmInput, setDetachConfirmInput] = useState("");
   const [detachError, setDetachError] = useState<string | null>(null);
   const [detachingAccountId, setDetachingAccountId] = useState<string | null>(null);
+  const [resetDialogOpen, setResetDialogOpen] = useState(false);
+  const [resetPassword, setResetPassword] = useState("");
+  const [resetConfirmText, setResetConfirmText] = useState("");
+  const [resetAcknowledgeChecked, setResetAcknowledgeChecked] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
+  const [isResettingApp, setIsResettingApp] = useState(false);
 
   const [senderRules, setSenderRules] = useState<SenderRuleRecord[]>([]);
   const [isLoadingRules, setIsLoadingRules] = useState(false);
@@ -764,6 +777,42 @@ export function SettingsPage() {
     }
   }, [detachConfirmInput, detachDialogAccount, loadAccounts, refreshSyncStatus, showNotice]);
 
+  const openResetDialog = useCallback(() => {
+    setResetDialogOpen(true);
+    setResetPassword("");
+    setResetConfirmText("");
+    setResetAcknowledgeChecked(false);
+    setResetError(null);
+  }, []);
+
+  const closeResetDialog = useCallback((open: boolean) => {
+    if (!open && !isResettingApp) {
+      setResetDialogOpen(false);
+      setResetPassword("");
+      setResetConfirmText("");
+      setResetAcknowledgeChecked(false);
+      setResetError(null);
+    }
+  }, [isResettingApp]);
+
+  const handleResetApp = useCallback(async () => {
+    setResetError(null);
+    setIsResettingApp(true);
+    try {
+      await resetApp({
+        password: resetPassword,
+        confirmText: resetConfirmText,
+      });
+      showNotice("Reset complete. Closing app...");
+      await closeDesktopAppWindow();
+      setIsResettingApp(false);
+      setResetDialogOpen(false);
+    } catch (error) {
+      setResetError(toErrorMessage(error));
+      setIsResettingApp(false);
+    }
+  }, [resetConfirmText, resetPassword, showNotice]);
+
   const openCreateRuleDialog = () => {
     setEditingRuleId(null);
     setRuleForm(EMPTY_RULE_FORM);
@@ -830,6 +879,11 @@ export function SettingsPage() {
 
   const detachEmailMatches =
     detachDialogAccount !== null && detachConfirmInput === detachDialogAccount.email;
+  const canConfirmReset =
+    resetPassword.trim().length > 0 &&
+    resetConfirmText === "RESET" &&
+    resetAcknowledgeChecked &&
+    !isResettingApp;
 
   return (
     <section className="space-y-6">
@@ -844,12 +898,86 @@ export function SettingsPage() {
         <CardHeader>
           <CardTitle>Theme</CardTitle>
           <CardDescription>
-            Persisted locally. This currently controls the desktop shell visuals only.
+            Persisted locally and applied instantly across shell, onboarding, and login.
           </CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-wrap items-center gap-3">
-          <Badge variant="secondary">Current mode: {modeLabel}</Badge>
-          <Button onClick={() => setThemeMode(nextTheme)}>Switch to {nextThemeLabel}</Button>
+        <CardContent className="space-y-3">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <button
+              className={cn(
+                "rounded-lg border p-3 text-left transition-colors",
+                themeVariant === "balanced"
+                  ? "border-primary/40 bg-accent"
+                  : "border-border bg-card hover:bg-muted"
+              )}
+              onClick={() => setThemeVariant("balanced")}
+              type="button"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold">Balanced</p>
+                {themeVariant === "balanced" ? <Badge variant="secondary">Active</Badge> : null}
+              </div>
+              <p className="pt-1 text-xs text-muted-foreground">
+                Navy-balanced dark surfaces with cool contrast.
+              </p>
+              <div className="mt-3 flex items-center gap-2">
+                <span className="h-4 w-4 rounded-full border border-white/15 bg-[#111a2a]" />
+                <span className="h-4 w-4 rounded-full border border-white/15 bg-[#1b2740]" />
+                <span className="h-4 w-4 rounded-full border border-white/15 bg-[#273451]" />
+              </div>
+            </button>
+
+            <button
+              className={cn(
+                "rounded-lg border p-3 text-left transition-colors",
+                themeVariant === "pure-black"
+                  ? "border-primary/40 bg-accent"
+                  : "border-border bg-card hover:bg-muted"
+              )}
+              onClick={() => setThemeVariant("pure-black")}
+              type="button"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold">Pure Black</p>
+                {themeVariant === "pure-black" ? <Badge variant="secondary">Active</Badge> : null}
+              </div>
+              <p className="pt-1 text-xs text-muted-foreground">
+                Premium black and charcoal surfaces with high-contrast text.
+              </p>
+              <div className="mt-3 flex items-center gap-2">
+                <span className="h-4 w-4 rounded-full border border-white/15 bg-[#050505]" />
+                <span className="h-4 w-4 rounded-full border border-white/15 bg-[#101010]" />
+                <span className="h-4 w-4 rounded-full border border-white/15 bg-[#1b1b1b]" />
+              </div>
+            </button>
+
+            <button
+              className={cn(
+                "rounded-lg border p-3 text-left transition-colors",
+                themeVariant === "paper"
+                  ? "border-primary/40 bg-accent"
+                  : "border-border bg-card hover:bg-muted"
+              )}
+              onClick={() => setThemeVariant("paper")}
+              type="button"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold">Paper</p>
+                {themeVariant === "paper" ? <Badge variant="secondary">Active</Badge> : null}
+              </div>
+              <p className="pt-1 text-xs text-muted-foreground">
+                Soft off-white layers with gentle contrast and minimal glare.
+              </p>
+              <div className="mt-3 flex items-center gap-2">
+                <span className="h-4 w-4 rounded-full border border-black/10 bg-[#efefec]" />
+                <span className="h-4 w-4 rounded-full border border-black/10 bg-[#f5f4f1]" />
+                <span className="h-4 w-4 rounded-full border border-black/10 bg-[#fbfaf7]" />
+              </div>
+            </button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Accent priority colors remain unchanged across all themes.
+          </p>
         </CardContent>
       </Card>
 
@@ -894,6 +1022,21 @@ export function SettingsPage() {
             )}
             <Badge variant="secondary">{healthStatus}</Badge>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card className="border-destructive/40">
+        <CardHeader>
+          <CardTitle className="text-destructive">Danger Zone</CardTitle>
+          <CardDescription>
+            Reset permanently deletes all local MailPilot data (accounts, messages, views,
+            followups, drafts, and rules). This cannot be undone.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button onClick={openResetDialog} variant="destructive">
+            Reset MailPilot
+          </Button>
         </CardContent>
       </Card>
 
@@ -1263,6 +1406,84 @@ export function SettingsPage() {
               variant="destructive"
             >
               {detachingAccountId !== null ? "Detaching..." : "Detach & delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog onOpenChange={closeResetDialog} open={resetDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-destructive">Reset MailPilot?</DialogTitle>
+            <DialogDescription>
+              This permanently deletes all local MailPilot data and closes the app. On next
+              launch, onboarding starts again.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 text-sm">
+            <div className="space-y-2">
+              <p className="text-muted-foreground">Enter local app password:</p>
+              <Input
+                autoComplete="current-password"
+                disabled={isResettingApp}
+                onChange={(event) => {
+                  setResetPassword(event.target.value);
+                  setResetError(null);
+                }}
+                placeholder="Password"
+                type="password"
+                value={resetPassword}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-muted-foreground">Type RESET to confirm:</p>
+              <Input
+                autoComplete="off"
+                disabled={isResettingApp}
+                onChange={(event) => {
+                  setResetConfirmText(event.target.value);
+                  setResetError(null);
+                }}
+                placeholder="RESET"
+                value={resetConfirmText}
+              />
+            </div>
+
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <input
+                checked={resetAcknowledgeChecked}
+                className="h-4 w-4 rounded border border-input bg-background"
+                disabled={isResettingApp}
+                onChange={(event) => {
+                  setResetAcknowledgeChecked(event.target.checked);
+                  setResetError(null);
+                }}
+                type="checkbox"
+              />
+              I understand this deletes all data.
+            </label>
+
+            {resetError && <p className="text-xs text-destructive">{resetError}</p>}
+          </div>
+
+          <DialogFooter>
+            <Button
+              disabled={isResettingApp}
+              onClick={() => closeResetDialog(false)}
+              type="button"
+              variant="outline"
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={!canConfirmReset}
+              onClick={() => void handleResetApp()}
+              type="button"
+              variant="destructive"
+            >
+              {isResettingApp ? "Resetting..." : "Reset & Close App"}
             </Button>
           </DialogFooter>
         </DialogContent>

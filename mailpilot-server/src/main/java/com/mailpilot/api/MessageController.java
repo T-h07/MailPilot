@@ -66,6 +66,12 @@ public class MessageController {
     return new StatusResponse("ok");
   }
 
+  @PostMapping("/{id}/seen")
+  public StatusResponse markSeen(@PathVariable("id") UUID id) {
+    messageService.markSeenInApp(id);
+    return new StatusResponse("ok");
+  }
+
   @PostMapping("/{id}/body/load")
   public MessageBodyLoadResponse loadBody(
     @PathVariable("id") UUID id,
