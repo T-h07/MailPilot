@@ -19,7 +19,7 @@ public class AppStateService {
     this.localAuthService = localAuthService;
   }
 
-  @Transactional(readOnly = true)
+  @Transactional
   public AppStateResponse getAppState() {
     AppStateRow appState = appStateRepository.getAppState();
     UserProfileRow profile = appStateRepository.getUserProfile();
@@ -33,7 +33,7 @@ public class AppStateService {
             profile.firstName(), profile.lastName(), profile.fieldOfWork()));
   }
 
-  @Transactional(readOnly = true)
+  @Transactional
   public AppStateRow getCurrentAppStateRow() {
     return appStateRepository.getAppState();
   }
