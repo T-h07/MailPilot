@@ -42,6 +42,7 @@ import org.springframework.util.StringUtils;
 @Service
 public class GmailSyncService {
 
+  private static final String GMAIL_READ_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
   public static final int DEFAULT_MAX_MESSAGES = 500;
   public static final int MAX_MAX_MESSAGES = 2000;
   private static final int GMAIL_LIST_PAGE_SIZE = 100;
@@ -94,8 +95,9 @@ public class GmailSyncService {
     if (!"GMAIL".equalsIgnoreCase(account.provider())) {
       throw new ApiBadRequestException("Account provider must be GMAIL");
     }
-    if (!"CONNECTED".equalsIgnoreCase(account.status())) {
-      throw new ApiBadRequestException("Account is not in CONNECTED state");
+    if (!hasScope(account.scope(), GMAIL_READ_SCOPE)) {
+      throw new ApiBadRequestException(
+          "Account is missing Gmail read scope. Reconnect Gmail and grant read access.");
     }
 
     appEventBus.publishSyncStatus(accountId, account.email(), "RUNNING", 0, null, "Sync started");
@@ -698,9 +700,10 @@ public class GmailSyncService {
     return jdbcTemplate
         .query(
             """
-      SELECT id, email, provider, status, gmail_history_id
-      FROM accounts
-      WHERE id = ?
+      SELECT a.id, a.email, a.provider, a.status, a.gmail_history_id, ot.scope
+      FROM accounts a
+      LEFT JOIN oauth_tokens ot ON ot.account_id = a.id
+      WHERE a.id = ?
       """,
             (resultSet, rowNum) ->
                 new AccountRow(
@@ -708,7 +711,8 @@ public class GmailSyncService {
                     resultSet.getString("email"),
                     resultSet.getString("provider"),
                     resultSet.getString("status"),
-                    resultSet.getString("gmail_history_id")),
+                    resultSet.getString("gmail_history_id"),
+                    resultSet.getString("scope")),
             accountId)
         .stream()
         .findFirst()
@@ -718,10 +722,11 @@ public class GmailSyncService {
   private List<AccountRow> loadAllGmailAccounts() {
     return jdbcTemplate.query(
         """
-      SELECT id, email, provider, status, gmail_history_id
-      FROM accounts
-      WHERE provider = 'GMAIL'
-      ORDER BY email
+      SELECT a.id, a.email, a.provider, a.status, a.gmail_history_id, ot.scope
+      FROM accounts a
+      LEFT JOIN oauth_tokens ot ON ot.account_id = a.id
+      WHERE a.provider = 'GMAIL'
+      ORDER BY a.email
       """,
         (resultSet, rowNum) ->
             new AccountRow(
@@ -729,7 +734,8 @@ public class GmailSyncService {
                 resultSet.getString("email"),
                 resultSet.getString("provider"),
                 resultSet.getString("status"),
-                resultSet.getString("gmail_history_id")));
+                resultSet.getString("gmail_history_id"),
+                resultSet.getString("scope")));
   }
 
   private List<String> loadRepairCandidateMessageIds(UUID accountId, int days) {
@@ -764,13 +770,26 @@ public class GmailSyncService {
     return value.trim().toLowerCase(Locale.ROOT);
   }
 
+  private boolean hasScope(String scopeValue, String requiredScope) {
+    if (!StringUtils.hasText(scopeValue) || !StringUtils.hasText(requiredScope)) {
+      return false;
+    }
+    String required = requiredScope.trim().toLowerCase(Locale.ROOT);
+    for (String scope : scopeValue.trim().split("[\\s,]+")) {
+      if (required.equals(scope.toLowerCase(Locale.ROOT))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   public record SyncResult(
       UUID accountId, String email, int upsertedMessages, int deletedMessages) {}
 
   private record SyncCounters(int upserted, int deleted, int processed, int total) {}
 
   private record AccountRow(
-      UUID id, String email, String provider, String status, String gmailHistoryId) {}
+      UUID id, String email, String provider, String status, String gmailHistoryId, String scope) {}
 
   private record HistoryChanges(List<String> changedMessageIds, Set<String> deletedMessageIds) {}
 

@@ -54,7 +54,7 @@ public class GmailSyncCoordinator {
       SELECT a.id
       FROM accounts a
       JOIN oauth_tokens ot ON ot.account_id = a.id
-      WHERE a.provider = 'GMAIL' AND a.status = 'CONNECTED'
+      WHERE a.provider = 'GMAIL'
       ORDER BY a.email
       """,
       (resultSet, rowNum) -> resultSet.getObject("id", UUID.class)
