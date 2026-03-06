@@ -238,7 +238,7 @@ function Sidebar({
         <div className="flex items-center gap-2">
           <img
             alt="MailPilot"
-            className="h-8 w-8 rounded-lg border border-border object-cover"
+            className="h-10 w-10 rounded-xl border border-border object-cover shadow-sm"
             src="/mailpilot-icon.png"
           />
           <div>
