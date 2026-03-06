@@ -234,13 +234,10 @@ function withoutRecordKey<T extends Record<string, unknown>>(record: T, keyToRem
 }
 
 export function SettingsPage() {
-  const { themeMode, setThemeMode } = useOutletContext<AppOutletContext>();
+  const { themeVariant, setThemeVariant } = useOutletContext<AppOutletContext>();
   const { refreshSyncStatus, sseConnected, syncByAccountId } = useLiveEvents();
   const showSenderHighlightsInSettings = false;
   const isDevMode = import.meta.env.DEV;
-  const nextTheme = themeMode === "dark" ? "light" : "dark";
-  const modeLabel = themeMode === "dark" ? "Dark" : "Light";
-  const nextThemeLabel = nextTheme === "dark" ? "Dark" : "Light";
   const apiBase = useMemo(() => resolveApiBase(), []);
 
   const noticeTimeoutRef = useRef<number | null>(null);
@@ -901,12 +898,62 @@ export function SettingsPage() {
         <CardHeader>
           <CardTitle>Theme</CardTitle>
           <CardDescription>
-            Persisted locally. This currently controls the desktop shell visuals only.
+            Persisted locally and applied instantly across shell, onboarding, and login.
           </CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-wrap items-center gap-3">
-          <Badge variant="secondary">Current mode: {modeLabel}</Badge>
-          <Button onClick={() => setThemeMode(nextTheme)}>Switch to {nextThemeLabel}</Button>
+        <CardContent className="space-y-3">
+          <div className="grid gap-3 md:grid-cols-2">
+            <button
+              className={cn(
+                "rounded-lg border p-3 text-left transition-colors",
+                themeVariant === "balanced"
+                  ? "border-primary/40 bg-accent"
+                  : "border-border bg-card hover:bg-muted"
+              )}
+              onClick={() => setThemeVariant("balanced")}
+              type="button"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold">Balanced</p>
+                {themeVariant === "balanced" ? <Badge variant="secondary">Active</Badge> : null}
+              </div>
+              <p className="pt-1 text-xs text-muted-foreground">
+                Navy-balanced dark surfaces with cool contrast.
+              </p>
+              <div className="mt-3 flex items-center gap-2">
+                <span className="h-4 w-4 rounded-full border border-white/15 bg-[#111a2a]" />
+                <span className="h-4 w-4 rounded-full border border-white/15 bg-[#1b2740]" />
+                <span className="h-4 w-4 rounded-full border border-white/15 bg-[#273451]" />
+              </div>
+            </button>
+
+            <button
+              className={cn(
+                "rounded-lg border p-3 text-left transition-colors",
+                themeVariant === "pure-black"
+                  ? "border-primary/40 bg-accent"
+                  : "border-border bg-card hover:bg-muted"
+              )}
+              onClick={() => setThemeVariant("pure-black")}
+              type="button"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold">Pure Black</p>
+                {themeVariant === "pure-black" ? <Badge variant="secondary">Active</Badge> : null}
+              </div>
+              <p className="pt-1 text-xs text-muted-foreground">
+                Premium black and charcoal surfaces with high-contrast text.
+              </p>
+              <div className="mt-3 flex items-center gap-2">
+                <span className="h-4 w-4 rounded-full border border-white/15 bg-[#050505]" />
+                <span className="h-4 w-4 rounded-full border border-white/15 bg-[#101010]" />
+                <span className="h-4 w-4 rounded-full border border-white/15 bg-[#1b1b1b]" />
+              </div>
+            </button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Accent priority colors remain unchanged across both themes.
+          </p>
         </CardContent>
       </Card>
 
