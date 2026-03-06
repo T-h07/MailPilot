@@ -6,7 +6,12 @@ import java.util.UUID;
 public record OnboardingViewProposalsApplyRequest(List<CreateItem> create) {
 
   public record CreateItem(
-      String name, Integer priority, Integer sortOrder, AccountsScope accountsScope, Rules rules) {}
+      String name,
+      String category,
+      Integer priority,
+      Integer sortOrder,
+      AccountsScope accountsScope,
+      Rules rules) {}
 
   public record AccountsScope(String type, List<UUID> accountIds) {}
 

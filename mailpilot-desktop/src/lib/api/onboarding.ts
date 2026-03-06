@@ -38,24 +38,47 @@ export type OnboardingProposalAccount = {
 
 export type OnboardingViewProposal = {
   key: string;
+  category: string;
   name: string;
+  confidenceScore: number;
+  confidenceLevel: "HIGH" | "MEDIUM" | "LOW";
   priority: number;
   accountsScope: OnboardingProposalScope;
   rules: OnboardingProposalRules;
   estimatedCount: number;
   estimatedPct: number;
   explanation: string;
+  topDomains: string[];
+  topSenders: string[];
+  sampleMessages: Array<{
+    subject: string;
+    senderEmail: string;
+    receivedAt: string;
+  }>;
+  accountDistribution: Array<{
+    accountId: string;
+    email: string;
+    count: number;
+  }>;
 };
 
 export type OnboardingViewProposalsResponse = {
   rangeDays: number;
+  analyzedMessages: number;
   accounts: OnboardingProposalAccount[];
+  summary: {
+    totalCandidates: number;
+    returnedProposals: number;
+    suppressedCandidates: number;
+  };
   proposals: OnboardingViewProposal[];
+  moreSuggestions: OnboardingViewProposal[];
   message: string | null;
 };
 
 export type OnboardingApplyViewProposal = {
   name: string;
+  category?: string;
   priority: number;
   sortOrder: number;
   accountsScope: OnboardingProposalScope;
@@ -106,11 +129,13 @@ export function completeOnboardingAccountsStep(signal?: AbortSignal) {
 export function fetchOnboardingViewProposals(
   range = "30d",
   maxSenders = 50,
+  maxMessages = 1500,
   signal?: AbortSignal
 ) {
   const query = new URLSearchParams({
     range,
     maxSenders: String(maxSenders),
+    maxMessages: String(maxMessages),
   });
   return fetchJson<OnboardingViewProposalsResponse>(`/api/onboarding/view-proposals?${query}`, {
     signal,
