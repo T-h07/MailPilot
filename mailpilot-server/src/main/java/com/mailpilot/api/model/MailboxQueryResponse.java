@@ -4,7 +4,7 @@ import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 
-public record MailboxQueryResponse(List<Item> items, String nextCursor) {
+public record MailboxQueryResponse(List<Item> items, String nextCursor, long totalCount) {
 
   public record Item(
       UUID id,

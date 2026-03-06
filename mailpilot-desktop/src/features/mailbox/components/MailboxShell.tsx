@@ -488,6 +488,7 @@ export function MailboxShell({
   const [accountRecords, setAccountRecords] = useState<AccountRecord[]>([]);
   const [messages, setMessages] = useState<MailMessage[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [totalCount, setTotalCount] = useState<number | null>(null);
   const [isLoadingList, setIsLoadingList] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [isRefreshingMailbox, setIsRefreshingMailbox] = useState(false);
@@ -822,6 +823,7 @@ export function MailboxShell({
       if (context === "view" && !view) {
         setMessages([]);
         setNextCursor(null);
+        setTotalCount(0);
         setListError("View not found. It may have been removed.");
         return;
       }
@@ -926,6 +928,7 @@ export function MailboxShell({
           append ? mergeMessages(previous, incomingMessages) : incomingMessages
         );
         setNextCursor(response.nextCursor);
+        setTotalCount(response.totalCount);
       } catch (error) {
         const message = toErrorMessage(error);
         if (!message) {
@@ -938,6 +941,7 @@ export function MailboxShell({
         if (!append) {
           setMessages([]);
           setNextCursor(null);
+          setTotalCount(null);
         }
       } finally {
         const isLatestRequest = requestSequence === listRequestSequenceRef.current;
@@ -1827,6 +1831,7 @@ export function MailboxShell({
         ? "Unified sent mail across connected accounts."
         : "Everything is a mailbox: unified queue across accounts and contexts.");
   const isSearchLoading = isLoadingList && debouncedSearchQuery.length > 0;
+  const resolvedMessageCount = totalCount ?? messages.length;
 
   return (
     <section className="space-y-4">
@@ -1842,9 +1847,9 @@ export function MailboxShell({
             )}
           </div>
           <Badge variant="secondary">
-            {isLoadingList && messages.length === 0
+            {isLoadingList && messages.length === 0 && totalCount === null
               ? "Loading..."
-              : `${messages.length.toLocaleString()} messages`}
+              : `${resolvedMessageCount.toLocaleString()} messages`}
           </Badge>
         </div>
         {viewSummaryChips.length > 0 && (

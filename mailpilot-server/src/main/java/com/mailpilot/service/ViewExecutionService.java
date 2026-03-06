@@ -112,6 +112,7 @@ public class ViewExecutionService {
                         labelsByMessageId.getOrDefault(item.id(), List.of())))
             .toList();
 
-    return new MailboxQueryResponse(itemsWithViewLabels, baseResponse.nextCursor());
+    return new MailboxQueryResponse(
+        itemsWithViewLabels, baseResponse.nextCursor(), baseResponse.totalCount());
   }
 }

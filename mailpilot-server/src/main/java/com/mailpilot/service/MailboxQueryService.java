@@ -185,6 +185,8 @@ public class MailboxQueryService {
       fromWhere.append(")");
     }
 
+    long totalCount = countMatchingRows(fromWhere.toString(), baseParams, searchText);
+
     QueryExecutionResult queryExecutionResult =
         searchText.isBlank()
             ? runChronologicalQuery(
@@ -272,7 +274,7 @@ public class MailboxQueryService {
               : encodeTimeCursor(lastRow.receivedAt(), lastRow.id());
     }
 
-    return new MailboxQueryResponse(items, nextCursor);
+    return new MailboxQueryResponse(items, nextCursor, totalCount);
   }
 
   public SearchHealth checkSearchHealth(String rawQuery) {
@@ -415,6 +417,69 @@ public class MailboxQueryService {
     }
 
     throw new IllegalStateException("Unable to execute ranked search query");
+  }
+
+  private long countMatchingRows(String fromWhere, List<Object> baseParams, String searchText) {
+    if (searchText.isBlank()) {
+      Integer count =
+          jdbcTemplate.queryForObject(
+              "SELECT COUNT(*) " + fromWhere, Integer.class, baseParams.toArray());
+      return count == null ? 0L : count.longValue();
+    }
+
+    List<SearchExecutionStrategy> strategies =
+        List.of(
+            SearchExecutionStrategy.FTS_WEBSEARCH,
+            SearchExecutionStrategy.FTS_PLAINTO,
+            SearchExecutionStrategy.ILIKE);
+
+    for (SearchExecutionStrategy strategy : strategies) {
+      try {
+        return countMatchingRowsWithStrategy(fromWhere, baseParams, searchText, strategy);
+      } catch (DataAccessException exception) {
+        if (strategy == SearchExecutionStrategy.ILIKE) {
+          throw exception;
+        }
+        LOGGER.warn(
+            "Search count strategy {} failed; falling back for query '{}'", strategy, searchText);
+      }
+    }
+
+    return 0L;
+  }
+
+  private long countMatchingRowsWithStrategy(
+      String fromWhere,
+      List<Object> baseParams,
+      String searchText,
+      SearchExecutionStrategy strategy) {
+    StringBuilder sql = new StringBuilder("SELECT COUNT(*) ");
+    sql.append(fromWhere);
+
+    List<Object> params = new ArrayList<>(baseParams);
+    if (strategy == SearchExecutionStrategy.FTS_WEBSEARCH) {
+      sql.append(" AND m.search_vector @@ websearch_to_tsquery('simple', ?)");
+      params.add(searchText);
+    } else if (strategy == SearchExecutionStrategy.FTS_PLAINTO) {
+      sql.append(" AND m.search_vector @@ plainto_tsquery('simple', ?)");
+      params.add(searchText);
+    } else {
+      sql.append(
+          " AND ("
+              + "lower(m.sender_email) LIKE ?"
+              + " OR lower(COALESCE(m.sender_name, '')) LIKE ?"
+              + " OR lower(COALESCE(m.subject, '')) LIKE ?"
+              + " OR lower(COALESCE(m.snippet, '')) LIKE ?"
+              + ")");
+      String like = "%" + searchText + "%";
+      params.add(like);
+      params.add(like);
+      params.add(like);
+      params.add(like);
+    }
+
+    Integer count = jdbcTemplate.queryForObject(sql.toString(), Integer.class, params.toArray());
+    return count == null ? 0L : count.longValue();
   }
 
   private QueryExecutionResult executeRankedQuery(

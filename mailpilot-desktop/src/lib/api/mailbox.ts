@@ -75,6 +75,7 @@ export type MailboxListItem = {
 export type MailboxQueryResponse = {
   items: MailboxListItem[];
   nextCursor: string | null;
+  totalCount: number;
 };
 
 export type MessageDetailResponse = {
