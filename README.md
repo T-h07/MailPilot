@@ -1,54 +1,108 @@
 # MailPilot
 
-MailPilot is a desktop-first email cockpit for triaging Gmail accounts across Inbox, Views, Focus, Sent, Drafts, Dashboard, and Insights.  
-It combines a local desktop UI with a Spring Boot backend and Postgres storage so workflows remain fast, searchable, and exportable.
+![Desktop](https://img.shields.io/badge/Desktop-Tauri-24C8DB)
+![Frontend](https://img.shields.io/badge/Frontend-React%20%2B%20TypeScript-61DAFB)
+![Backend](https://img.shields.io/badge/Backend-Spring%20Boot%203.4-6DB33F)
+![Database](https://img.shields.io/badge/Database-PostgreSQL-4169E1)
+![Runtime](https://img.shields.io/badge/Java-21-orange)
 
-## Tech Stack
+MailPilot is a desktop email workspace for Gmail.  
+It unifies inbox triage, action-focused followups, custom views, onboarding automation, and analytics in one local app backed by a Spring API and Postgres.
 
-- Desktop: Tauri + React + TypeScript + Vite + Tailwind + shadcn + Recharts
-- Backend: Spring Boot (Java 21) + PostgreSQL
-- Infra: Docker Compose (local Postgres)
-- Provider: Gmail OAuth + Gmail API
+## What The App Does
 
-## Repository Structure
+- Consolidates connected Gmail accounts into one workspace
+- Organizes mail with custom Views and sender/domain rules
+- Runs Focus queues (`needs reply`, `overdue`, `due today`, `snoozed`, `all open`)
+- Supports onboarding with account setup, profile, local app auth, and view suggestions
+- Exports messages as PDF and downloads attachments
+- Provides lock/login privacy with local password and recovery flow
+
+## Architecture
+
+```mermaid
+flowchart LR
+  UI[Tauri Desktop App<br/>React + TypeScript] --> API[Spring Boot API]
+  API --> DB[(PostgreSQL)]
+  API --> GMAIL[Gmail API + OAuth 2.0]
+  UI --> FS[Local File System<br/>exports/cache]
+```
+
+## Technology Stack
+
+| Layer | Technologies |
+| --- | --- |
+| Desktop app | Tauri, React, TypeScript, Vite, Tailwind, shadcn/ui, Recharts |
+| Backend API | Spring Boot (Java 21), Flyway, JdbcTemplate |
+| Data | PostgreSQL |
+| Integrations | Gmail OAuth 2.0 + Gmail REST API |
+| Dev tooling | Maven Wrapper, npm, Docker Compose, GitHub Actions |
+
+## How MailPilot Works
+
+1. User connects Gmail through OAuth (read-only or send-capable flow).
+2. Backend stores encrypted token data and syncs Gmail metadata/messages.
+3. Mailbox APIs return paginated, filterable message streams to the desktop app.
+4. User processes messages in Inbox/Views/Focus; app updates followups and labels.
+5. Exports and attachments are fetched on demand and saved locally via Tauri.
+
+## APIs Used
+
+### Internal MailPilot APIs
+
+- `GET /api/app/state`, auth/lock/recovery under `/api/app/*`
+- `POST /api/mailbox/query`, `POST /api/mailbox/query/view`
+- `GET /api/messages/{id}`, body/read/seen actions under `/api/messages/*`
+- `GET /api/attachments/{attachmentId}/download`
+- Focus, dashboard, insights, followups under `/api/focus`, `/api/dashboard`, `/api/insights`, `/api/followups`
+- Onboarding flows under `/api/onboarding/*`
+- Sync and OAuth flows under `/api/sync/*`, `/api/oauth/gmail/*`
+
+### External Google APIs
+
+- OAuth authorize endpoint: `https://accounts.google.com/o/oauth2/v2/auth`
+- OAuth token endpoint: `https://oauth2.googleapis.com/token`
+- Gmail profile: `GET /gmail/v1/users/me/profile`
+- Gmail messages: list/get/full (`/gmail/v1/users/me/messages`)
+- Gmail history: `GET /gmail/v1/users/me/history`
+- Gmail attachments: `GET /gmail/v1/users/me/messages/{messageId}/attachments/{attachmentId}`
+- Gmail send: `POST /gmail/v1/users/me/messages/send`
+
+Scopes requested by flow:
+
+- Read flow: `gmail.readonly`
+- Send flow: `gmail.readonly` + `gmail.send`
+
+## Repository Layout
 
 ```text
 MailPilot/
-├─ mailpilot-server/     # Spring Boot backend API + sync/export services
-├─ mailpilot-desktop/    # Tauri desktop app (React/TS)
-├─ infra/                # Infra assets (if present)
-├─ docs/                 # Runbooks, release docs, policies
-├─ tools/                # Helper scripts and optional hooks
-└─ docker-compose.yml    # Local Postgres service
+├─ mailpilot-desktop/    # Tauri desktop app
+├─ mailpilot-server/     # Spring Boot API + sync + business logic
+├─ docs/                 # Runbooks, release checklist, policies
+├─ tools/                # Dev scripts and optional git hooks
+└─ docker-compose.yml    # Local Postgres
 ```
 
-## Prerequisites
+## Quickstart (PowerShell)
 
-- Node.js LTS (18+ recommended)
-- Java 21
-- Docker Desktop
-- Rust toolchain (`rustup`) for Tauri builds
-- Windows WebView2 runtime
-- Microsoft Visual C++ build tools (for native desktop builds)
-
-## Quickstart (Dev, PowerShell)
-
-1) Start Postgres:
+### 1) Start database
 
 ```powershell
 cd $env:USERPROFILE\Documents\MailPilot
 docker compose up -d
-docker ps
 ```
 
-2) Start backend (dev profile):
+### 2) Run backend
 
 ```powershell
 cd $env:USERPROFILE\Documents\MailPilot\mailpilot-server
-.\mvnw.cmd "-Dspring-boot.run.profiles=dev" spring-boot:run
+.\mvnw.cmd spring-boot:run "-Dspring-boot.run.profiles=dev"
 ```
 
-3) Start desktop:
+Backend URL: `http://127.0.0.1:8082`
+
+### 3) Run desktop app
 
 ```powershell
 cd $env:USERPROFILE\Documents\MailPilot\mailpilot-desktop
@@ -56,20 +110,21 @@ npm install
 npm run tauri dev
 ```
 
-4) In app:
+### 4) First-use flow
 
-- Open `Settings` -> `Connect Gmail`
-- Complete OAuth
-- Trigger `Sync` / `Sync all`
-- Open Inbox or Views
+1. Complete onboarding
+2. Connect primary Gmail
+3. Run sync
+4. Open Inbox/Views/Focus
 
-## Build (Local)
+## Build And Quality Checks
 
 Backend:
 
 ```powershell
 cd $env:USERPROFILE\Documents\MailPilot\mailpilot-server
 .\mvnw.cmd test
+.\mvnw.cmd spotless:check
 ```
 
 Desktop:
@@ -77,94 +132,59 @@ Desktop:
 ```powershell
 cd $env:USERPROFILE\Documents\MailPilot\mailpilot-desktop
 npm ci
+npm run lint
+npm run format:check
 npm run build
 ```
 
-## Release (High Level)
+## Security And Secrets
 
-- Ensure `main` is green (`mvn test`, `npm run build`)
-- Validate Docker + migrations on a fresh local volume
-- Smoke test sync, export, and account actions
-- Tag release with SemVer (`vX.Y.Z`)
-- See [docs/release-checklist.md](docs/release-checklist.md)
-- Versioning reference: [docs/versioning.md](docs/versioning.md)
+Expected local secrets/config:
 
-## Secrets and Local Files
+- `MAILPILOT_GOOGLE_OAUTH_CLIENT_JSON`
+- `MAILPILOT_TOKEN_KEY_B64`
 
-OAuth client JSON example path:
+Example OAuth client JSON path:
 
 ```text
 C:\Users\taulanth\AppData\Local\MailPilot\google-oauth-client.json
 ```
 
-Environment variables:
-
-- `MAILPILOT_GOOGLE_OAUTH_CLIENT_JSON`
-- `MAILPILOT_TOKEN_KEY_B64`
-
 Never commit:
 
 - OAuth client secrets
 - Access/refresh tokens
-- Local cache content
-- `.env` files containing secrets
+- Raw email payload dumps
+- Secret `.env` files
 
-Local cache path (example):
+## Common Troubleshooting
 
-```text
-%LOCALAPPDATA%\MailPilot\cache
-```
-
-## Feature Map
-
-- Inbox, Views, Focus queues
-- Sent page and Drafts page
-- Dashboard (now metrics) + Insights (range trends)
-- Sender highlights and per-view labels
-- Full body loading + Open in Gmail
-- PDF export and attachment download
-
-## Troubleshooting
-
-Connected account but no emails:
+No messages appear after connection:
 
 - Trigger sync from Settings
 - Check `/api/sync/status`
-- Confirm account state is `CONNECTED`
+- Confirm account is connected and not re-auth required
 
-Wrong timestamps/classification:
+OAuth callback/state issues:
 
-- Run sync again
-- If available in your build, use metadata repair endpoint in dev tools
+- Restart backend
+- Reconnect via onboarding/settings
+- Ensure only one active connect attempt at a time
 
-PDF export issues:
+Attachment/export save failures:
 
-- Check server logs first
-- Validate desktop save permissions in Tauri capabilities
-- Re-test with known good message/thread IDs
+- Verify Tauri capabilities in `mailpilot-desktop/src-tauri/capabilities/default.json`
+- Re-test with a known message containing attachment/PDF export path
 
-`fs:write_file not allowed` (desktop export/save):
+Flyway migration errors:
 
-- Verify `mailpilot-desktop/src-tauri/capabilities/default.json` allows save dialog and file writes
+- Check for duplicate migration versions
+- Avoid editing already-applied migration files
 
-Docker issues:
+## Docs
 
-- Check current context: `docker context show`
-- Switch context if needed: `docker context use default`
-- Restart stack: `docker compose down; docker compose up -d`
-
-## Dev Scripts and Hooks
-
-- Dependency drift guard:
-  - `powershell -ExecutionPolicy Bypass -File .\tools\check-clean.ps1`
-- Dev convenience scripts:
-  - `.\tools\dev-up.ps1`
-  - `.\tools\dev-down.ps1`
-  - `.\tools\reset-db.ps1`
-- Optional pre-commit hooks:
-  - `tools/hooks/pre-commit`
-  - `tools/hooks/pre-commit.ps1`
-
-Details:
-
-- [docs/dependency-discipline.md](docs/dependency-discipline.md)
+- [Server README](mailpilot-server/README.md)
+- [Desktop README](mailpilot-desktop/README.md)
+- [Ops Runbook](docs/ops-runbook.md)
+- [Release Checklist](docs/release-checklist.md)
+- [Dependency Discipline](docs/dependency-discipline.md)
