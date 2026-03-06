@@ -3,14 +3,22 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   BadgeCheck,
+  BriefcaseBusiness,
   CheckCircle2,
+  Gamepad2,
   GraduationCap,
   KeyRound,
   Mail,
   MailPlus,
+  Newspaper,
+  Plane,
   Rocket,
+  ShieldAlert,
+  ShoppingBag,
   Sparkles,
   UserRound,
+  Users,
+  Wallet,
   Wand2,
 } from "lucide-react";
 import type { AppStateRecord } from "@/lib/api/app-state";
@@ -62,12 +70,27 @@ type ProfileForm = {
 
 type ProposalDraft = {
   id: string;
+  category: string;
   enabled: boolean;
   name: string;
+  confidenceScore: number;
+  confidenceLevel: "HIGH" | "MEDIUM" | "LOW";
   priority: number;
   explanation: string;
   estimatedCount: number;
   estimatedPct: number;
+  topDomains: string[];
+  topSenders: string[];
+  sampleMessages: Array<{
+    subject: string;
+    senderEmail: string;
+    receivedAt: string;
+  }>;
+  accountDistribution: Array<{
+    accountId: string;
+    email: string;
+    count: number;
+  }>;
   scopeType: "ALL" | "SELECTED";
   selectedAccountIds: string[];
   senderDomains: string[];
@@ -107,8 +130,10 @@ const ROLE_SAVE_DEBOUNCE_MS = 300;
 const SAVE_HINT_LIFETIME_MS = 1800;
 const SYNC_PROGRESS_MESSAGES = [
   "Scanning recent senders...",
-  "Grouping patterns...",
-  "Building recommended views...",
+  "Grouping patterns by domain and sender...",
+  "Detecting recurring clusters...",
+  "Scoring likely workspace categories...",
+  "Preparing your starter views...",
 ] as const;
 
 function toErrorMessage(error: unknown): string {
@@ -199,12 +224,19 @@ function normalizeRoleDraft(account: AccountRecord): RoleDraft {
 function toProposalDraft(proposal: OnboardingViewProposal): ProposalDraft {
   return {
     id: proposal.key,
+    category: proposal.category,
     enabled: true,
     name: proposal.name,
+    confidenceScore: proposal.confidenceScore,
+    confidenceLevel: proposal.confidenceLevel,
     priority: proposal.priority,
     explanation: proposal.explanation,
     estimatedCount: proposal.estimatedCount,
     estimatedPct: proposal.estimatedPct,
+    topDomains: proposal.topDomains ?? [],
+    topSenders: proposal.topSenders ?? [],
+    sampleMessages: proposal.sampleMessages ?? [],
+    accountDistribution: proposal.accountDistribution ?? [],
     scopeType: proposal.accountsScope.type,
     selectedAccountIds: proposal.accountsScope.accountIds ?? [],
     senderDomains: proposal.rules.senderDomains ?? [],
@@ -224,12 +256,12 @@ function roleAccent(role: AccountRole): string {
   return "from-teal-500/15 to-slate-500/10 border-teal-500/25";
 }
 
-function proposalTone(id: string, name: string): {
+function proposalTone(category: string, id: string, name: string): {
   badge: string;
   border: string;
   line: string;
 } {
-  const normalized = `${id} ${name}`.toLowerCase();
+  const normalized = `${category} ${id} ${name}`.toLowerCase();
   if (normalized.includes("social")) {
     return {
       badge: "bg-sky-500/15 text-sky-200 border-sky-500/30",
@@ -272,6 +304,27 @@ function proposalTone(id: string, name: string): {
       line: "bg-amber-500/70",
     };
   }
+  if (normalized.includes("security")) {
+    return {
+      badge: "bg-red-500/15 text-red-200 border-red-500/30",
+      border: "border-red-500/25",
+      line: "bg-red-500/70",
+    };
+  }
+  if (normalized.includes("shopping")) {
+    return {
+      badge: "bg-lime-500/15 text-lime-200 border-lime-500/30",
+      border: "border-lime-500/25",
+      line: "bg-lime-500/70",
+    };
+  }
+  if (normalized.includes("travel")) {
+    return {
+      badge: "bg-cyan-500/15 text-cyan-200 border-cyan-500/30",
+      border: "border-cyan-500/25",
+      line: "bg-cyan-500/70",
+    };
+  }
   return {
     badge: "bg-slate-500/15 text-slate-200 border-slate-500/30",
     border: "border-border",
@@ -279,25 +332,37 @@ function proposalTone(id: string, name: string): {
   };
 }
 
-function proposalIcon(id: string, name: string) {
-  const normalized = `${id} ${name}`.toLowerCase();
+function proposalIcon(category: string, id: string, name: string) {
+  const normalized = `${category} ${id} ${name}`.toLowerCase();
   if (normalized.includes("social")) {
-    return Mail;
+    return Users;
   }
   if (normalized.includes("gaming")) {
-    return Rocket;
+    return Gamepad2;
   }
   if (normalized.includes("work")) {
-    return BadgeCheck;
+    return BriefcaseBusiness;
   }
   if (normalized.includes("receipt") || normalized.includes("finance")) {
-    return Sparkles;
+    return Wallet;
   }
   if (normalized.includes("school")) {
     return GraduationCap;
   }
   if (normalized.includes("subscription") || normalized.includes("marketing")) {
     return MailPlus;
+  }
+  if (normalized.includes("shopping")) {
+    return ShoppingBag;
+  }
+  if (normalized.includes("security")) {
+    return ShieldAlert;
+  }
+  if (normalized.includes("travel")) {
+    return Plane;
+  }
+  if (normalized.includes("newsletter")) {
+    return Newspaper;
   }
   return Wand2;
 }
@@ -326,6 +391,18 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
   const [applyingProposals, setApplyingProposals] = useState(false);
   const [proposalMessage, setProposalMessage] = useState<string | null>(null);
   const [proposals, setProposals] = useState<ProposalDraft[]>([]);
+  const [moreSuggestions, setMoreSuggestions] = useState<ProposalDraft[]>([]);
+  const [analysisStats, setAnalysisStats] = useState<{
+    analyzedMessages: number;
+    totalCandidates: number;
+    returnedProposals: number;
+    suppressedCandidates: number;
+  }>({
+    analyzedMessages: 0,
+    totalCandidates: 0,
+    returnedProposals: 0,
+    suppressedCandidates: 0,
+  });
   const [proposalsLoadedAtLeastOnce, setProposalsLoadedAtLeastOnce] = useState(false);
   const [connectStage, setConnectStage] = useState<
     "IDLE" | "OPENING_BROWSER" | "WAITING_FOR_CALLBACK" | "CONNECTED" | "ERROR"
@@ -359,8 +436,15 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
     setLoadingProposals(true);
     setProposalMessage(null);
     try {
-      const response = await fetchOnboardingViewProposals("30d", 50);
+      const response = await fetchOnboardingViewProposals("30d", 50, 1500);
       setProposals(response.proposals.map(toProposalDraft));
+      setMoreSuggestions((response.moreSuggestions ?? []).map(toProposalDraft));
+      setAnalysisStats({
+        analyzedMessages: response.analyzedMessages ?? 0,
+        totalCandidates: response.summary?.totalCandidates ?? response.proposals.length,
+        returnedProposals: response.summary?.returnedProposals ?? response.proposals.length,
+        suppressedCandidates: response.summary?.suppressedCandidates ?? 0,
+      });
       setProposalMessage(response.message ?? null);
       setProposalsLoadedAtLeastOnce(true);
     } finally {
@@ -709,6 +793,7 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
         const response = await applyOnboardingViewProposals({
           create: selectedProposals.map((proposal, index) => ({
             name: proposal.name.trim(),
+            category: proposal.category,
             priority: proposal.priority,
             sortOrder: index * 10,
             accountsScope: {
@@ -1155,11 +1240,38 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
                 </div>
               </AccentCard>
 
+              <div className="grid gap-3 md:grid-cols-4">
+                <div className="rounded-lg border border-border/70 bg-card/70 p-3">
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Analyzed</p>
+                  <p className="pt-1 text-xl font-semibold">{analysisStats.analyzedMessages}</p>
+                  <p className="text-xs text-muted-foreground">messages in the last 30 days</p>
+                </div>
+                <div className="rounded-lg border border-border/70 bg-card/70 p-3">
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                    Candidates
+                  </p>
+                  <p className="pt-1 text-xl font-semibold">{analysisStats.totalCandidates}</p>
+                  <p className="text-xs text-muted-foreground">raw suggestion clusters</p>
+                </div>
+                <div className="rounded-lg border border-border/70 bg-card/70 p-3">
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                    Recommended
+                  </p>
+                  <p className="pt-1 text-xl font-semibold">{analysisStats.returnedProposals}</p>
+                  <p className="text-xs text-muted-foreground">high confidence proposals</p>
+                </div>
+                <div className="rounded-lg border border-border/70 bg-card/70 p-3">
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Suppressed</p>
+                  <p className="pt-1 text-xl font-semibold">{analysisStats.suppressedCandidates}</p>
+                  <p className="text-xs text-muted-foreground">overlapping or low-signal</p>
+                </div>
+              </div>
+
               {!loadingProposals && proposals.length > 0 && (
                 <div className="space-y-3">
                   {proposals.map((proposal) => {
-                    const tone = proposalTone(proposal.id, proposal.name);
-                    const ProposalIcon = proposalIcon(proposal.id, proposal.name);
+                    const tone = proposalTone(proposal.category, proposal.id, proposal.name);
+                    const ProposalIcon = proposalIcon(proposal.category, proposal.id, proposal.name);
                     return (
                       <div
                         className={`relative overflow-hidden rounded-xl border bg-card/70 p-4 ${tone.border}`}
@@ -1190,6 +1302,10 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
                               }
                               value={proposal.name}
                             />
+                            <Badge variant="outline">{proposal.category}</Badge>
+                            <Badge className={tone.badge} variant="outline">
+                              {proposal.confidenceLevel} {proposal.confidenceScore}
+                            </Badge>
                             <Badge className={tone.badge} variant="outline">
                               ~{proposal.estimatedCount} matches
                             </Badge>
@@ -1199,20 +1315,20 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
                           <p className="text-xs text-muted-foreground">{proposal.explanation}</p>
 
                           <div className="flex flex-wrap gap-2 text-xs">
-                            {proposal.senderDomains.slice(0, 6).map((domain) => (
+                            {proposal.topDomains.slice(0, 3).map((domain) => (
                               <span
                                 className="rounded-full border border-border/70 bg-background/70 px-2 py-1"
                                 key={`${proposal.id}-domain-${domain}`}
                               >
-                                domain:{domain}
+                                domain {domain}
                               </span>
                             ))}
-                            {proposal.senderEmails.slice(0, 4).map((email) => (
+                            {proposal.topSenders.slice(0, 3).map((email) => (
                               <span
                                 className="rounded-full border border-border/70 bg-background/70 px-2 py-1"
                                 key={`${proposal.id}-email-${email}`}
                               >
-                                from:{email}
+                                sender {email}
                               </span>
                             ))}
                             {proposal.subjectKeywords.slice(0, 4).map((keyword) => (
@@ -1220,9 +1336,47 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
                                 className="rounded-full border border-border/70 bg-background/70 px-2 py-1"
                                 key={`${proposal.id}-kw-${keyword}`}
                               >
-                                kw:{keyword}
+                                keyword {keyword}
                               </span>
                             ))}
+                          </div>
+
+                          <details className="rounded-md border border-border bg-background/70 p-3">
+                            <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
+                              Show examples
+                            </summary>
+                            <div className="mt-3 grid gap-2">
+                              {proposal.sampleMessages.length === 0 && (
+                                <p className="text-xs text-muted-foreground">No sample messages available.</p>
+                              )}
+                              {proposal.sampleMessages.map((sample) => (
+                                <div
+                                  className="rounded-md border border-border/60 bg-card/70 px-2 py-2 text-xs"
+                                  key={`${proposal.id}-${sample.senderEmail}-${sample.receivedAt}`}
+                                >
+                                  <p className="font-medium">{sample.subject}</p>
+                                  <p className="text-muted-foreground">{sample.senderEmail}</p>
+                                </div>
+                              ))}
+                            </div>
+                          </details>
+
+                          <div className="rounded-md border border-border bg-background/60 p-2">
+                            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                              Account distribution
+                            </p>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {proposal.accountDistribution.length === 0 && (
+                                <span className="text-xs text-muted-foreground">
+                                  No account distribution available.
+                                </span>
+                              )}
+                              {proposal.accountDistribution.map((item) => (
+                                <Badge key={`${proposal.id}-${item.accountId}`} variant="outline">
+                                  {item.email}: {item.count}
+                                </Badge>
+                              ))}
+                            </div>
                           </div>
 
                           <div className="grid gap-3 md:grid-cols-2">
@@ -1356,13 +1510,46 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
                 </div>
               )}
 
+              {!loadingProposals && moreSuggestions.length > 0 && (
+                <details className="rounded-lg border border-border/70 bg-card/60 p-3">
+                  <summary className="cursor-pointer text-sm font-medium">
+                    More suggestions ({moreSuggestions.length})
+                  </summary>
+                  <div className="mt-3 space-y-2">
+                    {moreSuggestions.map((proposal) => {
+                      const tone = proposalTone(proposal.category, proposal.id, proposal.name);
+                      const ProposalIcon = proposalIcon(proposal.category, proposal.id, proposal.name);
+                      return (
+                        <div
+                          className={`rounded-lg border bg-background/70 p-3 ${tone.border}`}
+                          key={`more-${proposal.id}`}
+                        >
+                          <div className="flex flex-wrap items-center gap-2">
+                            <ProposalIcon className="h-4 w-4 text-muted-foreground" />
+                            <p className="text-sm font-medium">{proposal.name}</p>
+                            <Badge variant="outline">{proposal.category}</Badge>
+                            <Badge className={tone.badge} variant="outline">
+                              {proposal.confidenceLevel} {proposal.confidenceScore}
+                            </Badge>
+                            <Badge variant="outline">
+                              {proposal.estimatedCount} / {proposal.estimatedPct.toFixed(1)}%
+                            </Badge>
+                          </div>
+                          <p className="pt-1 text-xs text-muted-foreground">{proposal.explanation}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </details>
+              )}
+
               <div className="flex flex-wrap gap-2">
                 <Button
                   disabled={syncingProposals || applyingProposals}
                   onClick={() => void runInitialSyncForProposals()}
                   variant="outline"
                 >
-                  {syncingProposals ? "Syncing..." : "Sync now (last 30 days)"}
+                  {syncingProposals ? "Syncing..." : "Re-run analysis (sync + scan)"}
                 </Button>
                 <Button
                   disabled={applyingProposals || proposals.length === 0}

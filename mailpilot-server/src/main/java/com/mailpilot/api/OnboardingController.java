@@ -56,8 +56,9 @@ public class OnboardingController {
   @GetMapping("/view-proposals")
   public OnboardingViewProposalsResponse viewProposals(
       @RequestParam(name = "range", required = false) String range,
-      @RequestParam(name = "maxSenders", required = false) Integer maxSenders) {
-    return onboardingViewProposalService.generateProposals(range, maxSenders);
+      @RequestParam(name = "maxSenders", required = false) Integer maxSenders,
+      @RequestParam(name = "maxMessages", required = false) Integer maxMessages) {
+    return onboardingViewProposalService.generateProposals(range, maxSenders, maxMessages);
   }
 
   @PostMapping("/view-proposals/apply")
