@@ -113,6 +113,9 @@ const settingsItem: SidebarLink = {
   icon: Cog,
 };
 
+const BOOTSTRAP_RETRY_ATTEMPTS = 30;
+const BOOTSTRAP_RETRY_DELAY_MS = 1000;
+
 function getInitialThemeVariant(): ThemeVariant {
   const storedVariant = localStorage.getItem(THEME_VARIANT_STORAGE_KEY);
   if (storedVariant === "balanced" || storedVariant === "pure-black" || storedVariant === "paper") {
@@ -138,6 +141,20 @@ function toApiErrorMessage(error: unknown): string {
     return error.message;
   }
   return "Failed to load views";
+}
+
+function toBootstrapErrorMessage(error: unknown): string {
+  if (error instanceof ApiClientError && error.status === 0) {
+    return "MailPilot backend did not become ready. Check Java 21+ and backend logs under %LOCALAPPDATA%\\MailPilot\\logs.";
+  }
+
+  return toApiErrorMessage(error);
+}
+
+async function waitForDelay(delayMs: number): Promise<void> {
+  await new Promise((resolve) => {
+    window.setTimeout(resolve, delayMs);
+  });
 }
 
 function resolveHeaderTitle(pathname: string, views: ViewRecord[]): string {
@@ -840,9 +857,30 @@ function App() {
     setIsBootstrapping(true);
     setBootstrapError(null);
     try {
-      await refreshAppState();
+      let lastError: unknown = null;
+
+      for (let attempt = 1; attempt <= BOOTSTRAP_RETRY_ATTEMPTS; attempt += 1) {
+        try {
+          await refreshAppState();
+          lastError = null;
+          break;
+        } catch (error) {
+          lastError = error;
+
+          const retryable = error instanceof ApiClientError && error.status === 0;
+          if (!retryable || attempt === BOOTSTRAP_RETRY_ATTEMPTS) {
+            throw error;
+          }
+
+          await waitForDelay(BOOTSTRAP_RETRY_DELAY_MS);
+        }
+      }
+
+      if (lastError) {
+        throw lastError;
+      }
     } catch (error) {
-      setBootstrapError(toApiErrorMessage(error));
+      setBootstrapError(toBootstrapErrorMessage(error));
     } finally {
       setIsBootstrapping(false);
     }

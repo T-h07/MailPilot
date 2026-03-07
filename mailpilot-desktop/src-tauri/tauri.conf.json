@@ -7,7 +7,7 @@
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "powershell -NoProfile -ExecutionPolicy Bypass -File ..\\tools\\prepare-desktop-build.ps1",
     "frontendDist": "../dist"
   },
   "app": {
@@ -43,6 +43,9 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "resources": {
+      "resources/backend/mailpilot-server.jar": "backend/mailpilot-server.jar"
+    },
     "windows": {
       "allowDowngrades": false,
       "webviewInstallMode": {
