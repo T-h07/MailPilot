@@ -188,3 +188,4 @@ Flyway migration errors:
 - [Ops Runbook](docs/ops-runbook.md)
 - [Release Checklist](docs/release-checklist.md)
 - [Dependency Discipline](docs/dependency-discipline.md)
+- [API Parity Checklist](docs/api-parity-checklist.md)
