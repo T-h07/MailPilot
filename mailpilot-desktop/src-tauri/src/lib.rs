@@ -22,7 +22,7 @@ const BACKEND_ERROR_LOG_FILE_NAME: &str = "backend.err.log";
 const BACKEND_LAUNCH_ERROR_FILE_NAME: &str = "backend-launch-error.log";
 const BACKEND_HEALTH_REQUEST: &str =
     "GET /api/health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
-const BACKEND_STARTUP_POLL_ATTEMPTS: usize = 20;
+const BACKEND_STARTUP_POLL_ATTEMPTS: usize = 80;
 const BACKEND_STARTUP_POLL_DELAY_MS: u64 = 500;
 const MINIMUM_JAVA_MAJOR_VERSION: u32 = 21;
 
@@ -287,7 +287,11 @@ fn wait_for_backend_start(child: &mut Child) -> Result<(), String> {
         thread::sleep(Duration::from_millis(BACKEND_STARTUP_POLL_DELAY_MS));
     }
 
-    Ok(())
+    Err(format!(
+        "The backend process did not report healthy status on {} within {} seconds. Check %LOCALAPPDATA%\\MailPilot\\logs\\backend.err.log.",
+        BACKEND_SOCKET_ADDR,
+        (BACKEND_STARTUP_POLL_ATTEMPTS as u64 * BACKEND_STARTUP_POLL_DELAY_MS) / 1000
+    ))
 }
 
 fn terminate_child(child: &mut Child) {

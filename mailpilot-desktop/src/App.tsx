@@ -114,7 +114,7 @@ const settingsItem: SidebarLink = {
   icon: Cog,
 };
 
-const BOOTSTRAP_RETRY_ATTEMPTS = 30;
+const BOOTSTRAP_RETRY_ATTEMPTS = 120;
 const BOOTSTRAP_RETRY_DELAY_MS = 1000;
 
 function getInitialThemeVariant(): ThemeVariant {

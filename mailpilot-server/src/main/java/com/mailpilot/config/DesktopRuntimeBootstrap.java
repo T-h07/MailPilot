@@ -11,6 +11,7 @@ import java.sql.Statement;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -24,6 +25,7 @@ public final class DesktopRuntimeBootstrap {
   private static volatile EmbeddedPostgres embeddedPostgres;
   private static final String POSTMASTER_PID_FILE = "postmaster.pid";
   private static final String POSTMASTER_OPTIONS_FILE = "postmaster.opts";
+  private static final Duration POSTMASTER_SHUTDOWN_TIMEOUT = Duration.ofSeconds(5);
 
   private DesktopRuntimeBootstrap() {}
 
@@ -140,12 +142,22 @@ public final class DesktopRuntimeBootstrap {
 
     String pidText = lines.isEmpty() ? "" : lines.getFirst().trim();
     java.util.OptionalLong pid = parsePid(pidText);
-    boolean hasRunningPid =
-        !pidText.isEmpty()
-            && pid.isPresent()
-            && ProcessHandle.of(pid.getAsLong()).map(ProcessHandle::isAlive).orElse(false);
-    if (hasRunningPid) {
-      return;
+    if (!pidText.isEmpty() && pid.isPresent()) {
+      long postmasterPid = pid.getAsLong();
+      if (postmasterPid == ProcessHandle.current().pid()) {
+        LOGGER.warn(
+            "Embedded Postgres metadata points at the current process (pid={}); leaving files in place.",
+            postmasterPid);
+        return;
+      }
+
+      Optional<ProcessHandle> processHandle = ProcessHandle.of(postmasterPid);
+      if (processHandle.isPresent() && processHandle.get().isAlive()) {
+        LOGGER.warn(
+            "Detected running embedded Postgres process (pid={}) before startup. Attempting cleanup.",
+            postmasterPid);
+        stopProcess(processHandle.get(), postmasterPid);
+      }
     }
 
     try {
@@ -156,6 +168,34 @@ public final class DesktopRuntimeBootstrap {
       throw new IllegalStateException(
           "Failed to remove stale embedded Postgres pid metadata.", exception);
     }
+  }
+
+  private static void stopProcess(ProcessHandle processHandle, long pid) {
+    processHandle.destroy();
+    if (waitForExit(processHandle, POSTMASTER_SHUTDOWN_TIMEOUT)) {
+      return;
+    }
+
+    processHandle.destroyForcibly();
+    if (waitForExit(processHandle, POSTMASTER_SHUTDOWN_TIMEOUT)) {
+      return;
+    }
+
+    throw new IllegalStateException(
+        "Unable to stop stale embedded Postgres process with pid " + pid + ".");
+  }
+
+  private static boolean waitForExit(ProcessHandle processHandle, Duration timeout) {
+    long deadlineNanos = System.nanoTime() + timeout.toNanos();
+    while (processHandle.isAlive() && System.nanoTime() < deadlineNanos) {
+      try {
+        Thread.sleep(100);
+      } catch (InterruptedException exception) {
+        Thread.currentThread().interrupt();
+        break;
+      }
+    }
+    return !processHandle.isAlive();
   }
 
   private static void ensureDatabaseExists(EmbeddedPostgres postgres, String databaseName) {
