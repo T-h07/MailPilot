@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import {
   BrowserRouter,
   Navigate,
@@ -143,8 +144,26 @@ function toApiErrorMessage(error: unknown): string {
   return "Failed to load views";
 }
 
-function toBootstrapErrorMessage(error: unknown): string {
+async function getBackendLaunchError(): Promise<string | null> {
+  try {
+    const launchError = await invoke<string | null>("get_backend_launch_error");
+    if (typeof launchError === "string" && launchError.trim().length > 0) {
+      return launchError.trim();
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+async function toBootstrapErrorMessage(error: unknown): Promise<string> {
   if (error instanceof ApiClientError && error.status === 0) {
+    const launchError = await getBackendLaunchError();
+    if (launchError) {
+      return launchError;
+    }
+
     return "MailPilot backend did not become ready. Check Java 21+ and backend logs under %LOCALAPPDATA%\\MailPilot\\logs.";
   }
 
@@ -880,7 +899,7 @@ function App() {
         throw lastError;
       }
     } catch (error) {
-      setBootstrapError(toBootstrapErrorMessage(error));
+      setBootstrapError(await toBootstrapErrorMessage(error));
     } finally {
       setIsBootstrapping(false);
     }

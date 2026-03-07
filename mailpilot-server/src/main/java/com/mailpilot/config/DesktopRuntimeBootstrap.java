@@ -10,6 +10,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Duration;
 import java.util.Arrays;
+import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -21,6 +22,8 @@ public final class DesktopRuntimeBootstrap {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(DesktopRuntimeBootstrap.class);
   private static volatile EmbeddedPostgres embeddedPostgres;
+  private static final String POSTMASTER_PID_FILE = "postmaster.pid";
+  private static final String POSTMASTER_OPTIONS_FILE = "postmaster.opts";
 
   private DesktopRuntimeBootstrap() {}
 
@@ -105,6 +108,7 @@ public final class DesktopRuntimeBootstrap {
       }
 
       try {
+        removeStalePostmasterPid(postgresDataDir);
         embeddedPostgres =
             EmbeddedPostgres.builder()
                 .setOverrideWorkingDirectory(postgresRuntimeDir.toFile())
@@ -117,6 +121,40 @@ public final class DesktopRuntimeBootstrap {
         throw new IllegalStateException(
             "Failed to start embedded Postgres for desktop mode.", exception);
       }
+    }
+  }
+
+  static void removeStalePostmasterPid(Path postgresDataDir) {
+    Path postmasterPidPath = postgresDataDir.resolve(POSTMASTER_PID_FILE);
+    if (!Files.exists(postmasterPidPath)) {
+      return;
+    }
+
+    List<String> lines;
+    try {
+      lines = Files.readAllLines(postmasterPidPath);
+    } catch (IOException exception) {
+      throw new IllegalStateException(
+          "Failed to inspect embedded Postgres pid file at " + postmasterPidPath, exception);
+    }
+
+    String pidText = lines.isEmpty() ? "" : lines.getFirst().trim();
+    java.util.OptionalLong pid = parsePid(pidText);
+    boolean hasRunningPid =
+        !pidText.isEmpty()
+            && pid.isPresent()
+            && ProcessHandle.of(pid.getAsLong()).map(ProcessHandle::isAlive).orElse(false);
+    if (hasRunningPid) {
+      return;
+    }
+
+    try {
+      Files.deleteIfExists(postmasterPidPath);
+      Files.deleteIfExists(postgresDataDir.resolve(POSTMASTER_OPTIONS_FILE));
+      LOGGER.warn("Removed stale embedded Postgres pid metadata from {}", postgresDataDir);
+    } catch (IOException exception) {
+      throw new IllegalStateException(
+          "Failed to remove stale embedded Postgres pid metadata.", exception);
     }
   }
 
@@ -151,5 +189,13 @@ public final class DesktopRuntimeBootstrap {
 
     String trimmed = value.trim();
     return trimmed.isEmpty() ? null : trimmed;
+  }
+
+  private static java.util.OptionalLong parsePid(String pidText) {
+    try {
+      return java.util.OptionalLong.of(Long.parseLong(pidText));
+    } catch (NumberFormatException exception) {
+      return java.util.OptionalLong.empty();
+    }
   }
 }
