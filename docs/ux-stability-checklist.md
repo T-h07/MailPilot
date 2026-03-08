@@ -36,3 +36,11 @@
 - Confirm app data folder opens from the startup recovery screen
 - Verify attachment download and export flows still surface native save dialogs
 - Verify packaged mode does not expose dev-style raw errors or blank panels
+
+## Packaged verification notes
+
+- Verified on the MSI-installed app at `C:\Program Files\MailPilot\MailPilot.exe`
+- Click-tested in installed mode: login, recovery intro, inbox, lock/unlock, full-body modal, attachment download, compose, dashboard, focus, insights, sent, drafts, views hub, and settings/accounts
+- Native attachment save dialog completed successfully and saved `Taulant_Haxhiu_CV.pdf` from the installed app
+- Onboarding was already complete in packaged app data (`onboardingComplete=true`), so onboarding steps were not re-run; the onboarding route redirected back to auth/app shell state instead of exposing the wizard
+- No packaged-only UX or stability regressions were found during the installed-app pass
