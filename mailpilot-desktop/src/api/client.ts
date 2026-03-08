@@ -38,6 +38,14 @@ export function resolveApiBase(): string {
   return API_BASE;
 }
 
+function logApiFailure(path: string, status: number, message: string): void {
+  if (!import.meta.env.DEV) {
+    return;
+  }
+  // Dev-only diagnostic logging for endpoint parity debugging.
+  console.error(`[MailPilot API] ${path} -> ${status}: ${message}`);
+}
+
 export function normalizeApiError(error: unknown): {
   message: string;
   status?: number;
@@ -98,6 +106,7 @@ export async function apiJson<T>(path: string, options: FetchJsonOptions = {}): 
         payload && typeof payload.message === "string"
           ? payload.message
           : `Request failed with status ${response.status}`;
+      logApiFailure(path, response.status, errorMessage);
       throw new ApiClientError(errorMessage, response.status);
     }
 
@@ -112,10 +121,13 @@ export async function apiJson<T>(path: string, options: FetchJsonOptions = {}): 
     }
     if (error instanceof DOMException && error.name === "AbortError") {
       if (options.signal?.aborted) {
+        logApiFailure(path, 0, "Request cancelled");
         throw new ApiClientError("Request cancelled", 0);
       }
+      logApiFailure(path, 0, "Request timed out");
       throw new ApiClientError("Request timed out", 0);
     }
+    logApiFailure(path, 0, "Unable to reach API");
     throw new ApiClientError("Unable to reach API", 0);
   } finally {
     window.clearTimeout(timeoutId);
@@ -161,6 +173,7 @@ export async function fetchFormJson<T>(
         payload && typeof payload.message === "string"
           ? payload.message
           : `Request failed with status ${response.status}`;
+      logApiFailure(path, response.status, errorMessage);
       throw new ApiClientError(errorMessage, response.status);
     }
 
@@ -175,10 +188,13 @@ export async function fetchFormJson<T>(
     }
     if (error instanceof DOMException && error.name === "AbortError") {
       if (options.signal?.aborted) {
+        logApiFailure(path, 0, "Request cancelled");
         throw new ApiClientError("Request cancelled", 0);
       }
+      logApiFailure(path, 0, "Request timed out");
       throw new ApiClientError("Request timed out", 0);
     }
+    logApiFailure(path, 0, "Unable to reach API");
     throw new ApiClientError("Unable to reach API", 0);
   } finally {
     window.clearTimeout(timeoutId);
@@ -221,6 +237,7 @@ export async function apiBlob(path: string, options: FetchJsonOptions = {}): Pro
 
     if (!response.ok) {
       const errorMessage = await parseBinaryErrorMessage(response);
+      logApiFailure(path, response.status, errorMessage);
       throw new ApiClientError(errorMessage, response.status);
     }
 
@@ -231,10 +248,13 @@ export async function apiBlob(path: string, options: FetchJsonOptions = {}): Pro
     }
     if (error instanceof DOMException && error.name === "AbortError") {
       if (options.signal?.aborted) {
+        logApiFailure(path, 0, "Request cancelled");
         throw new ApiClientError("Request cancelled", 0);
       }
+      logApiFailure(path, 0, "Request timed out");
       throw new ApiClientError("Request timed out", 0);
     }
+    logApiFailure(path, 0, "Unable to reach API");
     throw new ApiClientError("Unable to reach API", 0);
   } finally {
     window.clearTimeout(timeoutId);
@@ -280,6 +300,7 @@ export async function downloadBinary(
 
     if (!response.ok) {
       const errorMessage = await parseBinaryErrorMessage(response);
+      logApiFailure(path, response.status, errorMessage);
       throw new ApiClientError(errorMessage, response.status);
     }
 
@@ -298,10 +319,13 @@ export async function downloadBinary(
     }
     if (error instanceof DOMException && error.name === "AbortError") {
       if (options.signal?.aborted) {
+        logApiFailure(path, 0, "Request cancelled");
         throw new ApiClientError("Request cancelled", 0);
       }
+      logApiFailure(path, 0, "Request timed out");
       throw new ApiClientError("Request timed out", 0);
     }
+    logApiFailure(path, 0, "Unable to reach API");
     throw new ApiClientError("Unable to reach API", 0);
   } finally {
     window.clearTimeout(timeoutId);
