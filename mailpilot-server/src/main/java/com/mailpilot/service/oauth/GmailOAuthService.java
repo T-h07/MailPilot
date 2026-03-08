@@ -45,14 +45,13 @@ public class GmailOAuthService {
       "https://gmail.googleapis.com/gmail/v1/users/me/profile";
   private static final String REDIRECT_URI = "http://127.0.0.1:8082/api/oauth/gmail/callback";
 
-  private static final String GMAIL_READ_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
-  private static final String GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
   private static final List<String> READONLY_SCOPES =
-      List.of("openid", "email", "profile", "https://www.googleapis.com/auth/gmail.readonly");
+      List.of("openid", "email", "profile", GmailScopeService.GMAIL_READ_SCOPE);
 
   private final GoogleOAuthClientConfigService googleOAuthClientConfigService;
   private final OAuthStateStore oauthStateStore;
   private final OAuthAccountService oauthAccountService;
+  private final GmailScopeService gmailScopeService;
   private final TokenCrypto tokenCrypto;
   private final ObjectMapper objectMapper;
   private final HttpClient httpClient;
@@ -61,11 +60,13 @@ public class GmailOAuthService {
       GoogleOAuthClientConfigService googleOAuthClientConfigService,
       OAuthStateStore oauthStateStore,
       OAuthAccountService oauthAccountService,
+      GmailScopeService gmailScopeService,
       TokenCrypto tokenCrypto,
       ObjectMapper objectMapper) {
     this.googleOAuthClientConfigService = googleOAuthClientConfigService;
     this.oauthStateStore = oauthStateStore;
     this.oauthAccountService = oauthAccountService;
+    this.gmailScopeService = gmailScopeService;
     this.tokenCrypto = tokenCrypto;
     this.objectMapper = objectMapper;
     this.httpClient = HttpClient.newHttpClient();
@@ -333,11 +334,11 @@ public class GmailOAuthService {
   }
 
   private void validateGrantedScopes(OAuthStartMode mode, String grantedScope) {
-    if (!hasScope(grantedScope, GMAIL_READ_SCOPE)) {
+    if (!gmailScopeService.hasReadScope(grantedScope)) {
       throw new OAuthFlowException(
           "Google did not grant Gmail read access. Retry and approve access.");
     }
-    if (mode == OAuthStartMode.SEND && !hasScope(grantedScope, GMAIL_SEND_SCOPE)) {
+    if (mode == OAuthStartMode.SEND && !gmailScopeService.hasSendScope(grantedScope)) {
       throw new OAuthFlowException(
           "Google did not grant Gmail send access. Retry and approve sending permission.");
     }
@@ -383,19 +384,6 @@ public class GmailOAuthService {
     }
     String trimmed = rawEmail.trim();
     return trimmed.isEmpty() ? null : trimmed.toLowerCase(Locale.ROOT);
-  }
-
-  private boolean hasScope(String scopeValue, String requiredScope) {
-    if (!StringUtils.hasText(scopeValue)) {
-      return false;
-    }
-    String required = requiredScope.toLowerCase(Locale.ROOT);
-    for (String scope : scopeValue.trim().split("[\\s,]+")) {
-      if (required.equals(scope.toLowerCase(Locale.ROOT))) {
-        return true;
-      }
-    }
-    return false;
   }
 
   private String padBase64Url(String input) {
@@ -462,7 +450,7 @@ public class GmailOAuthService {
             READONLY_SCOPES.get(1),
             READONLY_SCOPES.get(2),
             READONLY_SCOPES.get(3),
-            GMAIL_SEND_SCOPE);
+            GmailScopeService.GMAIL_SEND_SCOPE);
       }
       return READONLY_SCOPES;
     }

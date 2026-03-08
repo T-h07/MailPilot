@@ -3,17 +3,17 @@ package com.mailpilot.service;
 import com.mailpilot.api.error.ApiBadRequestException;
 import com.mailpilot.api.error.ApiConflictException;
 import com.mailpilot.api.error.ApiNotFoundException;
+import com.mailpilot.service.gmail.GmailApiExecutor;
 import com.mailpilot.service.gmail.GmailClient;
 import com.mailpilot.service.gmail.GmailClient.GmailApiException;
 import com.mailpilot.service.gmail.GmailClient.GmailMessageResponse;
 import com.mailpilot.service.gmail.GmailClient.GmailPayload;
 import com.mailpilot.service.gmail.GmailClient.GmailSendResponse;
-import com.mailpilot.service.gmail.GmailClient.GmailUnauthorizedException;
 import com.mailpilot.service.mail.MimeBuilder;
 import com.mailpilot.service.mail.MimeBuilder.MimeAttachment;
 import com.mailpilot.service.mail.MimeBuilder.MimeBuildRequest;
 import com.mailpilot.service.mail.MimeBuilder.MimeBuildResult;
-import com.mailpilot.service.oauth.TokenService;
+import com.mailpilot.service.oauth.GmailScopeService;
 import com.mailpilot.service.sync.GmailSyncCoordinator;
 import jakarta.mail.internet.InternetAddress;
 import java.time.OffsetDateTime;
@@ -27,7 +27,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.function.Function;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -39,23 +38,25 @@ public class MailSendService {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(MailSendService.class);
 
-  private static final String GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
   private static final int SYNC_AFTER_SEND_MAX_MESSAGES = 50;
 
   private final JdbcTemplate jdbcTemplate;
-  private final TokenService tokenService;
+  private final GmailApiExecutor gmailApiExecutor;
+  private final GmailScopeService gmailScopeService;
   private final GmailClient gmailClient;
   private final MimeBuilder mimeBuilder;
   private final GmailSyncCoordinator gmailSyncCoordinator;
 
   public MailSendService(
       JdbcTemplate jdbcTemplate,
-      TokenService tokenService,
+      GmailApiExecutor gmailApiExecutor,
+      GmailScopeService gmailScopeService,
       GmailClient gmailClient,
       MimeBuilder mimeBuilder,
       GmailSyncCoordinator gmailSyncCoordinator) {
     this.jdbcTemplate = jdbcTemplate;
-    this.tokenService = tokenService;
+    this.gmailApiExecutor = gmailApiExecutor;
+    this.gmailScopeService = gmailScopeService;
     this.gmailClient = gmailClient;
     this.mimeBuilder = mimeBuilder;
     this.gmailSyncCoordinator = gmailSyncCoordinator;
@@ -98,7 +99,7 @@ public class MailSendService {
     String encodedRaw =
         Base64.getUrlEncoder().withoutPadding().encodeToString(mimePayload.rawBytes());
     GmailSendResponse gmailSendResponse =
-        executeWithTokenRetry(
+        gmailApiExecutor.execute(
             account.id(),
             (accessToken) ->
                 gmailClient.sendMessage(accessToken, encodedRaw, composePlan.providerThreadId()));
@@ -346,7 +347,7 @@ public class MailSendService {
 
     try {
       GmailMessageResponse message =
-          executeWithTokenRetry(
+          gmailApiExecutor.execute(
               accountId, (accessToken) -> gmailClient.getMessage(accessToken, providerMessageId));
       return extractHeaders(message.payload());
     } catch (GmailApiException exception) {
@@ -579,31 +580,8 @@ public class MailSendService {
     }
   }
 
-  private <T> T executeWithTokenRetry(UUID accountId, Function<String, T> call) {
-    String accessToken = tokenService.getValidAccessToken(accountId).accessToken();
-    try {
-      return call.apply(accessToken);
-    } catch (GmailUnauthorizedException unauthorizedException) {
-      String refreshedAccessToken = tokenService.refreshAccessToken(accountId).accessToken();
-      return call.apply(refreshedAccessToken);
-    }
-  }
-
   private boolean canSend(String scope) {
-    return hasScope(scope, GMAIL_SEND_SCOPE);
-  }
-
-  private boolean hasScope(String scopeValue, String requiredScope) {
-    if (!StringUtils.hasText(scopeValue)) {
-      return false;
-    }
-    String required = requiredScope.toLowerCase(Locale.ROOT);
-    for (String scope : scopeValue.trim().split("[\\s,]+")) {
-      if (required.equals(scope.toLowerCase(Locale.ROOT))) {
-        return true;
-      }
-    }
-    return false;
+    return gmailScopeService.hasSendScope(scope);
   }
 
   private List<String> parseRecipients(String rawValue, String field) {

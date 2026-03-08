@@ -6,6 +6,7 @@ import com.mailpilot.api.errors.RateLimitException;
 import com.mailpilot.api.errors.UnauthorizedException;
 import com.mailpilot.repository.AppStateRepository;
 import com.mailpilot.service.MailSendService.MailSendCommand;
+import com.mailpilot.service.oauth.GmailScopeService;
 import java.security.SecureRandom;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -21,7 +22,6 @@ import org.springframework.util.StringUtils;
 @Service
 public class LocalPasswordRecoveryService {
 
-  private static final String GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
   private static final String CONTEXT = "LOCAL_APP_PASSWORD";
   private static final int CODE_LENGTH = 6;
   private static final int CODE_TTL_MINUTES = 10;
@@ -38,6 +38,7 @@ public class LocalPasswordRecoveryService {
   private final MailSendService mailSendService;
   private final LocalAuthService localAuthService;
   private final AppStateRepository appStateRepository;
+  private final GmailScopeService gmailScopeService;
   private final PasswordEncoder codeHashEncoder = new BCryptPasswordEncoder();
   private final SecureRandom secureRandom = new SecureRandom();
 
@@ -45,11 +46,13 @@ public class LocalPasswordRecoveryService {
       JdbcTemplate jdbcTemplate,
       MailSendService mailSendService,
       LocalAuthService localAuthService,
-      AppStateRepository appStateRepository) {
+      AppStateRepository appStateRepository,
+      GmailScopeService gmailScopeService) {
     this.jdbcTemplate = jdbcTemplate;
     this.mailSendService = mailSendService;
     this.localAuthService = localAuthService;
     this.appStateRepository = appStateRepository;
+    this.gmailScopeService = gmailScopeService;
   }
 
   public RecoveryAvailability getRecoveryAvailability() {
@@ -369,16 +372,7 @@ public class LocalPasswordRecoveryService {
   }
 
   private boolean canSend(String scope) {
-    if (!StringUtils.hasText(scope)) {
-      return false;
-    }
-    String required = GMAIL_SEND_SCOPE.toLowerCase(Locale.ROOT);
-    for (String token : scope.trim().split("[\\s,]+")) {
-      if (required.equals(token.toLowerCase(Locale.ROOT))) {
-        return true;
-      }
-    }
-    return false;
+    return gmailScopeService.hasSendScope(scope);
   }
 
   private String generateCode() {
