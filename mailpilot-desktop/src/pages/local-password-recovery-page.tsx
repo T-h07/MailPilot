@@ -1,17 +1,18 @@
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ApiClientError } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { configCheck, getGmailOAuthStatus, startGmailOAuth } from "@/lib/api/oauth";
+import { configCheck, startGmailOAuth } from "@/lib/api/oauth";
 import {
   getRecoveryOptions,
   requestRecoveryCode,
   verifyRecoveryCode,
   type RecoveryReason,
 } from "@/lib/api/app-state";
+import { openGmailOAuthUrl, waitForGmailOAuthOutcome } from "@/lib/oauth/gmail-oauth-flow";
+import { toApiErrorMessage } from "@/utils/api-error";
 
 type RecoveryStage =
   | "LOADING"
@@ -21,19 +22,6 @@ type RecoveryStage =
   | "VERIFYING"
   | "SUCCESS"
   | "UNAVAILABLE";
-const OAUTH_POLL_INTERVAL_MS = 2000;
-const OAUTH_POLL_TIMEOUT_MS = 45000;
-
-function toErrorMessage(error: unknown): string {
-  if (error instanceof ApiClientError) {
-    return error.message;
-  }
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return "Request failed";
-}
-
 function unavailableReasonText(reason: RecoveryReason | null): string {
   if (reason === "NO_PRIMARY") {
     return "No primary account is connected.";
@@ -79,7 +67,7 @@ export function LocalPasswordRecoveryPage() {
         if (cancelled) {
           return;
         }
-        setError(toErrorMessage(requestError));
+        setError(toApiErrorMessage(requestError));
         setStage("UNAVAILABLE");
       }
     };
@@ -112,7 +100,7 @@ export function LocalPasswordRecoveryPage() {
       setCooldownSeconds(response.cooldownSeconds ?? 60);
       setStage("CODE_SENT");
     } catch (requestError) {
-      setError(toErrorMessage(requestError));
+      setError(toApiErrorMessage(requestError));
       setStage("INTRO");
     }
   };
@@ -132,7 +120,7 @@ export function LocalPasswordRecoveryPage() {
       await verifyRecoveryCode(code.trim(), newPassword, confirmPassword);
       setStage("SUCCESS");
     } catch (requestError) {
-      setError(toErrorMessage(requestError));
+      setError(toApiErrorMessage(requestError));
       setStage("CODE_SENT");
     }
   };
@@ -160,35 +148,15 @@ export function LocalPasswordRecoveryPage() {
         accountHint: primaryEmail ?? undefined,
       });
 
-      try {
-        await openUrl(startResponse.authUrl);
-      } catch {
-        const popup = window.open(startResponse.authUrl, "_blank", "noopener,noreferrer");
-        if (!popup) {
-          throw new ApiClientError("Unable to open the browser for Google OAuth.");
-        }
-      }
-
-      const startedAt = Date.now();
-      while (Date.now() - startedAt < OAUTH_POLL_TIMEOUT_MS) {
-        await new Promise((resolve) => window.setTimeout(resolve, OAUTH_POLL_INTERVAL_MS));
-        const status = await getGmailOAuthStatus(startResponse.state);
-        if (status.status === "SUCCESS") {
-          await refreshRecoveryOptions();
-          return;
-        }
-        if (
-          status.status === "ERROR" ||
-          status.status === "EXPIRED" ||
-          status.status === "UNKNOWN"
-        ) {
-          throw new ApiClientError(status.message || "Gmail reconnect failed.");
-        }
-      }
-
-      throw new ApiClientError("Gmail reconnect timed out. Complete consent and retry.");
+      await openGmailOAuthUrl(startResponse.authUrl, {
+        errorMessage: "Unable to open the browser for Google OAuth.",
+      });
+      await waitForGmailOAuthOutcome(startResponse.state, {
+        timeoutMessage: "Gmail reconnect timed out. Complete consent and retry.",
+      });
+      await refreshRecoveryOptions();
     } catch (requestError) {
-      setError(toErrorMessage(requestError));
+      setError(toApiErrorMessage(requestError));
     } finally {
       setIsReconnecting(false);
     }

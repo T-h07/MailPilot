@@ -1,6 +1,14 @@
 const DEFAULT_API_BASE = "http://127.0.0.1:8082";
 const DEFAULT_TIMEOUT_MS = 10000;
 
+type ResponseKind = "json" | "blob" | "binary";
+
+type InternalRequestOptions = FetchJsonOptions & {
+  headers?: Record<string, string>;
+  rawBody?: BodyInit;
+  responseKind?: ResponseKind;
+};
+
 export const API_BASE = (import.meta.env.VITE_API_BASE ?? DEFAULT_API_BASE).replace(/\/$/, "");
 
 export class ApiClientError extends Error {
@@ -69,69 +77,7 @@ export async function getApiHealth(signal?: AbortSignal): Promise<ApiHealthRespo
 }
 
 export async function apiJson<T>(path: string, options: FetchJsonOptions = {}): Promise<T> {
-  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const timeoutController = new AbortController();
-  const timeoutId = window.setTimeout(() => timeoutController.abort("timeout"), timeoutMs);
-
-  if (options.signal) {
-    if (options.signal.aborted) {
-      timeoutController.abort(options.signal.reason);
-    } else {
-      options.signal.addEventListener(
-        "abort",
-        () => {
-          timeoutController.abort(options.signal?.reason);
-        },
-        { once: true }
-      );
-    }
-  }
-
-  try {
-    const response = await fetch(`${API_BASE}${path}`, {
-      method: options.method ?? "GET",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: options.body === undefined ? undefined : JSON.stringify(options.body),
-      signal: timeoutController.signal,
-    });
-
-    const contentType = response.headers.get("content-type") ?? "";
-    const isJson = contentType.includes("application/json");
-    const payload = isJson ? await response.json() : null;
-
-    if (!response.ok) {
-      const errorMessage =
-        payload && typeof payload.message === "string"
-          ? payload.message
-          : `Request failed with status ${response.status}`;
-      logApiFailure(path, response.status, errorMessage);
-      throw new ApiClientError(errorMessage, response.status);
-    }
-
-    if (!isJson) {
-      throw new ApiClientError("API returned non-JSON response", response.status);
-    }
-
-    return payload as T;
-  } catch (error) {
-    if (error instanceof ApiClientError) {
-      throw error;
-    }
-    if (error instanceof DOMException && error.name === "AbortError") {
-      if (options.signal?.aborted) {
-        logApiFailure(path, 0, "Request cancelled");
-        throw new ApiClientError("Request cancelled", 0);
-      }
-      logApiFailure(path, 0, "Request timed out");
-      throw new ApiClientError("Request timed out", 0);
-    }
-    logApiFailure(path, 0, "Unable to reach API");
-    throw new ApiClientError("Unable to reach API", 0);
-  } finally {
-    window.clearTimeout(timeoutId);
-  }
+  return requestApi<T>(path, { ...options, responseKind: "json" });
 }
 
 export async function fetchFormJson<T>(
@@ -139,197 +85,22 @@ export async function fetchFormJson<T>(
   formData: FormData,
   options: Omit<FetchJsonOptions, "body"> = {}
 ): Promise<T> {
-  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const timeoutController = new AbortController();
-  const timeoutId = window.setTimeout(() => timeoutController.abort("timeout"), timeoutMs);
-
-  if (options.signal) {
-    if (options.signal.aborted) {
-      timeoutController.abort(options.signal.reason);
-    } else {
-      options.signal.addEventListener(
-        "abort",
-        () => {
-          timeoutController.abort(options.signal?.reason);
-        },
-        { once: true }
-      );
-    }
-  }
-
-  try {
-    const response = await fetch(`${API_BASE}${path}`, {
-      method: options.method ?? "POST",
-      body: formData,
-      signal: timeoutController.signal,
-    });
-
-    const contentType = response.headers.get("content-type") ?? "";
-    const isJson = contentType.includes("application/json");
-    const payload = isJson ? await response.json() : null;
-
-    if (!response.ok) {
-      const errorMessage =
-        payload && typeof payload.message === "string"
-          ? payload.message
-          : `Request failed with status ${response.status}`;
-      logApiFailure(path, response.status, errorMessage);
-      throw new ApiClientError(errorMessage, response.status);
-    }
-
-    if (!isJson) {
-      throw new ApiClientError("API returned non-JSON response", response.status);
-    }
-
-    return payload as T;
-  } catch (error) {
-    if (error instanceof ApiClientError) {
-      throw error;
-    }
-    if (error instanceof DOMException && error.name === "AbortError") {
-      if (options.signal?.aborted) {
-        logApiFailure(path, 0, "Request cancelled");
-        throw new ApiClientError("Request cancelled", 0);
-      }
-      logApiFailure(path, 0, "Request timed out");
-      throw new ApiClientError("Request timed out", 0);
-    }
-    logApiFailure(path, 0, "Unable to reach API");
-    throw new ApiClientError("Unable to reach API", 0);
-  } finally {
-    window.clearTimeout(timeoutId);
-  }
+  return requestApi<T>(path, {
+    ...options,
+    rawBody: formData,
+    responseKind: "json",
+  });
 }
 
 export async function apiBlob(path: string, options: FetchJsonOptions = {}): Promise<Blob> {
-  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const timeoutController = new AbortController();
-  const timeoutId = window.setTimeout(() => timeoutController.abort("timeout"), timeoutMs);
-
-  if (options.signal) {
-    if (options.signal.aborted) {
-      timeoutController.abort(options.signal.reason);
-    } else {
-      options.signal.addEventListener(
-        "abort",
-        () => {
-          timeoutController.abort(options.signal?.reason);
-        },
-        { once: true }
-      );
-    }
-  }
-
-  try {
-    const headers: Record<string, string> = {
-      Accept: "*/*",
-    };
-    if (options.body !== undefined) {
-      headers["Content-Type"] = "application/json";
-    }
-
-    const response = await fetch(`${API_BASE}${path}`, {
-      method: options.method ?? "GET",
-      headers,
-      body: options.body === undefined ? undefined : JSON.stringify(options.body),
-      signal: timeoutController.signal,
-    });
-
-    if (!response.ok) {
-      const errorMessage = await parseBinaryErrorMessage(response);
-      logApiFailure(path, response.status, errorMessage);
-      throw new ApiClientError(errorMessage, response.status);
-    }
-
-    return response.blob();
-  } catch (error) {
-    if (error instanceof ApiClientError) {
-      throw error;
-    }
-    if (error instanceof DOMException && error.name === "AbortError") {
-      if (options.signal?.aborted) {
-        logApiFailure(path, 0, "Request cancelled");
-        throw new ApiClientError("Request cancelled", 0);
-      }
-      logApiFailure(path, 0, "Request timed out");
-      throw new ApiClientError("Request timed out", 0);
-    }
-    logApiFailure(path, 0, "Unable to reach API");
-    throw new ApiClientError("Unable to reach API", 0);
-  } finally {
-    window.clearTimeout(timeoutId);
-  }
+  return requestApi<Blob>(path, { ...options, responseKind: "blob" });
 }
 
 export async function downloadBinary(
   path: string,
   options: FetchJsonOptions = {}
 ): Promise<BinaryResponse> {
-  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const timeoutController = new AbortController();
-  const timeoutId = window.setTimeout(() => timeoutController.abort("timeout"), timeoutMs);
-
-  if (options.signal) {
-    if (options.signal.aborted) {
-      timeoutController.abort(options.signal.reason);
-    } else {
-      options.signal.addEventListener(
-        "abort",
-        () => {
-          timeoutController.abort(options.signal?.reason);
-        },
-        { once: true }
-      );
-    }
-  }
-
-  try {
-    const headers: Record<string, string> = {
-      Accept: "*/*",
-    };
-    if (options.body !== undefined) {
-      headers["Content-Type"] = "application/json";
-    }
-
-    const response = await fetch(`${API_BASE}${path}`, {
-      method: options.method ?? "GET",
-      headers,
-      body: options.body === undefined ? undefined : JSON.stringify(options.body),
-      signal: timeoutController.signal,
-    });
-
-    if (!response.ok) {
-      const errorMessage = await parseBinaryErrorMessage(response);
-      logApiFailure(path, response.status, errorMessage);
-      throw new ApiClientError(errorMessage, response.status);
-    }
-
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    const fileName = parseContentDispositionFilename(response.headers.get("content-disposition"));
-    const contentType = response.headers.get("content-type") ?? "application/octet-stream";
-
-    return {
-      bytes,
-      contentType,
-      fileName,
-    };
-  } catch (error) {
-    if (error instanceof ApiClientError) {
-      throw error;
-    }
-    if (error instanceof DOMException && error.name === "AbortError") {
-      if (options.signal?.aborted) {
-        logApiFailure(path, 0, "Request cancelled");
-        throw new ApiClientError("Request cancelled", 0);
-      }
-      logApiFailure(path, 0, "Request timed out");
-      throw new ApiClientError("Request timed out", 0);
-    }
-    logApiFailure(path, 0, "Unable to reach API");
-    throw new ApiClientError("Unable to reach API", 0);
-  } finally {
-    window.clearTimeout(timeoutId);
-  }
+  return requestApi<BinaryResponse>(path, { ...options, responseKind: "binary" });
 }
 
 export async function fetchBinary(
@@ -343,7 +114,122 @@ export async function fetchJson<T>(path: string, options: FetchJsonOptions = {})
   return apiJson<T>(path, options);
 }
 
-async function parseBinaryErrorMessage(response: Response): Promise<string> {
+async function requestApi<T>(
+  path: string,
+  options: InternalRequestOptions = {}
+): Promise<T> {
+  const responseKind = options.responseKind ?? "json";
+  const request = createRequestContext(options.signal, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(`${API_BASE}${path}`, {
+      method: options.method ?? "GET",
+      headers: buildHeaders(options, responseKind),
+      body: resolveRequestBody(options),
+      signal: request.signal,
+    });
+
+    if (!response.ok) {
+      const errorMessage = await parseErrorMessage(response);
+      logApiFailure(path, response.status, errorMessage);
+      throw new ApiClientError(errorMessage, response.status);
+    }
+
+    if (responseKind === "blob") {
+      return (await response.blob()) as T;
+    }
+
+    if (responseKind === "binary") {
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      const fileName = parseContentDispositionFilename(response.headers.get("content-disposition"));
+      const contentType = response.headers.get("content-type") ?? "application/octet-stream";
+      return {
+        bytes,
+        contentType,
+        fileName,
+      } as T;
+    }
+
+    const contentType = response.headers.get("content-type") ?? "";
+    if (!contentType.includes("application/json")) {
+      throw new ApiClientError("API returned non-JSON response", response.status);
+    }
+
+    return (await response.json()) as T;
+  } catch (error) {
+    if (error instanceof ApiClientError) {
+      throw error;
+    }
+    if (error instanceof DOMException && error.name === "AbortError") {
+      if (options.signal?.aborted) {
+        logApiFailure(path, 0, "Request cancelled");
+        throw new ApiClientError("Request cancelled", 0);
+      }
+      logApiFailure(path, 0, "Request timed out");
+      throw new ApiClientError("Request timed out", 0);
+    }
+    logApiFailure(path, 0, "Unable to reach API");
+    throw new ApiClientError("Unable to reach API", 0);
+  } finally {
+    request.cleanup();
+  }
+}
+
+function createRequestContext(signal: AbortSignal | undefined, timeoutMs: number) {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort("timeout"), timeoutMs);
+  let abortHandler: (() => void) | null = null;
+
+  if (signal) {
+    abortHandler = () => {
+      controller.abort(signal.reason);
+    };
+    if (signal.aborted) {
+      abortHandler();
+    } else {
+      signal.addEventListener("abort", abortHandler, { once: true });
+    }
+  }
+
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      window.clearTimeout(timeoutId);
+      if (signal && abortHandler) {
+        signal.removeEventListener("abort", abortHandler);
+      }
+    },
+  };
+}
+
+function buildHeaders(
+  options: InternalRequestOptions,
+  responseKind: ResponseKind
+): Record<string, string> | undefined {
+  const headers: Record<string, string> = { ...(options.headers ?? {}) };
+  const usesJsonBody = options.body !== undefined;
+
+  if (responseKind !== "json") {
+    headers.Accept = headers.Accept ?? "*/*";
+  }
+  if (usesJsonBody) {
+    headers["Content-Type"] = headers["Content-Type"] ?? "application/json";
+  }
+
+  return Object.keys(headers).length > 0 ? headers : undefined;
+}
+
+function resolveRequestBody(options: InternalRequestOptions): BodyInit | undefined {
+  if (options.rawBody !== undefined) {
+    return options.rawBody;
+  }
+  if (options.body === undefined) {
+    return undefined;
+  }
+  return JSON.stringify(options.body);
+}
+
+async function parseErrorMessage(response: Response): Promise<string> {
   const statusCode = response.status;
   const fallbackMessage = `Request failed (HTTP ${statusCode}). Check server logs.`;
 
