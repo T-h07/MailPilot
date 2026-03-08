@@ -2,6 +2,7 @@ package com.mailpilot.service.oauth;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.mailpilot.api.errors.UnauthorizedException;
 import com.mailpilot.service.logging.LogSanitizer;
 import java.net.URI;
 import java.time.Duration;
@@ -10,6 +11,8 @@ import java.time.ZoneOffset;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -26,6 +29,7 @@ import org.springframework.web.client.RestTemplate;
 @Service
 public class TokenService {
 
+  private static final Logger LOGGER = LoggerFactory.getLogger(TokenService.class);
   private static final String GOOGLE_TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
   private static final Duration EXPIRY_SKEW = Duration.ofSeconds(60);
 
@@ -75,7 +79,7 @@ public class TokenService {
         return toAccessToken(existing);
       }
       if (!StringUtils.hasText(existing.refreshToken())) {
-        throw new IllegalStateException("OAuth refresh token is missing. Reconnect Gmail account.");
+        throw new UnauthorizedException("OAuth refresh token is missing. Reconnect Gmail account.");
       }
 
       GoogleOAuthClientConfig config = googleOAuthClientConfigService.loadRequiredConfig();
@@ -154,25 +158,34 @@ public class TokenService {
   }
 
   private TokenRow loadTokenRow(UUID accountId) {
-    return jdbcTemplate
-        .query(
-            """
-      SELECT account_id, access_token_enc, refresh_token_enc, expiry_at, scope, token_type
-      FROM oauth_tokens
-      WHERE account_id = ?
-      """,
-            (resultSet, rowNum) ->
-                new TokenRow(
-                    resultSet.getObject("account_id", UUID.class),
-                    tokenCrypto.decrypt(resultSet.getString("access_token_enc")),
-                    decryptNullable(resultSet.getString("refresh_token_enc")),
-                    resultSet.getObject("expiry_at", OffsetDateTime.class),
-                    resultSet.getString("scope"),
-                    resultSet.getString("token_type")),
-            accountId)
-        .stream()
-        .findFirst()
-        .orElseThrow(() -> new IllegalStateException("OAuth tokens not found for account"));
+    try {
+      return jdbcTemplate
+          .query(
+              """
+        SELECT account_id, access_token_enc, refresh_token_enc, expiry_at, scope, token_type
+        FROM oauth_tokens
+        WHERE account_id = ?
+        """,
+              (resultSet, rowNum) ->
+                  new TokenRow(
+                      resultSet.getObject("account_id", UUID.class),
+                      tokenCrypto.decrypt(resultSet.getString("access_token_enc")),
+                      decryptNullable(resultSet.getString("refresh_token_enc")),
+                      resultSet.getObject("expiry_at", OffsetDateTime.class),
+                      resultSet.getString("scope"),
+                      resultSet.getString("token_type")),
+              accountId)
+          .stream()
+          .findFirst()
+          .orElseThrow(
+              () ->
+                  new UnauthorizedException(
+                      "OAuth tokens not found for account. Reconnect Gmail account."));
+    } catch (UnauthorizedException exception) {
+      throw exception;
+    } catch (IllegalStateException exception) {
+      throw handleCorruptStoredTokens(accountId, exception);
+    }
   }
 
   private String decryptNullable(String value) {
@@ -180,6 +193,19 @@ public class TokenService {
       return null;
     }
     return tokenCrypto.decrypt(value);
+  }
+
+  private UnauthorizedException handleCorruptStoredTokens(UUID accountId, IllegalStateException cause) {
+    LOGGER.warn(
+        "OAuth tokens for account {} are unreadable. Clearing stored tokens and requiring reconnect.",
+        accountId,
+        cause);
+    try {
+      jdbcTemplate.update("DELETE FROM oauth_tokens WHERE account_id = ?", accountId);
+    } catch (Exception clearFailure) {
+      LOGGER.warn("Failed to clear unreadable OAuth tokens for account {}", accountId, clearFailure);
+    }
+    return new UnauthorizedException("Saved Gmail credentials are no longer valid. Reconnect Gmail account.");
   }
 
   private AccessToken toAccessToken(TokenRow row) {
