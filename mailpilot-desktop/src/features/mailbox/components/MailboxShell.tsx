@@ -32,7 +32,7 @@ import {
 } from "@/lib/api/mailbox";
 import { runFollowupAction, updateFollowup, type FollowupState } from "@/lib/api/followups";
 import { emitFollowupUpdated } from "@/lib/events/followups";
-import { useLiveEvents } from "@/lib/events/live-events-context";
+import { useLiveEvents } from "@/lib/events/use-live-events";
 import { runAccountSync, runAllAccountsSync } from "@/lib/api/sync";
 import {
   listMessageViewLabels,
@@ -571,6 +571,30 @@ export function MailboxShell({
     [activeFilters]
   );
   const forcedFiltersKey = useMemo(() => JSON.stringify(forcedFilters ?? {}), [forcedFilters]);
+  const normalizedForcedFilters = useMemo(
+    () => ({
+      accountIds: forcedFilters?.accountIds ?? [],
+      unreadOnly: forcedFilters?.unreadOnly,
+      needsReply: forcedFilters?.needsReply,
+      overdue: forcedFilters?.overdue,
+      dueToday: forcedFilters?.dueToday,
+      snoozed: forcedFilters?.snoozed,
+      allOpen: forcedFilters?.allOpen,
+      senderDomains: forcedFilters?.senderDomains ?? [],
+      senderEmails: forcedFilters?.senderEmails ?? [],
+    }),
+    [
+      forcedFilters?.accountIds,
+      forcedFilters?.allOpen,
+      forcedFilters?.dueToday,
+      forcedFilters?.needsReply,
+      forcedFilters?.overdue,
+      forcedFilters?.senderDomains,
+      forcedFilters?.senderEmails,
+      forcedFilters?.snoozed,
+      forcedFilters?.unreadOnly,
+    ]
+  );
   const mailboxQueryKey = useMemo(
     () =>
       JSON.stringify({
@@ -842,21 +866,23 @@ export function MailboxShell({
       }
 
       try {
-        const forcedAccountIds = forcedFilters?.accountIds ?? [];
+        const forcedAccountIds = normalizedForcedFilters.accountIds;
         const resolvedAccountIds =
           forcedAccountIds.length > 0
             ? forcedAccountIds
             : accountScope === "ALL"
               ? []
               : [accountScope];
-        const resolvedUnreadOnly = forcedFilters?.unreadOnly ?? activeFilters.has("UNREAD");
-        const resolvedNeedsReply = forcedFilters?.needsReply ?? activeFilters.has("NEEDS_REPLY");
-        const resolvedOverdue = forcedFilters?.overdue ?? activeFilters.has("OVERDUE");
-        const resolvedDueToday = forcedFilters?.dueToday ?? activeFilters.has("DUE_TODAY");
-        const resolvedSnoozed = forcedFilters?.snoozed ?? activeFilters.has("SNOOZED");
-        const resolvedAllOpen = forcedFilters?.allOpen ?? false;
-        const resolvedSenderDomains = forcedFilters?.senderDomains ?? [];
-        const resolvedSenderEmails = forcedFilters?.senderEmails ?? [];
+        const resolvedUnreadOnly =
+          normalizedForcedFilters.unreadOnly ?? activeFilters.has("UNREAD");
+        const resolvedNeedsReply =
+          normalizedForcedFilters.needsReply ?? activeFilters.has("NEEDS_REPLY");
+        const resolvedOverdue = normalizedForcedFilters.overdue ?? activeFilters.has("OVERDUE");
+        const resolvedDueToday = normalizedForcedFilters.dueToday ?? activeFilters.has("DUE_TODAY");
+        const resolvedSnoozed = normalizedForcedFilters.snoozed ?? activeFilters.has("SNOOZED");
+        const resolvedAllOpen = normalizedForcedFilters.allOpen ?? false;
+        const resolvedSenderDomains = normalizedForcedFilters.senderDomains;
+        const resolvedSenderEmails = normalizedForcedFilters.senderEmails;
         const resolvedLabelNames = selectedLabelNames;
 
         const response =
@@ -960,7 +986,7 @@ export function MailboxShell({
       view,
       activeFilters,
       accountScope,
-      forcedFiltersKey,
+      normalizedForcedFilters,
       mailboxMode,
       sortOrder,
       selectedLabelNames,

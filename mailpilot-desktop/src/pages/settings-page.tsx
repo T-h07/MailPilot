@@ -16,7 +16,7 @@ import { configCheck, getGmailOAuthStatus, startGmailOAuth } from "@/lib/api/oau
 import { repairMessageMetadata, runAccountSync, runAllAccountsSync } from "@/lib/api/sync";
 import { resetApp } from "@/lib/api/system";
 import { changeAppPassword, getAppState, setAppPassword } from "@/lib/api/app-state";
-import { useLiveEvents } from "@/lib/events/live-events-context";
+import { useLiveEvents } from "@/lib/events/use-live-events";
 import {
   createSenderRule,
   deleteSenderRule,
@@ -380,6 +380,7 @@ export function SettingsPage() {
   }, []);
 
   useEffect(() => {
+    const labelSaveTimeouts = labelSaveTimeoutsRef.current;
     void loadAccounts();
     void loadAuthStatus();
     void loadSenderRules();
@@ -389,10 +390,10 @@ export function SettingsPage() {
       if (noticeTimeoutRef.current !== null) {
         window.clearTimeout(noticeTimeoutRef.current);
       }
-      labelSaveTimeoutsRef.current.forEach((timeoutId) => {
+      labelSaveTimeouts.forEach((timeoutId) => {
         window.clearTimeout(timeoutId);
       });
-      labelSaveTimeoutsRef.current.clear();
+      labelSaveTimeouts.clear();
     };
   }, [loadAccounts, loadAuthStatus, loadSenderRules, refreshSyncStatus]);
 
@@ -578,7 +579,7 @@ export function SettingsPage() {
 
       try {
         await openUrl(startResponse.authUrl);
-      } catch (openError) {
+      } catch {
         const popup = window.open(startResponse.authUrl, "_blank", "noopener,noreferrer");
         if (!popup) {
           throw new ApiClientError("Unable to open the system browser for Google OAuth.");

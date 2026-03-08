@@ -27,6 +27,8 @@ From the repo root:
 ```powershell
 git status --short
 powershell -ExecutionPolicy Bypass -File .\tools\check-clean.ps1
+cd .\mailpilot-server; .\mvnw.cmd spotless:check; cd ..
+cd .\mailpilot-desktop; npm run format:check; npm run lint:ci; cd ..
 ```
 
 If ignored build output is piling up, remove only generated directories:

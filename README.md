@@ -123,6 +123,7 @@ Backend:
 
 ```powershell
 cd $env:USERPROFILE\Documents\MailPilot\mailpilot-server
+.\mvnw.cmd spotless:check
 .\mvnw.cmd test
 ```
 
@@ -131,7 +132,8 @@ Desktop:
 ```powershell
 cd $env:USERPROFILE\Documents\MailPilot\mailpilot-desktop
 npm ci
-npm run lint
+npm run format:check
+npm run lint:ci
 npm run build
 ```
 

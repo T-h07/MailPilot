@@ -47,8 +47,7 @@ public class TokenKeyProvider {
 
     byte[] ephemeralKey = randomKey();
     LOGGER.warn(
-      "MAILPILOT_TOKEN_KEY_B64 is not set outside dev profile. Using an ephemeral in-memory key."
-    );
+        "MAILPILOT_TOKEN_KEY_B64 is not set outside dev profile. Using an ephemeral in-memory key.");
     return ephemeralKey;
   }
 
@@ -77,23 +76,20 @@ public class TokenKeyProvider {
         Files.createDirectories(parent);
       }
       Files.writeString(
-        keyPath,
-        encoded,
-        StandardOpenOption.CREATE,
-        StandardOpenOption.TRUNCATE_EXISTING,
-        StandardOpenOption.WRITE
-      );
+          keyPath,
+          encoded,
+          StandardOpenOption.CREATE,
+          StandardOpenOption.TRUNCATE_EXISTING,
+          StandardOpenOption.WRITE);
     } catch (IOException exception) {
       throw new IllegalStateException(
-          "Failed to write dev token key file to " + LogSanitizer.sanitizePath(keyPath),
-          exception);
+          "Failed to write dev token key file to " + LogSanitizer.sanitizePath(keyPath), exception);
     }
 
     LOGGER.warn(
         "MAILPILOT_TOKEN_KEY_B64 is not set. Generated a dev token key at {}. "
             + "Set MAILPILOT_TOKEN_KEY_B64 to that file's value for stable encryption.",
-        LogSanitizer.sanitizePath(keyPath)
-    );
+        LogSanitizer.sanitizePath(keyPath));
 
     return generated;
   }

@@ -6,8 +6,9 @@ FAST_MODE="${MAILPILOT_HOOK_FAST:-0}"
 
 echo "[mailpilot] running frontend checks..."
 cd "$ROOT_DIR/mailpilot-desktop"
-npm run lint
+npm run lint:ci
 if [[ "$FAST_MODE" != "1" ]]; then
+  npm run format:check
   npm run build
 fi
 
@@ -16,6 +17,7 @@ cd "$ROOT_DIR/mailpilot-server"
 if [[ "$FAST_MODE" == "1" ]]; then
   ./mvnw -q -DskipTests compile
 else
+  ./mvnw -q spotless:check
   ./mvnw -q test
 fi
 

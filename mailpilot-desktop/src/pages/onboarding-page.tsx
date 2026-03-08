@@ -486,15 +486,17 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
   }, [accounts]);
 
   useEffect(() => {
+    const saveTimeouts = saveTimeoutsRef.current;
+    const savedHintTimeouts = savedHintTimeoutsRef.current;
     return () => {
-      for (const timeoutId of saveTimeoutsRef.current.values()) {
+      for (const timeoutId of saveTimeouts.values()) {
         window.clearTimeout(timeoutId);
       }
-      saveTimeoutsRef.current.clear();
-      for (const timeoutId of savedHintTimeoutsRef.current.values()) {
+      saveTimeouts.clear();
+      for (const timeoutId of savedHintTimeouts.values()) {
         window.clearTimeout(timeoutId);
       }
-      savedHintTimeoutsRef.current.clear();
+      savedHintTimeouts.clear();
     };
   }, []);
 
@@ -635,7 +637,7 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
       try {
         await openUrl(oauth.authUrl);
         onBrowserOpened?.();
-      } catch (_error) {
+      } catch {
         throw new ApiClientError("Unable to open the browser for Google OAuth.");
       }
 

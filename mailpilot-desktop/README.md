@@ -24,7 +24,8 @@ Default backend target is `http://127.0.0.1:8082` (or `VITE_API_BASE` if configu
 ```powershell
 cd $env:USERPROFILE\Documents\MailPilot\mailpilot-desktop
 npm ci
-npm run lint
+npm run format:check
+npm run lint:ci
 npm run build
 ```
 

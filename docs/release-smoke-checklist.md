@@ -12,6 +12,7 @@ Use this before shipping an installer build or tagging a release.
 
 ```powershell
 cd $env:USERPROFILE\Documents\MailPilot\mailpilot-server
+.\mvnw.cmd spotless:check
 .\mvnw.cmd test
 ```
 
@@ -20,7 +21,8 @@ cd $env:USERPROFILE\Documents\MailPilot\mailpilot-server
 ```powershell
 cd $env:USERPROFILE\Documents\MailPilot\mailpilot-desktop
 npm ci
-npm run lint
+npm run format:check
+npm run lint:ci
 npm run build
 npm run tauri:build
 ```

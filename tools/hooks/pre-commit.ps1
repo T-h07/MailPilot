@@ -7,8 +7,9 @@ $fastMode = $env:MAILPILOT_HOOK_FAST
 Write-Host "[mailpilot] running frontend checks..."
 Push-Location (Join-Path $repoRoot "mailpilot-desktop")
 try {
-  npm run lint
+  npm run lint:ci
   if ($fastMode -ne "1") {
+    npm run format:check
     npm run build
   }
 } finally {
@@ -21,6 +22,7 @@ try {
   if ($fastMode -eq "1") {
     ./mvnw -q -DskipTests compile
   } else {
+    ./mvnw -q spotless:check
     ./mvnw -q test
   }
 } finally {

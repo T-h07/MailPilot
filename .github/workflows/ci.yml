@@ -40,6 +40,9 @@ jobs:
       - name: Run tests
         run: ./mvnw -q test
 
+      - name: Spotless check
+        run: ./mvnw -q spotless:check
+
   frontend:
     name: Frontend (Node LTS)
     runs-on: ubuntu-latest
@@ -61,7 +64,10 @@ jobs:
         run: npm ci
 
       - name: Lint
-        run: npm run lint
+        run: npm run lint:ci
+
+      - name: Format check
+        run: npm run format:check
 
       - name: Build
         run: npm run build
