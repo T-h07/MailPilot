@@ -19,6 +19,7 @@ import {
 } from "@/lib/api/views";
 import { ACCENT_TOKENS, getAccentClasses, type AccentToken } from "@/features/mailbox/utils/accent";
 import { SenderHighlightsManager } from "@/features/sender-highlights/components/SenderHighlightsManager";
+import { StatePanel } from "@/components/common/state-panel";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -600,15 +601,16 @@ export function ViewsHubPage() {
       </div>
 
       {banner && (
-        <div className="rounded-md border border-border bg-card px-3 py-2 text-sm text-muted-foreground">
-          {banner}
-        </div>
+        <StatePanel compact description="Recent saved-view action feedback." title={banner} variant="success" />
       )}
 
       {actionError && (
-        <div className="rounded-md border border-border bg-card px-3 py-2 text-sm text-destructive">
-          {actionError}
-        </div>
+        <StatePanel
+          compact
+          description="Retry the action or adjust the view definition before saving again."
+          title={actionError}
+          variant="error"
+        />
       )}
 
       <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
@@ -629,23 +631,26 @@ export function ViewsHubPage() {
             )}
 
             {!viewsLoading && viewsError && (
-              <div className="rounded-md border border-border bg-card p-3 text-sm text-muted-foreground">
-                <p>{viewsError}</p>
-                <Button
-                  className="mt-3"
-                  onClick={() => void refreshViews()}
-                  size="sm"
-                  variant="outline"
-                >
-                  Retry
-                </Button>
-              </div>
+              <StatePanel
+                actions={
+                  <Button onClick={() => void refreshViews()} size="sm" variant="outline">
+                    Retry
+                  </Button>
+                }
+                compact
+                description="Reload saved views and counts from the local backend."
+                title={viewsError}
+                variant="error"
+              />
             )}
 
             {!viewsLoading && !viewsError && views.length === 0 && (
-              <div className="rounded-md border border-border bg-card p-3 text-sm text-muted-foreground">
-                No views found. Create your first saved view.
-              </div>
+              <StatePanel
+                compact
+                description="Create a saved view to pin a reusable set of mailbox rules and scope."
+                title="No views found"
+                variant="empty"
+              />
             )}
 
             {!viewsLoading &&
@@ -717,7 +722,12 @@ export function ViewsHubPage() {
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
             {!selectedView && (
-              <p className="text-muted-foreground">Select a view to inspect details.</p>
+              <StatePanel
+                compact
+                description="Choose a saved view on the left to inspect scope, rules, and labels."
+                title="Select a view to inspect details"
+                variant="empty"
+              />
             )}
 
             {selectedView && (
@@ -770,11 +780,19 @@ export function ViewsHubPage() {
                 <div className="space-y-2">
                   <p className="text-xs font-medium text-muted-foreground">View Labels</p>
                   {isLoadingSelectedViewLabels ? (
-                    <p className="text-xs text-muted-foreground">Loading labels...</p>
+                    <StatePanel
+                      compact
+                      description="Loading labels configured for this saved view."
+                      title="Loading labels"
+                      variant="loading"
+                    />
                   ) : selectedViewLabels.length === 0 ? (
-                    <p className="text-xs text-muted-foreground">
-                      No labels configured for this view.
-                    </p>
+                    <StatePanel
+                      compact
+                      description="Create labels in the editor to tag messages inside this view."
+                      title="No labels configured for this view"
+                      variant="empty"
+                    />
                   ) : (
                     <div className="flex flex-wrap gap-1.5">
                       {selectedViewLabels.map((label) => {

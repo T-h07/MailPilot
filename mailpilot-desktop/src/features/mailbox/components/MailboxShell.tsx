@@ -61,6 +61,7 @@ import { listSenderRules } from "@/lib/api/sender-rules";
 import { saveBinaryWithDialog } from "@/lib/files/save-binary";
 import { openGmailOAuthUrl, waitForGmailOAuthOutcome } from "@/lib/oauth/gmail-oauth-flow";
 import { toApiErrorMessage } from "@/utils/api-error";
+import { StatePanel } from "@/components/common/state-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
@@ -95,6 +96,26 @@ type BodyViewMode = "collapsed" | "inline" | "modal";
 
 const REQUEST_PAGE_SIZE = 50;
 const ALL_LABEL_FILTER_VALUE = "__ALL_LABELS__";
+
+function mailboxUiMessage(error: unknown, fallback: string): string {
+  const message = toApiErrorMessage(error).trim();
+  if (!message) {
+    return fallback;
+  }
+
+  const normalized = message.toLowerCase();
+  if (
+    normalized.includes("re-auth") ||
+    normalized.includes("reauth") ||
+    normalized.includes("gmail.send")
+  ) {
+    return "This Gmail account needs to be reconnected before MailPilot can continue.";
+  }
+  if (normalized.includes("timed out") || normalized.includes("timeout")) {
+    return `${fallback} The request timed out. Retry in a moment.`;
+  }
+  return fallback;
+}
 
 export function MailboxShell({
   context,
@@ -436,7 +457,7 @@ export function MailboxShell({
         }
         applyFetchedDetail(detail);
       } catch (error) {
-        const message = toApiErrorMessage(error);
+        const message = mailboxUiMessage(error, "Message details could not be refreshed.");
         if (!message) {
           return;
         }
@@ -582,7 +603,7 @@ export function MailboxShell({
         setNextCursor(response.nextCursor);
         setTotalCount(response.totalCount);
       } catch (error) {
-        const message = toApiErrorMessage(error);
+        const message = mailboxUiMessage(error, "Mailbox could not be loaded.");
         if (!message) {
           return;
         }
@@ -612,7 +633,7 @@ export function MailboxShell({
       view,
       activeFilters,
       accountScope,
-      forcedFiltersKey,
+      forcedFilters,
       mailboxMode,
       sortOrder,
       selectedLabelNames,
@@ -995,7 +1016,7 @@ export function MailboxShell({
       await refreshSelectedMessage();
     } catch (error) {
       applyUnreadState(selectedMessage.id, selectedMessage.isUnread);
-      showNotice(toApiErrorMessage(error) || "Failed to update read state");
+      showNotice(mailboxUiMessage(error, "Could not update read state."));
     }
   }, [applyUnreadState, refreshSelectedMessage, selectedMessage, showNotice]);
 
@@ -1012,7 +1033,9 @@ export function MailboxShell({
         showNotice("Full body loaded");
         return true;
       } catch (error) {
-        showNotice(toApiErrorMessage(error) || "Failed to load full body");
+        showNotice(
+          mailboxUiMessage(error, "Failed to load full message body. Retry or open it in Gmail.")
+        );
         return false;
       } finally {
         setBodyLoadingMessageId((current) => (current === messageId ? null : current));
@@ -1112,16 +1135,21 @@ export function MailboxShell({
           defaultFileName,
           bytes: response.bytes,
         });
-        if (savedPath) {
-          showNotice(`Attachment saved: ${leafFilename(savedPath)}`);
-        } else {
-          showNotice("Download cancelled");
-        }
-      } catch (error) {
-        showNotice(toApiErrorMessage(error) || "Failed to download attachment");
-      } finally {
-        setActiveAttachmentDownloadId((current) => (current === attachmentId ? null : current));
+      if (savedPath) {
+        showNotice(`Attachment saved: ${leafFilename(savedPath)}`);
+      } else {
+        showNotice("Download cancelled");
       }
+    } catch (error) {
+      showNotice(
+        mailboxUiMessage(
+          error,
+          "Attachment download failed. Retry or open the message in Gmail."
+        )
+      );
+    } finally {
+      setActiveAttachmentDownloadId((current) => (current === attachmentId ? null : current));
+    }
     },
     [showNotice]
   );
@@ -1147,8 +1175,7 @@ export function MailboxShell({
         showNotice(`Saved PDF: ${leafFilename(savedPath)}`);
       }
     } catch (error) {
-      const message = toApiErrorMessage(error);
-      showNotice(message ? `Export failed: ${message}` : "Export failed.");
+      showNotice(mailboxUiMessage(error, "PDF export failed."));
     } finally {
       setIsExportingPdf(false);
     }
@@ -1176,8 +1203,7 @@ export function MailboxShell({
         showNotice(`Saved PDF: ${leafFilename(savedPath)}`);
       }
     } catch (error) {
-      const message = toApiErrorMessage(error);
-      showNotice(message ? `Export failed: ${message}` : "Export failed.");
+      showNotice(mailboxUiMessage(error, "PDF export failed."));
     } finally {
       setIsExportingPdf(false);
     }
@@ -1398,7 +1424,9 @@ export function MailboxShell({
         });
         return true;
       } catch (error) {
-        showNotice(toApiErrorMessage(error) || "Failed to start Gmail re-auth.");
+        showNotice(
+          mailboxUiMessage(error, "Failed to start Gmail reconnect. Retry the browser flow.")
+        );
         return false;
       }
     },
@@ -1524,38 +1552,37 @@ export function MailboxShell({
       <div className="mailbox-grid grid min-h-[560px] gap-4">
         <div className="flex h-full flex-col gap-3">
           {listError ? (
-            <div className="mailbox-empty-state flex h-full items-center justify-center p-8">
-              <div className="text-center">
-                <p className="text-sm font-medium">Could not load mailbox.</p>
-                <p className="pt-1 text-xs text-muted-foreground">{listError}</p>
-                <Button
-                  className="mt-4"
-                  onClick={() => fetchMailbox(false, null)}
-                  size="sm"
-                  variant="outline"
-                >
+            <StatePanel
+              actions={
+                <Button onClick={() => fetchMailbox(false, null)} size="sm" variant="outline">
                   Retry
                 </Button>
-              </div>
-            </div>
+              }
+              centered
+              className="mailbox-empty-state"
+              description="Retry the mailbox query to reload the current scope, filters, and labels."
+              title={listError}
+              variant="error"
+            />
           ) : messages.length === 0 ? (
-            <div className="mailbox-empty-state flex h-full items-center justify-center p-8">
-              <div className="text-center">
-                <p className="text-sm font-medium">
-                  {isLoadingList ? "Loading mailbox..." : "No messages in this view."}
-                </p>
-                <p className="pt-1 text-xs text-muted-foreground">
-                  {isLoadingList
-                    ? "Fetching data from the server."
-                    : "Clear filters to bring messages back."}
-                </p>
-                {!isLoadingList && (
-                  <Button className="mt-4" onClick={resetFilters} size="sm" variant="outline">
+            <StatePanel
+              actions={
+                !isLoadingList ? (
+                  <Button onClick={resetFilters} size="sm" variant="outline">
                     Reset filters
                   </Button>
-                )}
-              </div>
-            </div>
+                ) : null
+              }
+              centered
+              className="mailbox-empty-state"
+              description={
+                isLoadingList
+                  ? "Fetching messages, labels, and preview state from the local backend."
+                  : "Clear filters, widen account scope, or refresh sync to bring messages back."
+              }
+              title={isLoadingList ? "Loading mailbox" : "No messages in this view"}
+              variant={isLoadingList ? "loading" : "empty"}
+            />
           ) : (
             <MailList
               messages={messages}

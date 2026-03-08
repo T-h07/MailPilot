@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
+import { LockKeyhole, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -43,13 +44,29 @@ export function AppLockOverlay({
   };
 
   return (
-    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-      <Card className="w-full max-w-md border-border bg-card/95">
+    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-md">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(14,165,233,0.18),_transparent_32%),radial-gradient(circle_at_bottom_right,_rgba(234,179,8,0.14),_transparent_30%)]" />
+      <Card className="relative w-full max-w-md border-border/80 bg-card/95 shadow-2xl">
         <CardHeader>
-          <CardTitle>Locked</CardTitle>
-          <CardDescription>Enter your password to unlock MailPilot.</CardDescription>
+          <div className="flex items-center gap-3">
+            <div className="rounded-2xl border border-border/70 bg-background/80 p-2.5 text-sky-300">
+              <LockKeyhole className="h-5 w-5" />
+            </div>
+            <div>
+              <CardTitle>MailPilot is locked</CardTitle>
+              <CardDescription className="pt-1">
+                Enter your local app password to return to the inbox.
+              </CardDescription>
+            </div>
+          </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          <div className="rounded-2xl border border-border/70 bg-background/70 px-4 py-3">
+            <p className="flex items-start gap-2 text-xs leading-5 text-muted-foreground">
+              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" />
+              This password only unlocks MailPilot on this device. It is not your Gmail password.
+            </p>
+          </div>
           <form className="space-y-4" onSubmit={(event) => void handleSubmit(event)}>
             <Input
               autoComplete="current-password"
@@ -61,7 +78,9 @@ export function AppLockOverlay({
               value={password}
             />
             {(localError || error) && (
-              <p className="text-sm text-destructive">{localError ?? error ?? "Unlock failed."}</p>
+              <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {localError ?? error ?? "Unlock failed."}
+              </div>
             )}
             <Button className="w-full" disabled={isUnlocking} type="submit">
               {isUnlocking ? "Unlocking..." : "Unlock"}
@@ -71,9 +90,9 @@ export function AppLockOverlay({
               disabled={isUnlocking}
               onClick={onForgotPassword}
               type="button"
-              variant="ghost"
+              variant="outline"
             >
-              Forgot password?
+              Use recovery code
             </Button>
           </form>
         </CardContent>

@@ -27,6 +27,7 @@ import {
   type SenderRuleUpsertPayload,
 } from "@/lib/api/sender-rules";
 import { ACCENT_TOKENS, getAccentClasses, type AccentToken } from "@/features/mailbox/utils/accent";
+import { StatePanel } from "@/components/common/state-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -362,6 +363,7 @@ export function SettingsPage() {
   }, []);
 
   useEffect(() => {
+    const labelSaveTimeouts = labelSaveTimeoutsRef.current;
     void loadAccounts();
     void loadAuthStatus();
     void loadSenderRules();
@@ -371,10 +373,10 @@ export function SettingsPage() {
       if (noticeTimeoutRef.current !== null) {
         window.clearTimeout(noticeTimeoutRef.current);
       }
-      labelSaveTimeoutsRef.current.forEach((timeoutId) => {
+      labelSaveTimeouts.forEach((timeoutId) => {
         window.clearTimeout(timeoutId);
       });
-      labelSaveTimeoutsRef.current.clear();
+      labelSaveTimeouts.clear();
     };
   }, [loadAccounts, loadAuthStatus, loadSenderRules, refreshSyncStatus]);
 
@@ -1169,31 +1171,31 @@ export function SettingsPage() {
         </CardHeader>
         <CardContent className="space-y-3">
           {oauthError && (
-            <div className="rounded-md border border-border bg-card p-3 text-sm text-muted-foreground">
-              <p className="whitespace-pre-line">{oauthError}</p>
-              <Button
-                className="mt-3"
-                onClick={() => void handleConnectGmail()}
-                size="sm"
-                variant="outline"
-              >
-                Retry
-              </Button>
-            </div>
+            <StatePanel
+              actions={
+                <Button onClick={() => void handleConnectGmail()} size="sm" variant="outline">
+                  Retry
+                </Button>
+              }
+              compact
+              description="Retry the Gmail browser flow after confirming OAuth configuration and account access."
+              title={oauthError}
+              variant="error"
+            />
           )}
 
           {syncError && (
-            <div className="rounded-md border border-border bg-card p-3 text-sm text-muted-foreground">
-              <p>{syncError}</p>
-              <Button
-                className="mt-3"
-                onClick={() => void refreshSyncStatus()}
-                size="sm"
-                variant="outline"
-              >
-                Retry
-              </Button>
-            </div>
+            <StatePanel
+              actions={
+                <Button onClick={() => void refreshSyncStatus()} size="sm" variant="outline">
+                  Retry
+                </Button>
+              }
+              compact
+              description="Retry the sync request to refresh account progress and capability state."
+              title={syncError}
+              variant="error"
+            />
           )}
 
           {isLoadingAccounts && (
@@ -1208,23 +1210,26 @@ export function SettingsPage() {
           )}
 
           {!isLoadingAccounts && accountsError && (
-            <div className="rounded-md border border-border bg-card p-3 text-sm text-muted-foreground">
-              <p>{accountsError}</p>
-              <Button
-                className="mt-3"
-                onClick={() => void loadAccounts()}
-                size="sm"
-                variant="outline"
-              >
-                Retry
-              </Button>
-            </div>
+            <StatePanel
+              actions={
+                <Button onClick={() => void loadAccounts()} size="sm" variant="outline">
+                  Retry
+                </Button>
+              }
+              compact
+              description="Retry to reload connected accounts, role labels, and capability status."
+              title={accountsError}
+              variant="error"
+            />
           )}
 
           {!isLoadingAccounts && !accountsError && accounts.length === 0 && (
-            <p className="rounded-md border border-border bg-card p-3 text-sm text-muted-foreground">
-              No connected accounts yet.
-            </p>
+            <StatePanel
+              compact
+              description="Connect Gmail to unlock mailbox sync, sending, onboarding recovery, and dashboard freshness."
+              title="No connected accounts yet"
+              variant="empty"
+            />
           )}
 
           {!isLoadingAccounts && !accountsError && accounts.length > 0 && (
