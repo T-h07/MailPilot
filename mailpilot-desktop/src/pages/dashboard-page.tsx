@@ -14,17 +14,16 @@ import {
   DashboardDriverList,
   type DashboardDriverItem,
 } from "@/components/dashboard/DashboardDriverList";
-import { DashboardKpiTile } from "@/components/dashboard/DashboardKpiTile";
-import { mapDashboardSparkline } from "@/components/dashboard/dashboard-kpi-sparkline";
+import { DashboardKpiTile, mapDashboardSparkline } from "@/components/dashboard/DashboardKpiTile";
+import { StatePanel } from "@/components/common/state-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AccentCard } from "@/components/ui/AccentCard";
-import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { type AccountRecord, listAccounts } from "@/lib/api/accounts";
 import { getDashboardSummary, type DashboardSummary } from "@/lib/api/dashboard";
 import { runAllAccountsSync } from "@/lib/api/sync";
-import { useLiveEvents } from "@/lib/events/use-live-events";
+import { useLiveEvents } from "@/lib/events/live-events-context";
 import { cn } from "@/lib/utils";
 import { toApiErrorMessage } from "@/utils/api-error";
 import { buildInboxDrilldownPath, type InboxDrilldownParams } from "@/utils/mailbox-drilldown";
@@ -52,6 +51,7 @@ export function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [infoNotice, setInfoNotice] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(false);
+  const isInitialLoad = isLoading && !summary;
 
   const openDrilldown = useCallback(
     (params: InboxDrilldownParams) => {
@@ -229,77 +229,94 @@ export function DashboardPage() {
         </div>
       </div>
 
-      {(error || infoNotice) && (
-        <Card>
-          <CardContent className="p-4 text-sm">
-            {error && <p className="text-destructive">{error}</p>}
-            {!error && infoNotice && <p className="text-muted-foreground">{infoNotice}</p>}
-          </CardContent>
-        </Card>
-      )}
+      {error ? (
+        <StatePanel
+          actions={
+            <Button onClick={() => void loadDashboard()} size="sm" variant="outline">
+              Retry
+            </Button>
+          }
+          description="Retry the dashboard query to reload mailbox pressure, trends, and freshness."
+          title={error}
+          variant="error"
+        />
+      ) : infoNotice ? (
+        <StatePanel compact description="Recent dashboard action feedback." title={infoNotice} variant="info" />
+      ) : null}
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        <DashboardKpiTile
-          delta={`${formatSignedDelta(summary?.unreadDelta ?? 0)} vs prior 24h`}
-          icon={Inbox}
-          label="Unread"
-          onClick={() => openDrilldown({ unread: true })}
-          sparkline={unreadSparkline}
-          subtitle="Inbox unread load"
-          tone={(summary?.unreadTotal ?? 0) > 200 ? "attention" : "neutral"}
-          value={summary?.unreadTotal ?? 0}
-        />
-        <DashboardKpiTile
-          delta={`${formatSignedDelta(summary?.needsReplyDelta ?? 0)} vs prior 24h`}
-          icon={MessageSquareReply}
-          label="Needs reply"
-          onClick={() => openDrilldown({ needsReply: true })}
-          sparkline={needsReplySparkline}
-          subtitle="Open followups"
-          tone="attention"
-          value={summary?.needsReplyOpen ?? 0}
-        />
-        <DashboardKpiTile
-          delta={`${formatSignedDelta(summary?.overdueDelta ?? 0)} vs prior 24h`}
-          icon={AlertTriangle}
-          label="Overdue"
-          onClick={() => openDrilldown({ overdue: true })}
-          sparkline={overdueSparkline}
-          subtitle="Past due followups"
-          tone="critical"
-          value={summary?.overdue ?? 0}
-        />
-        <DashboardKpiTile
-          delta="Due before midnight"
-          icon={CalendarClock}
-          label="Due today"
-          onClick={() => openDrilldown({ dueToday: true })}
-          sparkline={dueTodaySparkline}
-          subtitle="Today due queue"
-          tone="attention"
-          value={summary?.dueToday ?? 0}
-        />
-        <DashboardKpiTile
-          delta={`${summary?.snoozedWakingNext24h ?? 0} wake in next 24h`}
-          icon={BellRing}
-          label="Snoozed"
-          onClick={() => openDrilldown({ snoozed: true })}
-          sparkline={snoozedSparkline}
-          subtitle="Paused followups"
-          tone="calm"
-          value={summary?.snoozed ?? 0}
-        />
-        <DashboardKpiTile
-          delta="Unread from BOSS rule set"
-          icon={Crown}
-          label="Unread BOSS"
-          onClick={handleBossDrilldown}
-          sparkline={unreadBossSparkline}
-          subtitle="Priority sender highlights"
-          tone="boss"
-          value={summary?.unreadBoss ?? 0}
-        />
-      </div>
+      {isInitialLoad ? (
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {Array.from({ length: 6 }, (_, index) => (
+            <div
+              className="h-[180px] animate-pulse rounded-xl border border-border bg-card/70"
+              key={`dashboard-kpi-loading-${index}`}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <DashboardKpiTile
+            delta={`${formatSignedDelta(summary?.unreadDelta ?? 0)} vs prior 24h`}
+            icon={Inbox}
+            label="Unread"
+            onClick={() => openDrilldown({ unread: true })}
+            sparkline={unreadSparkline}
+            subtitle="Inbox unread load"
+            tone={(summary?.unreadTotal ?? 0) > 200 ? "attention" : "neutral"}
+            value={summary?.unreadTotal ?? 0}
+          />
+          <DashboardKpiTile
+            delta={`${formatSignedDelta(summary?.needsReplyDelta ?? 0)} vs prior 24h`}
+            icon={MessageSquareReply}
+            label="Needs reply"
+            onClick={() => openDrilldown({ needsReply: true })}
+            sparkline={needsReplySparkline}
+            subtitle="Open followups"
+            tone="attention"
+            value={summary?.needsReplyOpen ?? 0}
+          />
+          <DashboardKpiTile
+            delta={`${formatSignedDelta(summary?.overdueDelta ?? 0)} vs prior 24h`}
+            icon={AlertTriangle}
+            label="Overdue"
+            onClick={() => openDrilldown({ overdue: true })}
+            sparkline={overdueSparkline}
+            subtitle="Past due followups"
+            tone="critical"
+            value={summary?.overdue ?? 0}
+          />
+          <DashboardKpiTile
+            delta="Due before midnight"
+            icon={CalendarClock}
+            label="Due today"
+            onClick={() => openDrilldown({ dueToday: true })}
+            sparkline={dueTodaySparkline}
+            subtitle="Today due queue"
+            tone="attention"
+            value={summary?.dueToday ?? 0}
+          />
+          <DashboardKpiTile
+            delta={`${summary?.snoozedWakingNext24h ?? 0} wake in next 24h`}
+            icon={BellRing}
+            label="Snoozed"
+            onClick={() => openDrilldown({ snoozed: true })}
+            sparkline={snoozedSparkline}
+            subtitle="Paused followups"
+            tone="calm"
+            value={summary?.snoozed ?? 0}
+          />
+          <DashboardKpiTile
+            delta="Unread from BOSS rule set"
+            icon={Crown}
+            label="Unread BOSS"
+            onClick={handleBossDrilldown}
+            sparkline={unreadBossSparkline}
+            subtitle="Priority sender highlights"
+            tone="boss"
+            value={summary?.unreadBoss ?? 0}
+          />
+        </div>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-2">
         <AccentCard
@@ -461,7 +478,12 @@ export function DashboardPage() {
           <Separator className="opacity-55" />
           <div className="space-y-2">
             {syncRows.length === 0 && (
-              <p className="text-muted-foreground">No connected accounts.</p>
+              <StatePanel
+                compact
+                description="Connect a Gmail account in Settings to unlock dashboard freshness and sync status."
+                title="No connected accounts"
+                variant="empty"
+              />
             )}
             {syncRows.map((row) => (
               <div

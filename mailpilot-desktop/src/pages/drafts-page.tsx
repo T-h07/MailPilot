@@ -1,5 +1,6 @@
 import { Loader2, PencilLine, Paperclip, RefreshCw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { StatePanel } from "@/components/common/state-panel";
 import { ComposeDialog, type ComposeDraft } from "@/features/mailbox/components/ComposeDialog";
 import { listAccounts, type AccountRecord } from "@/lib/api/accounts";
 import {
@@ -280,14 +281,47 @@ export function DraftsPage() {
       </div>
 
       <div className="mailbox-panel divide-y divide-border">
-        {listError && <div className="p-4 text-sm text-destructive">{listError}</div>}
+        {listError && (
+          <div className="p-4">
+            <StatePanel
+              actions={
+                <Button onClick={handleRefresh} size="sm" variant="outline">
+                  Retry
+                </Button>
+              }
+              compact
+              description="Retry the draft query to reload local saved drafts."
+              title={listError}
+              variant="error"
+            />
+          </div>
+        )}
 
         {!listError && isLoading && (
-          <div className="p-6 text-sm text-muted-foreground">Loading drafts...</div>
+          <div className="p-4">
+            <StatePanel
+              compact
+              description="Loading local drafts, send-ready accounts, and saved attachments."
+              title="Loading drafts"
+              variant="loading"
+            />
+          </div>
         )}
 
         {!listError && !isLoading && drafts.length === 0 && (
-          <div className="p-6 text-sm text-muted-foreground">No drafts yet.</div>
+          <div className="p-4">
+            <StatePanel
+              actions={
+                <Button onClick={handleOpenNewDraft} size="sm" variant="outline">
+                  Compose new draft
+                </Button>
+              }
+              compact
+              description="Start a draft here and MailPilot will keep it locally until you send or discard it."
+              title="No drafts yet"
+              variant="empty"
+            />
+          </div>
         )}
 
         {!listError &&

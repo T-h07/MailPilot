@@ -87,7 +87,7 @@ public class TokenKeyProvider {
           StandardOpenOption.WRITE);
     } catch (IOException exception) {
       throw new IllegalStateException(
-          "Failed to write dev token key file to " + LogSanitizer.sanitizePath(keyPath), exception);
+          "Failed to write token key file to " + LogSanitizer.sanitizePath(keyPath), exception);
     }
 
     LOGGER.warn(

@@ -48,6 +48,7 @@ import {
 } from "@/lib/oauth/gmail-oauth-flow";
 import { ApiClientError } from "@/api/client";
 import { toApiErrorMessage } from "@/utils/api-error";
+import { StatePanel } from "@/components/common/state-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AccentCard } from "@/components/ui/AccentCard";
@@ -481,17 +482,17 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
   }, [accounts]);
 
   useEffect(() => {
-    const saveTimeouts = saveTimeoutsRef.current;
-    const savedHintTimeouts = savedHintTimeoutsRef.current;
+    const roleSaveTimeouts = saveTimeoutsRef.current;
+    const roleSavedHintTimeouts = savedHintTimeoutsRef.current;
     return () => {
-      for (const timeoutId of saveTimeouts.values()) {
+      for (const timeoutId of roleSaveTimeouts.values()) {
         window.clearTimeout(timeoutId);
       }
-      saveTimeouts.clear();
-      for (const timeoutId of savedHintTimeouts.values()) {
+      roleSaveTimeouts.clear();
+      for (const timeoutId of roleSavedHintTimeouts.values()) {
         window.clearTimeout(timeoutId);
       }
-      savedHintTimeouts.clear();
+      roleSavedHintTimeouts.clear();
     };
   }, []);
 
@@ -1004,28 +1005,25 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
                   {(connectStage === "OPENING_BROWSER" ||
                     connectStage === "WAITING_FOR_CALLBACK" ||
                     busy) && (
-                    <div className="rounded-lg border border-sky-500/25 bg-sky-500/10 p-3">
-                      <div className="flex items-center gap-2">
-                        <span className="h-4 w-4 animate-spin rounded-full border-2 border-sky-300/70 border-t-transparent" />
-                        <p className="text-sm">
-                          {connectStage === "OPENING_BROWSER"
-                            ? "Opening browser for Google sign-in..."
-                            : "Waiting for Google sign-in to finish..."}
-                        </p>
-                      </div>
-                      <p className="pt-1 text-xs text-muted-foreground">
-                        Securing your connection and waiting for callback confirmation.
-                      </p>
-                    </div>
+                    <StatePanel
+                      compact
+                      description="Securing your connection and waiting for callback confirmation."
+                      title={
+                        connectStage === "OPENING_BROWSER"
+                          ? "Opening browser for Google sign-in"
+                          : "Waiting for Google sign-in to finish"
+                      }
+                      variant="loading"
+                    />
                   )}
 
                   {connectStage === "ERROR" && friendlyConnectError && (
-                    <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm">
-                      <p>{friendlyConnectError}</p>
-                      <p className="pt-1 text-xs text-muted-foreground">
-                        Retry to start a fresh Google sign-in session.
-                      </p>
-                    </div>
+                    <StatePanel
+                      compact
+                      description="Retry to start a fresh Google sign-in session."
+                      title={friendlyConnectError}
+                      variant="error"
+                    />
                   )}
 
                   <div className="flex flex-wrap gap-2">
@@ -1219,24 +1217,24 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
               >
                 <div className="space-y-3">
                   {(loadingProposals || syncingProposals) && (
-                    <div className="rounded-lg border border-violet-500/30 bg-violet-500/10 p-4">
-                      <div className="flex items-center gap-2">
-                        <span className="h-4 w-4 animate-spin rounded-full border-2 border-violet-300/70 border-t-transparent" />
-                        <p className="text-sm">{syncProgressMessage}</p>
-                      </div>
-                      <p className="pt-1 text-xs text-muted-foreground">
-                        This can take a moment while sync and proposal analysis finish.
-                      </p>
-                    </div>
+                    <StatePanel
+                      compact
+                      description="This can take a moment while sync and proposal analysis finish."
+                      title={syncProgressMessage}
+                      variant="loading"
+                    />
                   )}
 
                   {!loadingProposals && proposals.length === 0 && (
-                    <div className="rounded-lg border border-border/70 bg-muted/25 p-4">
-                      <p className="text-sm text-muted-foreground">
-                        {proposalMessage ??
-                          "Not enough mail history yet. Run initial sync and retry proposal generation."}
-                      </p>
-                    </div>
+                    <StatePanel
+                      compact
+                      description="Run initial sync again after more mail history lands if you want stronger starter recommendations."
+                      title={
+                        proposalMessage ??
+                        "Not enough mail history yet to recommend starter views."
+                      }
+                      variant="empty"
+                    />
                   )}
                 </div>
               </AccentCard>
@@ -1775,9 +1773,12 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
           )}
 
           {pageError && !(step === 2 && connectStage === "ERROR") ? (
-            <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-              {pageError}
-            </div>
+            <StatePanel
+              compact
+              description="Retry the current onboarding step after fixing the issue above."
+              title={pageError}
+              variant="error"
+            />
           ) : null}
         </CardContent>
       </Card>

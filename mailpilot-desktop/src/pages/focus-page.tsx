@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AlarmClockCheck, Clock3, Inbox, MailWarning, RefreshCw, Users } from "lucide-react";
+import { StatePanel } from "@/components/common/state-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { AccentCard, type AccentColor } from "@/components/ui/AccentCard";
 import { cn } from "@/lib/utils";
 import {
@@ -503,14 +503,16 @@ export function FocusPage() {
       </AccentCard>
 
       {summaryError && (
-        <Card>
-          <CardContent className="space-y-3 p-4">
-            <p className="text-sm text-destructive">{summaryError}</p>
+        <StatePanel
+          actions={
             <Button onClick={() => void loadSummary()} size="sm" variant="outline">
               Retry summary
             </Button>
-          </CardContent>
-        </Card>
+          }
+          description="Retry the focus summary to refresh counts, wakeups, and queue cards."
+          title={summaryError}
+          variant="error"
+        />
       )}
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(300px,1fr)]">
@@ -551,17 +553,21 @@ export function FocusPage() {
             </div>
 
             {queueError && (
-              <div className="rounded-md border border-border bg-card p-3 text-sm text-destructive">
-                <p>{queueError}</p>
-                <Button
-                  className="mt-3"
-                  onClick={() => void loadActiveQueue(null, false)}
-                  size="sm"
-                  variant="outline"
-                >
-                  Retry queue
-                </Button>
-              </div>
+              <StatePanel
+                actions={
+                  <Button
+                    onClick={() => void loadActiveQueue(null, false)}
+                    size="sm"
+                    variant="outline"
+                  >
+                    Retry queue
+                  </Button>
+                }
+                compact
+                description="Retry the active queue to reload the current focus workload."
+                title={queueError}
+                variant="error"
+              />
             )}
 
             {!queueError && isLoadingQueue && (
@@ -717,9 +723,12 @@ export function FocusPage() {
             description="Snoozed items waking within 24 hours"
           >
             {wakeupsSoon.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                No snoozed wakeups in the next 24 hours.
-              </p>
+              <StatePanel
+                compact
+                description="Snoozed items waking within the next day will appear here."
+                title="No snoozed wakeups in the next 24 hours"
+                variant="empty"
+              />
             ) : (
               <div className="space-y-2">
                 {wakeupsSoon.map((item) => (
@@ -747,7 +756,12 @@ export function FocusPage() {
             description="Who is driving action pressure"
           >
             {topSenders.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No sender pressure right now.</p>
+              <StatePanel
+                compact
+                description="As followups accumulate, the senders creating the most pressure appear here."
+                title="No sender pressure right now"
+                variant="empty"
+              />
             ) : (
               <div className="space-y-2">
                 {topSenders.map((sender) => (
@@ -782,7 +796,12 @@ export function FocusPage() {
             description="Open followups by connected account"
           >
             {byAccount.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No account load to show.</p>
+              <StatePanel
+                compact
+                description="Open followups by connected account will appear here."
+                title="No account load to show"
+                variant="empty"
+              />
             ) : (
               <div className="space-y-2">
                 {byAccount.map((account) => (
