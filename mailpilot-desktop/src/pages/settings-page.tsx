@@ -69,8 +69,9 @@ const EMPTY_RULE_FORM: RuleForm = {
   accent: "gold",
 };
 
-const WINDOWS_OAUTH_JSON_PATH =
-  "C:\\Users\\taulanth\\AppData\\Local\\MailPilot\\google-oauth-client.json";
+const DEFAULT_OAUTH_JSON_PATH = "%LOCALAPPDATA%\\MailPilot\\google-oauth-client.json";
+const DEFAULT_OAUTH_JSON_ENV_COMMAND =
+  '$env:MAILPILOT_GOOGLE_OAUTH_CLIENT_JSON="${env:LOCALAPPDATA}\\MailPilot\\google-oauth-client.json"';
 const OAUTH_POLL_INTERVAL_MS = 2000;
 const OAUTH_POLL_TIMEOUT_MS = 45000;
 const DEFAULT_SYNC_MAX_MESSAGES = 500;
@@ -261,7 +262,7 @@ export function SettingsPage() {
   const [oauthError, setOauthError] = useState<string | null>(null);
   const [isConnectingGmail, setIsConnectingGmail] = useState(false);
   const [oauthConfigDialogOpen, setOauthConfigDialogOpen] = useState(false);
-  const [oauthConfigPath, setOauthConfigPath] = useState<string>(WINDOWS_OAUTH_JSON_PATH);
+  const [oauthConfigPath, setOauthConfigPath] = useState<string>(DEFAULT_OAUTH_JSON_PATH);
   const [oauthConfigMessage, setOauthConfigMessage] = useState(
     "Google OAuth configuration is missing."
   );
@@ -563,7 +564,7 @@ export function SettingsPage() {
     try {
       const config = await configCheck();
       if (!config.configured) {
-        setOauthConfigPath(config.path ?? WINDOWS_OAUTH_JSON_PATH);
+        setOauthConfigPath(config.path ?? DEFAULT_OAUTH_JSON_PATH);
         setOauthConfigMessage(config.message);
         setOauthConfigDialogOpen(true);
         return;
@@ -608,7 +609,7 @@ export function SettingsPage() {
       const targetAccount = accounts.find((account) => account.id === accountId);
       const config = await configCheck();
       if (!config.configured) {
-        setOauthConfigPath(config.path ?? WINDOWS_OAUTH_JSON_PATH);
+        setOauthConfigPath(config.path ?? DEFAULT_OAUTH_JSON_PATH);
         setOauthConfigMessage(config.message);
         setOauthConfigDialogOpen(true);
         return;
@@ -1652,13 +1653,13 @@ export function SettingsPage() {
           <div className="space-y-3 text-sm text-muted-foreground">
             <p>Place the downloaded OAuth desktop JSON at:</p>
             <p className="rounded-md border border-border bg-card px-3 py-2 font-mono text-xs">
-              {WINDOWS_OAUTH_JSON_PATH}
+              {DEFAULT_OAUTH_JSON_PATH}
             </p>
             <p>Or set the environment variable before starting the server:</p>
             <p className="rounded-md border border-border bg-card px-3 py-2 font-mono text-xs">
-              {`$env:MAILPILOT_GOOGLE_OAUTH_CLIENT_JSON="${WINDOWS_OAUTH_JSON_PATH}"`}
+              {DEFAULT_OAUTH_JSON_ENV_COMMAND}
             </p>
-            {oauthConfigPath && oauthConfigPath !== WINDOWS_OAUTH_JSON_PATH && (
+            {oauthConfigPath && oauthConfigPath !== DEFAULT_OAUTH_JSON_PATH && (
               <p className="rounded-md border border-border bg-card px-3 py-2 font-mono text-xs">
                 Resolved path: {oauthConfigPath}
               </p>
