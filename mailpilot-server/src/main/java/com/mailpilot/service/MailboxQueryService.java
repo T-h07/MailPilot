@@ -49,10 +49,14 @@ public class MailboxQueryService {
     SortDirection sortDirection = resolveSort(request.sort());
     MailboxMode mailboxMode = resolveMode(request.mode());
     Cursor cursor = decodeCursor(request.cursor());
+    boolean matchAnyViewRules = request.viewId() != null;
 
     MailboxQueryRequest.Filters filters = request.filters();
     List<String> keywords = normalizeList(filters == null ? null : filters.keywords());
-    String searchText = buildSearchText(normalize(request.q()), keywords);
+    String searchText =
+        matchAnyViewRules
+            ? normalize(request.q())
+            : buildSearchText(normalize(request.q()), keywords);
 
     StringBuilder fromWhere =
         new StringBuilder(
@@ -115,21 +119,25 @@ public class MailboxQueryService {
     }
 
     List<String> senderDomains = normalizeList(filters == null ? null : filters.senderDomains());
-    if (!senderDomains.isEmpty()) {
-      fromWhere
-          .append(" AND lower(m.sender_domain) IN (")
-          .append(placeholders(senderDomains.size()))
-          .append(")");
-      baseParams.addAll(senderDomains);
-    }
-
     List<String> senderEmails = normalizeList(filters == null ? null : filters.senderEmails());
-    if (!senderEmails.isEmpty()) {
-      fromWhere
-          .append(" AND lower(m.sender_email) IN (")
-          .append(placeholders(senderEmails.size()))
-          .append(")");
-      baseParams.addAll(senderEmails);
+    if (matchAnyViewRules) {
+      appendMatchAnyRuleClause(fromWhere, baseParams, senderDomains, senderEmails, keywords);
+    } else {
+      if (!senderDomains.isEmpty()) {
+        fromWhere
+            .append(" AND lower(m.sender_domain) IN (")
+            .append(placeholders(senderDomains.size()))
+            .append(")");
+        baseParams.addAll(senderDomains);
+      }
+
+      if (!senderEmails.isEmpty()) {
+        fromWhere
+            .append(" AND lower(m.sender_email) IN (")
+            .append(placeholders(senderEmails.size()))
+            .append(")");
+        baseParams.addAll(senderEmails);
+      }
     }
 
     List<String> labelNames = normalizeList(filters == null ? null : filters.labelNames());
@@ -176,6 +184,8 @@ public class MailboxQueryService {
       baseParams.addAll(labelNames);
       fromWhere.append(")");
     }
+
+    long totalCount = countMatchingRows(fromWhere.toString(), baseParams, searchText);
 
     QueryExecutionResult queryExecutionResult =
         searchText.isBlank()
@@ -244,6 +254,7 @@ public class MailboxQueryService {
               row.snippet(),
               row.receivedAt(),
               row.isUnread(),
+              row.seenInApp(),
               row.hasAttachments(),
               chips,
               tags,
@@ -263,7 +274,7 @@ public class MailboxQueryService {
               : encodeTimeCursor(lastRow.receivedAt(), lastRow.id());
     }
 
-    return new MailboxQueryResponse(items, nextCursor);
+    return new MailboxQueryResponse(items, nextCursor, totalCount);
   }
 
   public SearchHealth checkSearchHealth(String rawQuery) {
@@ -337,6 +348,7 @@ public class MailboxQueryService {
         COALESCE(m.snippet, '') AS snippet,
         m.received_at,
         NOT m.is_read AS is_unread,
+        m.seen_in_app,
         m.has_attachments,
         f.status AS followup_status,
         f.needs_reply,
@@ -407,6 +419,69 @@ public class MailboxQueryService {
     throw new IllegalStateException("Unable to execute ranked search query");
   }
 
+  private long countMatchingRows(String fromWhere, List<Object> baseParams, String searchText) {
+    if (searchText.isBlank()) {
+      Integer count =
+          jdbcTemplate.queryForObject(
+              "SELECT COUNT(*) " + fromWhere, Integer.class, baseParams.toArray());
+      return count == null ? 0L : count.longValue();
+    }
+
+    List<SearchExecutionStrategy> strategies =
+        List.of(
+            SearchExecutionStrategy.FTS_WEBSEARCH,
+            SearchExecutionStrategy.FTS_PLAINTO,
+            SearchExecutionStrategy.ILIKE);
+
+    for (SearchExecutionStrategy strategy : strategies) {
+      try {
+        return countMatchingRowsWithStrategy(fromWhere, baseParams, searchText, strategy);
+      } catch (DataAccessException exception) {
+        if (strategy == SearchExecutionStrategy.ILIKE) {
+          throw exception;
+        }
+        LOGGER.warn(
+            "Search count strategy {} failed; falling back for query '{}'", strategy, searchText);
+      }
+    }
+
+    return 0L;
+  }
+
+  private long countMatchingRowsWithStrategy(
+      String fromWhere,
+      List<Object> baseParams,
+      String searchText,
+      SearchExecutionStrategy strategy) {
+    StringBuilder sql = new StringBuilder("SELECT COUNT(*) ");
+    sql.append(fromWhere);
+
+    List<Object> params = new ArrayList<>(baseParams);
+    if (strategy == SearchExecutionStrategy.FTS_WEBSEARCH) {
+      sql.append(" AND m.search_vector @@ websearch_to_tsquery('simple', ?)");
+      params.add(searchText);
+    } else if (strategy == SearchExecutionStrategy.FTS_PLAINTO) {
+      sql.append(" AND m.search_vector @@ plainto_tsquery('simple', ?)");
+      params.add(searchText);
+    } else {
+      sql.append(
+          " AND ("
+              + "lower(m.sender_email) LIKE ?"
+              + " OR lower(COALESCE(m.sender_name, '')) LIKE ?"
+              + " OR lower(COALESCE(m.subject, '')) LIKE ?"
+              + " OR lower(COALESCE(m.snippet, '')) LIKE ?"
+              + ")");
+      String like = "%" + searchText + "%";
+      params.add(like);
+      params.add(like);
+      params.add(like);
+      params.add(like);
+    }
+
+    Integer count = jdbcTemplate.queryForObject(sql.toString(), Integer.class, params.toArray());
+    return count == null ? 0L : count.longValue();
+  }
+
   private QueryExecutionResult executeRankedQuery(
       String fromWhere,
       List<Object> baseParams,
@@ -452,6 +527,7 @@ public class MailboxQueryService {
         ranked.snippet,
         ranked.received_at,
         ranked.is_unread,
+        ranked.seen_in_app,
         ranked.has_attachments,
         ranked.followup_status,
         ranked.needs_reply,
@@ -470,6 +546,7 @@ public class MailboxQueryService {
           COALESCE(m.snippet, '') AS snippet,
           m.received_at,
           NOT m.is_read AS is_unread,
+          m.seen_in_app,
           m.has_attachments,
           f.status AS followup_status,
           f.needs_reply,
@@ -553,6 +630,45 @@ public class MailboxQueryService {
     return String.join(" ", parts).trim();
   }
 
+  private void appendMatchAnyRuleClause(
+      StringBuilder fromWhere,
+      List<Object> params,
+      List<String> senderDomains,
+      List<String> senderEmails,
+      List<String> keywords) {
+    List<String> disjunctions = new ArrayList<>();
+
+    if (!senderDomains.isEmpty()) {
+      disjunctions.add("lower(m.sender_domain) IN (" + placeholders(senderDomains.size()) + ")");
+      params.addAll(senderDomains);
+    }
+
+    if (!senderEmails.isEmpty()) {
+      disjunctions.add("lower(m.sender_email) IN (" + placeholders(senderEmails.size()) + ")");
+      params.addAll(senderEmails);
+    }
+
+    if (!keywords.isEmpty()) {
+      StringBuilder keywordClause = new StringBuilder("(");
+      for (int index = 0; index < keywords.size(); index++) {
+        if (index > 0) {
+          keywordClause.append(" OR ");
+        }
+        keywordClause.append(
+            "(lower(COALESCE(m.subject, '')) LIKE ? OR lower(COALESCE(m.snippet, '')) LIKE ?)");
+        String pattern = "%" + keywords.get(index) + "%";
+        params.add(pattern);
+        params.add(pattern);
+      }
+      keywordClause.append(")");
+      disjunctions.add(keywordClause.toString());
+    }
+
+    if (!disjunctions.isEmpty()) {
+      fromWhere.append(" AND (").append(String.join(" OR ", disjunctions)).append(")");
+    }
+  }
+
   private Map<UUID, List<String>> loadTagsByMessage(List<UUID> messageIds) {
     if (messageIds.isEmpty()) {
       return Map.of();
@@ -623,6 +739,7 @@ public class MailboxQueryService {
         resultSet.getString("snippet"),
         resultSet.getObject("received_at", OffsetDateTime.class),
         resultSet.getBoolean("is_unread"),
+        resultSet.getBoolean("seen_in_app"),
         resultSet.getBoolean("has_attachments"),
         resultSet.getString("followup_status"),
         (Boolean) resultSet.getObject("needs_reply"),
@@ -776,6 +893,7 @@ public class MailboxQueryService {
       String snippet,
       OffsetDateTime receivedAt,
       boolean isUnread,
+      boolean seenInApp,
       boolean hasAttachments,
       String followupStatus,
       Boolean needsReply,

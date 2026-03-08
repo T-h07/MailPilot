@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -44,13 +45,13 @@ public class GmailOAuthService {
       "https://gmail.googleapis.com/gmail/v1/users/me/profile";
   private static final String REDIRECT_URI = "http://127.0.0.1:8082/api/oauth/gmail/callback";
 
-  private static final String GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
   private static final List<String> READONLY_SCOPES =
-      List.of("openid", "email", "profile", "https://www.googleapis.com/auth/gmail.readonly");
+      List.of("openid", "email", "profile", GmailScopeService.GMAIL_READ_SCOPE);
 
   private final GoogleOAuthClientConfigService googleOAuthClientConfigService;
   private final OAuthStateStore oauthStateStore;
   private final OAuthAccountService oauthAccountService;
+  private final GmailScopeService gmailScopeService;
   private final TokenCrypto tokenCrypto;
   private final ObjectMapper objectMapper;
   private final HttpClient httpClient;
@@ -59,20 +60,22 @@ public class GmailOAuthService {
       GoogleOAuthClientConfigService googleOAuthClientConfigService,
       OAuthStateStore oauthStateStore,
       OAuthAccountService oauthAccountService,
+      GmailScopeService gmailScopeService,
       TokenCrypto tokenCrypto,
       ObjectMapper objectMapper) {
     this.googleOAuthClientConfigService = googleOAuthClientConfigService;
     this.oauthStateStore = oauthStateStore;
     this.oauthAccountService = oauthAccountService;
+    this.gmailScopeService = gmailScopeService;
     this.tokenCrypto = tokenCrypto;
     this.objectMapper = objectMapper;
     this.httpClient = HttpClient.newHttpClient();
   }
 
-  public GmailOAuthStartResponse start(String requestedMode) {
+  public GmailOAuthStartResponse start(String requestedMode, String context, String accountHint) {
     OAuthStartMode mode = OAuthStartMode.fromInput(requestedMode);
     GoogleOAuthClientConfig config = googleOAuthClientConfigService.loadRequiredConfig();
-    PkceState pkceState = oauthStateStore.create(mode.name());
+    PkceState pkceState = oauthStateStore.create(mode.name(), context, accountHint);
 
     String authUrl =
         UriComponentsBuilder.fromUriString(AUTH_ENDPOINT)
@@ -112,8 +115,20 @@ public class GmailOAuthService {
 
     PkceVerification verification = oauthStateStore.consumeCodeVerifier(state).orElse(null);
     if (verification == null || !StringUtils.hasText(verification.codeVerifier())) {
-      String message = "OAuth state is invalid or expired. Please retry Connect Gmail.";
-      oauthStateStore.markError(state, message);
+      OAuthFlowStatus flowStatus = oauthStateStore.status(state);
+      if ("SUCCESS".equals(flowStatus.status())) {
+        return successResult(
+            StringUtils.hasText(flowStatus.message())
+                ? flowStatus.message()
+                : "Gmail connected. You can close this tab.");
+      }
+      if ("PENDING".equals(flowStatus.status())) {
+        return successResult("OAuth callback is being processed. Return to MailPilot.");
+      }
+      String message =
+          StringUtils.hasText(flowStatus.message())
+              ? flowStatus.message()
+              : "OAuth flow expired. Please retry Connect Gmail.";
       return failureResult(message, HttpStatus.BAD_REQUEST);
     }
 
@@ -127,6 +142,8 @@ public class GmailOAuthService {
           StringUtils.hasText(tokenResponse.scope())
               ? tokenResponse.scope()
               : String.join(" ", mode.requestedScopes());
+      validateGrantedScopes(mode, grantedScope);
+      validateAccountHint(verification.accountHint(), confirmedEmail);
 
       String encryptedAccessToken = tokenCrypto.encrypt(tokenResponse.accessToken());
       String encryptedRefreshToken =
@@ -139,18 +156,19 @@ public class GmailOAuthService {
               ? null
               : OffsetDateTime.now(ZoneOffset.UTC).plusSeconds(tokenResponse.expiresIn());
 
-      oauthAccountService.upsertConnectedGmailAccountAndTokens(
-          confirmedEmail,
-          null,
-          new EncryptedTokenPayload(
-              encryptedAccessToken,
-              encryptedRefreshToken,
-              expiryAt,
-              grantedScope,
-              tokenResponse.tokenType()));
+      UUID accountId =
+          oauthAccountService.upsertConnectedGmailAccountAndTokens(
+              confirmedEmail,
+              null,
+              new EncryptedTokenPayload(
+                  encryptedAccessToken,
+                  encryptedRefreshToken,
+                  expiryAt,
+                  grantedScope,
+                  tokenResponse.tokenType()));
 
       LOGGER.info("Connected Gmail account: {}", confirmedEmail);
-      oauthStateStore.markSuccess(state, "Connected " + confirmedEmail);
+      oauthStateStore.markSuccess(state, "Connected " + confirmedEmail, accountId, confirmedEmail);
       return successResult("Gmail connected. You can close this tab.");
     } catch (OAuthFlowException exception) {
       LOGGER.warn(
@@ -315,6 +333,31 @@ public class GmailOAuthService {
     return "Google OAuth failed. Please retry.";
   }
 
+  private void validateGrantedScopes(OAuthStartMode mode, String grantedScope) {
+    if (!gmailScopeService.hasReadScope(grantedScope)) {
+      throw new OAuthFlowException(
+          "Google did not grant Gmail read access. Retry and approve access.");
+    }
+    if (mode == OAuthStartMode.SEND && !gmailScopeService.hasSendScope(grantedScope)) {
+      throw new OAuthFlowException(
+          "Google did not grant Gmail send access. Retry and approve sending permission.");
+    }
+  }
+
+  private void validateAccountHint(String accountHint, String confirmedEmail) {
+    String normalizedHint = normalizeEmailOrNull(accountHint);
+    if (!StringUtils.hasText(normalizedHint)) {
+      return;
+    }
+    String normalizedConfirmed = normalizeEmail(confirmedEmail);
+    if (!normalizedHint.equals(normalizedConfirmed)) {
+      throw new OAuthFlowException(
+          "Connected Google account does not match the expected account. Please sign in with "
+              + normalizedHint
+              + ".");
+    }
+  }
+
   private String buildFormBody(Map<String, String> form) {
     return form.entrySet().stream()
         .map(
@@ -333,6 +376,14 @@ public class GmailOAuthService {
       throw new OAuthFlowException("Google returned an empty email identity.");
     }
     return trimmed.toLowerCase(Locale.ROOT);
+  }
+
+  private String normalizeEmailOrNull(String rawEmail) {
+    if (!StringUtils.hasText(rawEmail)) {
+      return null;
+    }
+    String trimmed = rawEmail.trim();
+    return trimmed.isEmpty() ? null : trimmed.toLowerCase(Locale.ROOT);
   }
 
   private String padBase64Url(String input) {
@@ -399,7 +450,7 @@ public class GmailOAuthService {
             READONLY_SCOPES.get(1),
             READONLY_SCOPES.get(2),
             READONLY_SCOPES.get(3),
-            GMAIL_SEND_SCOPE);
+            GmailScopeService.GMAIL_SEND_SCOPE);
       }
       return READONLY_SCOPES;
     }

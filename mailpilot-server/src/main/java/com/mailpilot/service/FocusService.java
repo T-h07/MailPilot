@@ -7,6 +7,7 @@ import java.nio.charset.StandardCharsets;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.LinkedHashSet;
@@ -20,6 +21,8 @@ import org.springframework.stereotype.Service;
 public class FocusService {
 
   private static final int DEFAULT_PAGE_SIZE = 50;
+  private static final String OPEN_FOLLOWUP_CONDITION =
+      "f.status = 'OPEN' AND (f.needs_reply = true OR f.due_at IS NOT NULL OR f.snoozed_until IS NOT NULL)";
 
   private final JdbcTemplate jdbcTemplate;
   private final SenderHighlightResolver senderHighlightResolver;
@@ -30,8 +33,9 @@ public class FocusService {
   }
 
   public FocusSummaryResponse getSummary() {
-    var row = jdbcTemplate.queryForMap(
-      """
+    var row =
+        jdbcTemplate.queryForMap(
+            """
       SELECT
         COUNT(*) FILTER (WHERE status = 'OPEN' AND needs_reply = true) AS needs_reply_open,
         COUNT(*) FILTER (WHERE status = 'OPEN' AND due_at < now()) AS overdue,
@@ -46,18 +50,30 @@ public class FocusService {
           WHERE
             status = 'OPEN'
             AND (needs_reply = true OR due_at IS NOT NULL OR snoozed_until IS NOT NULL)
-        ) AS open_total
+        ) AS open_total,
+        COUNT(*) FILTER (
+          WHERE
+            status = 'OPEN'
+            AND snoozed_until IS NOT NULL
+            AND snoozed_until > now()
+            AND snoozed_until <= now() + interval '24 hours'
+        ) AS wakeups_next_24h
       FROM followups
-      """
-    );
+      """);
+
+    List<FocusSummaryResponse.ByAccount> byAccount = loadByAccount();
+    List<FocusSummaryResponse.TopSender> topSenders = loadTopSenders();
 
     return new FocusSummaryResponse(
-      toInt(row.get("needs_reply_open")),
-      toInt(row.get("overdue")),
-      toInt(row.get("due_today")),
-      toInt(row.get("snoozed")),
-      toInt(row.get("open_total"))
-    );
+        toInt(row.get("needs_reply_open")),
+        toInt(row.get("overdue")),
+        toInt(row.get("due_today")),
+        toInt(row.get("snoozed")),
+        toInt(row.get("open_total")),
+        toInt(row.get("wakeups_next_24h")),
+        byAccount,
+        topSenders,
+        OffsetDateTime.now(ZoneOffset.UTC));
   }
 
   public FocusQueueResponse getQueue(String rawQueueType, Integer rawPageSize, String cursor) {
@@ -65,8 +81,9 @@ public class FocusService {
     int pageSize = resolvePageSize(rawPageSize);
     int offset = decodeOffset(cursor);
 
-    StringBuilder sql = new StringBuilder(
-      """
+    StringBuilder sql =
+        new StringBuilder(
+            """
       SELECT
         m.id AS message_id,
         m.account_id,
@@ -85,19 +102,15 @@ public class FocusService {
       JOIN messages m ON m.id = f.message_id
       JOIN accounts a ON a.id = m.account_id
       WHERE
-      """
-    );
+      """);
 
     sql.append(queueFilter(queueType)).append(' ');
     sql.append(queueOrder(queueType));
     sql.append(" LIMIT ? OFFSET ?");
 
-    List<FocusRow> rows = jdbcTemplate.query(
-      sql.toString(),
-      (resultSet, rowNum) -> mapRow(resultSet),
-      pageSize + 1,
-      offset
-    );
+    List<FocusRow> rows =
+        jdbcTemplate.query(
+            sql.toString(), (resultSet, rowNum) -> mapRow(resultSet), pageSize + 1, offset);
 
     boolean hasMore = rows.size() > pageSize;
     if (hasMore) {
@@ -114,40 +127,35 @@ public class FocusService {
         senderDomains.add(row.senderDomain());
       }
     }
-    SenderHighlightResolver.RuleSet highlightRuleSet = senderHighlightResolver.loadRuleSet(
-      senderEmails,
-      senderDomains
-    );
+    SenderHighlightResolver.RuleSet highlightRuleSet =
+        senderHighlightResolver.loadRuleSet(senderEmails, senderDomains);
 
     List<FocusQueueResponse.Item> items = new ArrayList<>(rows.size());
     for (FocusRow row : rows) {
-      SenderHighlightResolver.Highlight resolvedHighlight = senderHighlightResolver.resolve(
-        row.senderEmail(),
-        row.senderDomain(),
-        highlightRuleSet
-      );
-      FocusQueueResponse.Highlight highlight = resolvedHighlight == null
-        ? null
-        : new FocusQueueResponse.Highlight(resolvedHighlight.label(), resolvedHighlight.accent());
+      SenderHighlightResolver.Highlight resolvedHighlight =
+          senderHighlightResolver.resolve(row.senderEmail(), row.senderDomain(), highlightRuleSet);
+      FocusQueueResponse.Highlight highlight =
+          resolvedHighlight == null
+              ? null
+              : new FocusQueueResponse.Highlight(
+                  resolvedHighlight.label(), resolvedHighlight.accent());
 
       items.add(
-        new FocusQueueResponse.Item(
-          row.messageId(),
-          row.accountId(),
-          row.accountEmail(),
-          row.senderName(),
-          row.senderEmail(),
-          row.subject(),
-          row.snippet(),
-          row.receivedAt(),
-          row.isUnread(),
-          queueType.name(),
-          row.dueAt(),
-          row.snoozedUntil(),
-          row.needsReply(),
-          highlight
-        )
-      );
+          new FocusQueueResponse.Item(
+              row.messageId(),
+              row.accountId(),
+              row.accountEmail(),
+              row.senderName(),
+              row.senderEmail(),
+              row.subject(),
+              row.snippet(),
+              row.receivedAt(),
+              row.isUnread(),
+              queueType.name(),
+              row.dueAt(),
+              row.snoozedUntil(),
+              row.needsReply(),
+              highlight));
     }
 
     String nextCursor = hasMore ? encodeOffset(offset + pageSize) : null;
@@ -156,20 +164,19 @@ public class FocusService {
 
   private FocusRow mapRow(ResultSet resultSet) throws SQLException {
     return new FocusRow(
-      resultSet.getObject("message_id", UUID.class),
-      resultSet.getObject("account_id", UUID.class),
-      resultSet.getString("account_email"),
-      resultSet.getString("sender_name"),
-      resultSet.getString("sender_email"),
-      resultSet.getString("sender_domain"),
-      resultSet.getString("subject"),
-      resultSet.getString("snippet"),
-      resultSet.getObject("received_at", OffsetDateTime.class),
-      resultSet.getBoolean("is_unread"),
-      resultSet.getBoolean("needs_reply"),
-      resultSet.getObject("due_at", OffsetDateTime.class),
-      resultSet.getObject("snoozed_until", OffsetDateTime.class)
-    );
+        resultSet.getObject("message_id", UUID.class),
+        resultSet.getObject("account_id", UUID.class),
+        resultSet.getString("account_email"),
+        resultSet.getString("sender_name"),
+        resultSet.getString("sender_email"),
+        resultSet.getString("sender_domain"),
+        resultSet.getString("subject"),
+        resultSet.getString("snippet"),
+        resultSet.getObject("received_at", OffsetDateTime.class),
+        resultSet.getBoolean("is_unread"),
+        resultSet.getBoolean("needs_reply"),
+        resultSet.getObject("due_at", OffsetDateTime.class),
+        resultSet.getObject("snoozed_until", OffsetDateTime.class));
   }
 
   private QueueType parseQueueType(String rawQueueType) {
@@ -215,9 +222,9 @@ public class FocusService {
   }
 
   private String encodeOffset(int offset) {
-    return Base64.getUrlEncoder().withoutPadding().encodeToString(
-      Integer.toString(offset).getBytes(StandardCharsets.UTF_8)
-    );
+    return Base64.getUrlEncoder()
+        .withoutPadding()
+        .encodeToString(Integer.toString(offset).getBytes(StandardCharsets.UTF_8));
   }
 
   private String queueFilter(QueueType queueType) {
@@ -225,12 +232,12 @@ public class FocusService {
       case NEEDS_REPLY -> "f.status = 'OPEN' AND f.needs_reply = true";
       case OVERDUE -> "f.status = 'OPEN' AND f.due_at < now()";
       case DUE_TODAY ->
-        "f.status = 'OPEN'"
-          + " AND f.due_at >= date_trunc('day', now())"
-          + " AND f.due_at < date_trunc('day', now()) + interval '1 day'";
+          "f.status = 'OPEN'"
+              + " AND f.due_at >= date_trunc('day', now())"
+              + " AND f.due_at < date_trunc('day', now()) + interval '1 day'";
       case SNOOZED -> "f.status = 'OPEN' AND f.snoozed_until > now()";
       case ALL_OPEN ->
-        "f.status = 'OPEN' AND (f.needs_reply = true OR f.due_at IS NOT NULL OR f.snoozed_until IS NOT NULL)";
+          "f.status = 'OPEN' AND (f.needs_reply = true OR f.due_at IS NOT NULL OR f.snoozed_until IS NOT NULL)";
     };
   }
 
@@ -240,7 +247,8 @@ public class FocusService {
       case OVERDUE -> "ORDER BY f.due_at ASC, m.id ASC";
       case DUE_TODAY -> "ORDER BY f.due_at ASC, m.id ASC";
       case SNOOZED -> "ORDER BY f.snoozed_until ASC, m.id ASC";
-      case ALL_OPEN -> "ORDER BY CASE WHEN f.due_at IS NULL THEN 1 ELSE 0 END, f.due_at ASC, m.received_at DESC, m.id DESC";
+      case ALL_OPEN ->
+          "ORDER BY CASE WHEN f.due_at IS NULL THEN 1 ELSE 0 END, f.due_at ASC, m.received_at DESC, m.id DESC";
     };
   }
 
@@ -249,6 +257,55 @@ public class FocusService {
       return number.intValue();
     }
     return 0;
+  }
+
+  private List<FocusSummaryResponse.ByAccount> loadByAccount() {
+    return jdbcTemplate.query(
+        """
+        SELECT
+          a.id AS account_id,
+          a.email AS account_email,
+          COUNT(*) AS item_count
+        FROM followups f
+        JOIN messages m ON m.id = f.message_id
+        JOIN accounts a ON a.id = m.account_id
+        WHERE
+        """
+            + OPEN_FOLLOWUP_CONDITION
+            + """
+        GROUP BY a.id, a.email
+        ORDER BY item_count DESC, a.email ASC
+        LIMIT 8
+        """,
+        (resultSet, rowNum) ->
+            new FocusSummaryResponse.ByAccount(
+                resultSet.getObject("account_id", UUID.class),
+                resultSet.getString("account_email"),
+                resultSet.getInt("item_count")));
+  }
+
+  private List<FocusSummaryResponse.TopSender> loadTopSenders() {
+    return jdbcTemplate.query(
+        """
+        SELECT
+          m.sender_email,
+          COALESCE(NULLIF(trim(m.sender_name), ''), split_part(m.sender_email, '@', 1)) AS sender_name,
+          COUNT(*) AS item_count
+        FROM followups f
+        JOIN messages m ON m.id = f.message_id
+        WHERE
+        """
+            + OPEN_FOLLOWUP_CONDITION
+            + """
+        GROUP BY m.sender_email, sender_name
+        ORDER BY item_count DESC, sender_name ASC
+        LIMIT 8
+        """,
+        (resultSet, rowNum) ->
+            new FocusSummaryResponse.TopSender(
+                resultSet.getString("sender_email"),
+                resultSet.getString("sender_name"),
+                resultSet.getInt("item_count")));
   }
 
   private enum QueueType {
@@ -260,18 +317,17 @@ public class FocusService {
   }
 
   private record FocusRow(
-    UUID messageId,
-    UUID accountId,
-    String accountEmail,
-    String senderName,
-    String senderEmail,
-    String senderDomain,
-    String subject,
-    String snippet,
-    OffsetDateTime receivedAt,
-    boolean isUnread,
-    boolean needsReply,
-    OffsetDateTime dueAt,
-    OffsetDateTime snoozedUntil
-  ) {}
+      UUID messageId,
+      UUID accountId,
+      String accountEmail,
+      String senderName,
+      String senderEmail,
+      String senderDomain,
+      String subject,
+      String snippet,
+      OffsetDateTime receivedAt,
+      boolean isUnread,
+      boolean needsReply,
+      OffsetDateTime dueAt,
+      OffsetDateTime snoozedUntil) {}
 }

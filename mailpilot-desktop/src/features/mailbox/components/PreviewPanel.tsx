@@ -5,6 +5,7 @@ import type {
   MailMessage,
   ViewLabelChip as MailViewLabelChip,
 } from "@/features/mailbox/model/types";
+import { StatePanel } from "@/components/common/state-panel";
 import { getAccentClasses } from "@/features/mailbox/utils/accent";
 import { MailActions } from "@/features/mailbox/components/MailActions";
 import { EmailHtmlViewer } from "@/features/mailbox/components/EmailHtmlViewer";
@@ -135,17 +136,16 @@ export const PreviewPanel = forwardRef<HTMLDivElement, PreviewPanelProps>(functi
 
   if (!selectedMessage) {
     return (
-      <div className="mailbox-empty-state flex h-full items-center justify-center p-8 text-center">
-        <div>
-          <p className="text-sm font-medium">
-            {isLoading ? "Loading message..." : "Select a message to preview."}
-          </p>
-          <p className="pt-1 text-xs text-muted-foreground">
-            {statusMessage ??
-              "The right panel will show full context, actions, and thread history."}
-          </p>
-        </div>
-      </div>
+      <StatePanel
+        centered
+        className="mailbox-empty-state"
+        description={
+          statusMessage ??
+          "The right panel will show message context, followup actions, attachments, and thread history."
+        }
+        title={isLoading ? "Loading message" : "Select a message to preview"}
+        variant={isLoading ? "loading" : "empty"}
+      />
     );
   }
 
@@ -176,7 +176,6 @@ export const PreviewPanel = forwardRef<HTMLDivElement, PreviewPanelProps>(functi
                 <span>•</span>
                 <span>{formatLongDate(selectedMessage.receivedAt)}</span>
               </div>
-              {statusMessage && <p className="text-xs text-muted-foreground">{statusMessage}</p>}
               <Badge
                 className={cn(
                   "w-fit border text-[10px]",
@@ -337,6 +336,14 @@ export const PreviewPanel = forwardRef<HTMLDivElement, PreviewPanelProps>(functi
             />
           </CardHeader>
           <CardContent className="space-y-3 min-h-0">
+            {statusMessage ? (
+              <StatePanel
+                compact
+                description="Retry message refresh to pull the latest body, thread state, and actions."
+                title={statusMessage}
+                variant="error"
+              />
+            ) : null}
             {bodyViewMode === "collapsed" && (
               <div className="space-y-3 rounded-lg border border-border bg-background p-3">
                 <p className="text-sm text-muted-foreground">{selectedMessage.snippet}</p>
@@ -346,10 +353,14 @@ export const PreviewPanel = forwardRef<HTMLDivElement, PreviewPanelProps>(functi
                     disabled={isLoadingBody}
                     onClick={onLoadFullBody}
                     size="sm"
-                    variant="outline"
+                    variant={hasCachedBody ? "secondary" : "outline"}
                   >
                     {isLoadingBody && <Loader2 className="h-4 w-4 animate-spin" />}
-                    {isLoadingBody ? "Loading..." : "Load full body"}
+                    {isLoadingBody
+                      ? "Loading..."
+                      : hasCachedBody
+                        ? "Refresh full body"
+                        : "Load full body"}
                   </Button>
                   <Button
                     className="gap-2"
@@ -413,24 +424,29 @@ export const PreviewPanel = forwardRef<HTMLDivElement, PreviewPanelProps>(functi
                   </div>
                 )
               ) : (
-                <div className="space-y-3 rounded-lg border border-border bg-background p-3">
-                  <p className="text-sm text-muted-foreground">{selectedMessage.snippet}</p>
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      className="gap-2"
-                      disabled={isLoadingBody}
-                      onClick={onLoadFullBody}
-                      size="sm"
-                      variant="outline"
-                    >
-                      {isLoadingBody && <Loader2 className="h-4 w-4 animate-spin" />}
-                      {isLoadingBody ? "Loading..." : "Load full body"}
-                    </Button>
-                    <Button onClick={onCollapseBody} size="sm" variant="secondary">
-                      Collapse
-                    </Button>
-                  </div>
-                </div>
+                <StatePanel
+                  actions={
+                    <>
+                      <Button
+                        className="gap-2"
+                        disabled={isLoadingBody}
+                        onClick={onLoadFullBody}
+                        size="sm"
+                        variant="outline"
+                      >
+                        {isLoadingBody && <Loader2 className="h-4 w-4 animate-spin" />}
+                        {isLoadingBody ? "Loading..." : "Load full body"}
+                      </Button>
+                      <Button onClick={onCollapseBody} size="sm" variant="secondary">
+                        Collapse
+                      </Button>
+                    </>
+                  }
+                  compact
+                  description="Load the original message content to switch from the snippet to the full reader."
+                  title="Full body is not loaded yet"
+                  variant={isLoadingBody ? "loading" : "info"}
+                />
               ))}
           </CardContent>
         </Card>
@@ -511,14 +527,13 @@ export const PreviewPanel = forwardRef<HTMLDivElement, PreviewPanelProps>(functi
                   </ScrollArea>
                 )
               ) : (
-                <div className="mailbox-empty-state flex h-full items-center justify-center p-8 text-center">
-                  <div>
-                    <p className="text-sm font-medium">Full body is not loaded yet.</p>
-                    <p className="pt-1 text-xs text-muted-foreground">
-                      Load full body to render this message in the large viewer.
-                    </p>
-                  </div>
-                </div>
+                <StatePanel
+                  centered
+                  className="mailbox-empty-state h-full"
+                  description="Load the full body first to render this message in the large viewer."
+                  title="Full body is not loaded yet"
+                  variant={isLoadingBody ? "loading" : "empty"}
+                />
               )}
             </div>
           </DialogContent>

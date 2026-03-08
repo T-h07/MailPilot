@@ -1,21 +1,22 @@
 package com.mailpilot.service.sync;
 
 import com.mailpilot.api.error.ApiBadRequestException;
+import com.mailpilot.service.AttachmentMetadataService;
 import com.mailpilot.service.BadgeService;
 import com.mailpilot.service.events.AppEventBus;
+import com.mailpilot.service.gmail.GmailApiExecutor;
 import com.mailpilot.service.gmail.GmailClient;
 import com.mailpilot.service.gmail.GmailClient.GmailHistoryExpiredException;
 import com.mailpilot.service.gmail.GmailClient.GmailMessageNotFoundException;
 import com.mailpilot.service.gmail.GmailClient.GmailMessageResponse;
 import com.mailpilot.service.gmail.GmailClient.GmailProfileResponse;
-import com.mailpilot.service.gmail.GmailClient.GmailUnauthorizedException;
 import com.mailpilot.service.gmail.GmailClient.HistoryListResponse;
 import com.mailpilot.service.gmail.GmailClient.HistoryMessageContainer;
 import com.mailpilot.service.gmail.GmailClient.HistoryRecord;
 import com.mailpilot.service.gmail.GmailClient.MessageListResponse;
 import com.mailpilot.service.gmail.GmailClient.MessageRef;
 import com.mailpilot.service.logging.LogSanitizer;
-import com.mailpilot.service.oauth.TokenService;
+import com.mailpilot.service.oauth.GmailScopeService;
 import jakarta.annotation.PreDestroy;
 import java.time.OffsetDateTime;
 import java.util.Collection;
@@ -32,7 +33,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.function.Function;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -53,7 +53,9 @@ public class GmailSyncService {
   private final JdbcTemplate jdbcTemplate;
   private final GmailClient gmailClient;
   private final GmailMessageMapper gmailMessageMapper;
-  private final TokenService tokenService;
+  private final GmailApiExecutor gmailApiExecutor;
+  private final GmailScopeService gmailScopeService;
+  private final AttachmentMetadataService attachmentMetadataService;
   private final BadgeService badgeService;
   private final AppEventBus appEventBus;
   private final ExecutorService messageFetchExecutor =
@@ -63,13 +65,17 @@ public class GmailSyncService {
       JdbcTemplate jdbcTemplate,
       GmailClient gmailClient,
       GmailMessageMapper gmailMessageMapper,
-      TokenService tokenService,
+      GmailApiExecutor gmailApiExecutor,
+      GmailScopeService gmailScopeService,
+      AttachmentMetadataService attachmentMetadataService,
       BadgeService badgeService,
       AppEventBus appEventBus) {
     this.jdbcTemplate = jdbcTemplate;
     this.gmailClient = gmailClient;
     this.gmailMessageMapper = gmailMessageMapper;
-    this.tokenService = tokenService;
+    this.gmailApiExecutor = gmailApiExecutor;
+    this.gmailScopeService = gmailScopeService;
+    this.attachmentMetadataService = attachmentMetadataService;
     this.badgeService = badgeService;
     this.appEventBus = appEventBus;
   }
@@ -94,8 +100,9 @@ public class GmailSyncService {
     if (!"GMAIL".equalsIgnoreCase(account.provider())) {
       throw new ApiBadRequestException("Account provider must be GMAIL");
     }
-    if (!"CONNECTED".equalsIgnoreCase(account.status())) {
-      throw new ApiBadRequestException("Account is not in CONNECTED state");
+    if (!gmailScopeService.hasReadScope(account.scope())) {
+      throw new ApiBadRequestException(
+          "Account is missing Gmail read scope. Reconnect Gmail and grant read access.");
     }
 
     appEventBus.publishSyncStatus(accountId, account.email(), "RUNNING", 0, null, "Sync started");
@@ -103,7 +110,7 @@ public class GmailSyncService {
 
     try {
       GmailProfileResponse profile =
-          executeWithTokenRetry(accountId, (accessToken) -> gmailClient.getProfile(accessToken));
+          gmailApiExecutor.execute(accountId, (accessToken) -> gmailClient.getProfile(accessToken));
 
       String profileEmail = normalize(profile.emailAddress());
       if (!StringUtils.hasText(profileEmail)) {
@@ -138,7 +145,7 @@ public class GmailSyncService {
       }
 
       GmailProfileResponse latestProfile =
-          executeWithTokenRetry(accountId, (accessToken) -> gmailClient.getProfile(accessToken));
+          gmailApiExecutor.execute(accountId, (accessToken) -> gmailClient.getProfile(accessToken));
       String latestHistoryId =
           StringUtils.hasText(latestProfile.historyId())
               ? latestProfile.historyId()
@@ -226,7 +233,7 @@ public class GmailSyncService {
       int batchSize = Math.min(GMAIL_LIST_PAGE_SIZE, maxMessages - messageIds.size());
       String currentPageToken = pageToken;
       MessageListResponse response =
-          executeWithTokenRetry(
+          gmailApiExecutor.execute(
               accountId,
               (accessToken) ->
                   gmailClient.listMessages(accessToken, batchSize, currentPageToken, null));
@@ -263,7 +270,7 @@ public class GmailSyncService {
     while (true) {
       String currentPageToken = pageToken;
       HistoryListResponse response =
-          executeWithTokenRetry(
+          gmailApiExecutor.execute(
               accountId,
               (accessToken) ->
                   gmailClient.historyList(accessToken, startHistoryId, currentPageToken));
@@ -436,8 +443,8 @@ public class GmailSyncService {
   private FetchedMessage fetchMessage(UUID accountId, String messageId) {
     try {
       GmailMessageResponse response =
-          executeWithTokenRetry(
-              accountId, (accessToken) -> gmailClient.getMessage(accessToken, messageId));
+          gmailApiExecutor.execute(
+              accountId, (accessToken) -> gmailClient.getMessageFull(accessToken, messageId));
       return new FetchedMessage(messageId, false, response);
     } catch (GmailMessageNotFoundException exception) {
       return new FetchedMessage(messageId, true, null);
@@ -520,7 +527,8 @@ public class GmailSyncService {
       throw new IllegalStateException("Failed to upsert message metadata");
     }
 
-    upsertAttachmentMetadata(upsertMessageResult.messageId(), metadata.attachments());
+    attachmentMetadataService.syncAttachments(
+        upsertMessageResult.messageId(), metadata.attachments());
     return upsertMessageResult;
   }
 
@@ -548,81 +556,6 @@ public class GmailSyncService {
     }
 
     return threadId;
-  }
-
-  private void upsertAttachmentMetadata(
-      UUID messageId, List<GmailMessageMapper.AttachmentMetadata> attachments) {
-    if (attachments.isEmpty()) {
-      jdbcTemplate.update("DELETE FROM attachments WHERE message_id = ?", messageId);
-      return;
-    }
-
-    for (GmailMessageMapper.AttachmentMetadata attachment : attachments) {
-      if (StringUtils.hasText(attachment.providerAttachmentId())) {
-        int updatedRows =
-            jdbcTemplate.update(
-                """
-          UPDATE attachments
-          SET filename = ?, mime_type = ?, size_bytes = ?
-          WHERE message_id = ? AND provider_attachment_id = ?
-          """,
-                attachment.filename(),
-                attachment.mimeType(),
-                attachment.sizeBytes(),
-                messageId,
-                attachment.providerAttachmentId());
-
-        if (updatedRows == 0) {
-          jdbcTemplate.update(
-              """
-            INSERT INTO attachments (message_id, provider_attachment_id, filename, mime_type, size_bytes)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-              messageId,
-              attachment.providerAttachmentId(),
-              attachment.filename(),
-              attachment.mimeType(),
-              attachment.sizeBytes());
-        }
-        continue;
-      }
-
-      UUID existingId =
-          jdbcTemplate
-              .query(
-                  """
-        SELECT id
-        FROM attachments
-        WHERE message_id = ?
-          AND provider_attachment_id IS NULL
-          AND filename = ?
-          AND size_bytes = ?
-        ORDER BY created_at DESC
-        LIMIT 1
-        """,
-                  (resultSet, rowNum) -> resultSet.getObject("id", UUID.class),
-                  messageId,
-                  attachment.filename(),
-                  attachment.sizeBytes())
-              .stream()
-              .findFirst()
-              .orElse(null);
-
-      if (existingId != null) {
-        jdbcTemplate.update(
-            "UPDATE attachments SET mime_type = ? WHERE id = ?", attachment.mimeType(), existingId);
-      } else {
-        jdbcTemplate.update(
-            """
-          INSERT INTO attachments (message_id, provider_attachment_id, filename, mime_type, size_bytes)
-          VALUES (?, NULL, ?, ?, ?)
-          """,
-            messageId,
-            attachment.filename(),
-            attachment.mimeType(),
-            attachment.sizeBytes());
-      }
-    }
   }
 
   private int deleteMessagesByProviderIds(UUID accountId, Collection<String> providerMessageIds) {
@@ -665,9 +598,9 @@ public class GmailSyncService {
 
         try {
           GmailMessageResponse message =
-              executeWithTokenRetry(
+              gmailApiExecutor.execute(
                   account.id(),
-                  (accessToken) -> gmailClient.getMessage(accessToken, providerMessageId));
+                  (accessToken) -> gmailClient.getMessageFull(accessToken, providerMessageId));
           GmailMessageMapper.GmailMetadata metadata = gmailMessageMapper.mapCoreFields(message);
           upsertMessageMetadata(account.id(), metadata, threadCache);
           updated += 1;
@@ -698,9 +631,10 @@ public class GmailSyncService {
     return jdbcTemplate
         .query(
             """
-      SELECT id, email, provider, status, gmail_history_id
-      FROM accounts
-      WHERE id = ?
+      SELECT a.id, a.email, a.provider, a.status, a.gmail_history_id, ot.scope
+      FROM accounts a
+      LEFT JOIN oauth_tokens ot ON ot.account_id = a.id
+      WHERE a.id = ?
       """,
             (resultSet, rowNum) ->
                 new AccountRow(
@@ -708,7 +642,8 @@ public class GmailSyncService {
                     resultSet.getString("email"),
                     resultSet.getString("provider"),
                     resultSet.getString("status"),
-                    resultSet.getString("gmail_history_id")),
+                    resultSet.getString("gmail_history_id"),
+                    resultSet.getString("scope")),
             accountId)
         .stream()
         .findFirst()
@@ -718,10 +653,11 @@ public class GmailSyncService {
   private List<AccountRow> loadAllGmailAccounts() {
     return jdbcTemplate.query(
         """
-      SELECT id, email, provider, status, gmail_history_id
-      FROM accounts
-      WHERE provider = 'GMAIL'
-      ORDER BY email
+      SELECT a.id, a.email, a.provider, a.status, a.gmail_history_id, ot.scope
+      FROM accounts a
+      LEFT JOIN oauth_tokens ot ON ot.account_id = a.id
+      WHERE a.provider = 'GMAIL'
+      ORDER BY a.email
       """,
         (resultSet, rowNum) ->
             new AccountRow(
@@ -729,7 +665,8 @@ public class GmailSyncService {
                 resultSet.getString("email"),
                 resultSet.getString("provider"),
                 resultSet.getString("status"),
-                resultSet.getString("gmail_history_id")));
+                resultSet.getString("gmail_history_id"),
+                resultSet.getString("scope")));
   }
 
   private List<String> loadRepairCandidateMessageIds(UUID accountId, int days) {
@@ -746,17 +683,6 @@ public class GmailSyncService {
         days);
   }
 
-  private <T> T executeWithTokenRetry(UUID accountId, Function<String, T> request) {
-    String accessToken = tokenService.getValidAccessToken(accountId).accessToken();
-
-    try {
-      return request.apply(accessToken);
-    } catch (GmailUnauthorizedException unauthorizedException) {
-      String refreshedAccessToken = tokenService.refreshAccessToken(accountId).accessToken();
-      return request.apply(refreshedAccessToken);
-    }
-  }
-
   private String normalize(String value) {
     if (!StringUtils.hasText(value)) {
       return "";
@@ -770,7 +696,7 @@ public class GmailSyncService {
   private record SyncCounters(int upserted, int deleted, int processed, int total) {}
 
   private record AccountRow(
-      UUID id, String email, String provider, String status, String gmailHistoryId) {}
+      UUID id, String email, String provider, String status, String gmailHistoryId, String scope) {}
 
   private record HistoryChanges(List<String> changedMessageIds, Set<String> deletedMessageIds) {}
 

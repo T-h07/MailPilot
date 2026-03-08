@@ -1,5 +1,6 @@
 package com.mailpilot.service.oauth;
 
+import com.mailpilot.service.logging.LogSanitizer;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -18,6 +19,8 @@ import org.springframework.util.StringUtils;
 public class TokenKeyProvider {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(TokenKeyProvider.class);
+  private static final String MAILPILOT_DIRECTORY = "MailPilot";
+  private static final String TOKEN_KEY_FILE_NAME = "token_key.b64";
   private static final int REQUIRED_KEY_BYTES = 32;
 
   private final Environment environment;
@@ -39,18 +42,21 @@ public class TokenKeyProvider {
     }
 
     if (environment.acceptsProfiles(Profiles.of("dev"))) {
-      return resolveOrCreateDevKey();
+      return resolveOrCreateLocalKey("dev");
+    }
+
+    if (environment.acceptsProfiles(Profiles.of("desktop"))) {
+      return resolveOrCreateLocalKey("desktop");
     }
 
     byte[] ephemeralKey = randomKey();
     LOGGER.warn(
-      "MAILPILOT_TOKEN_KEY_B64 is not set outside dev profile. Using an ephemeral in-memory key."
-    );
+        "MAILPILOT_TOKEN_KEY_B64 is not set outside dev profile. Using an ephemeral in-memory key.");
     return ephemeralKey;
   }
 
-  private byte[] resolveOrCreateDevKey() {
-    Path keyPath = defaultDevKeyPath();
+  private byte[] resolveOrCreateLocalKey(String profileName) {
+    Path keyPath = defaultLocalKeyPath();
 
     if (Files.exists(keyPath)) {
       try {
@@ -59,7 +65,9 @@ public class TokenKeyProvider {
           return decodeAndValidate(storedValue, keyPath.toString());
         }
       } catch (IOException | IllegalArgumentException exception) {
-        LOGGER.warn("Existing token key file is invalid at {}. Regenerating.", keyPath);
+        LOGGER.warn(
+            "Existing token key file is invalid at {}. Regenerating.",
+            LogSanitizer.sanitizePath(keyPath));
       }
     }
 
@@ -72,30 +80,35 @@ public class TokenKeyProvider {
         Files.createDirectories(parent);
       }
       Files.writeString(
-        keyPath,
-        encoded,
-        StandardOpenOption.CREATE,
-        StandardOpenOption.TRUNCATE_EXISTING,
-        StandardOpenOption.WRITE
-      );
+          keyPath,
+          encoded,
+          StandardOpenOption.CREATE,
+          StandardOpenOption.TRUNCATE_EXISTING,
+          StandardOpenOption.WRITE);
     } catch (IOException exception) {
-      throw new IllegalStateException("Failed to write dev token key file to " + keyPath, exception);
+      throw new IllegalStateException(
+          "Failed to write token key file to " + LogSanitizer.sanitizePath(keyPath), exception);
     }
 
     LOGGER.warn(
-      "MAILPILOT_TOKEN_KEY_B64 is not set. Generated a dev token key at {}. Set MAILPILOT_TOKEN_KEY_B64 to that file's value for stable encryption.",
-      keyPath
-    );
+        "MAILPILOT_TOKEN_KEY_B64 is not set. Generated a persistent {} token key at {}.",
+        profileName,
+        LogSanitizer.sanitizePath(keyPath));
 
     return generated;
   }
 
-  private Path defaultDevKeyPath() {
-    String localAppData = System.getenv("LOCALAPPDATA");
+  private Path defaultLocalKeyPath() {
+    String localAppData = environment.getProperty("LOCALAPPDATA");
     if (!StringUtils.hasText(localAppData)) {
-      localAppData = "C:\\Users\\taulanth\\AppData\\Local";
+      localAppData = System.getenv("LOCALAPPDATA");
     }
-    return Paths.get(localAppData, "MailPilot", "token_key.b64");
+    if (StringUtils.hasText(localAppData)) {
+      return Paths.get(localAppData.trim(), MAILPILOT_DIRECTORY, TOKEN_KEY_FILE_NAME);
+    }
+
+    String userHome = System.getProperty("user.home", ".");
+    return Paths.get(userHome, "AppData", "Local", MAILPILOT_DIRECTORY, TOKEN_KEY_FILE_NAME);
   }
 
   private byte[] randomKey() {

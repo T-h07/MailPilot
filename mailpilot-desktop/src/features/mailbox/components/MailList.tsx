@@ -1,6 +1,7 @@
 import { memo, useEffect, useMemo, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { MailMessage } from "@/features/mailbox/model/types";
+import { StatePanel } from "@/components/common/state-panel";
 import { MailRow } from "@/features/mailbox/components/MailRow";
 
 type MailListProps = {
@@ -61,14 +62,13 @@ function MailListComponent({
 
   if (messages.length === 0) {
     return (
-      <div className="mailbox-empty-state flex h-full items-center justify-center p-8 text-center">
-        <div>
-          <p className="text-sm font-medium">No messages match this filter.</p>
-          <p className="pt-1 text-xs text-muted-foreground">
-            Adjust scope, search, or quick filters to continue.
-          </p>
-        </div>
-      </div>
+      <StatePanel
+        centered
+        className="mailbox-empty-state"
+        description="Adjust scope, quick filters, or search terms to bring messages back into the queue."
+        title="No messages match this filter"
+        variant="empty"
+      />
     );
   }
 

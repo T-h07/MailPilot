@@ -93,7 +93,7 @@ function MailRowComponent({ message, isSelected, onSelect, searchQuery }: MailRo
             <span
               className={cn(
                 "h-2.5 w-2.5 shrink-0 rounded-full",
-                message.isUnread ? "bg-sky-500" : "bg-muted"
+                !message.seenInApp ? "bg-sky-500" : "bg-muted"
               )}
             />
             <p

@@ -1,14 +1,9 @@
 import type { ComponentType } from "react";
 import { Line, LineChart, ResponsiveContainer } from "recharts";
+import type { DashboardKpiSparklinePoint } from "@/components/dashboard/dashboard-kpi-sparkline";
 import { cn } from "@/lib/utils";
-import type { DashboardSummary } from "@/lib/api/dashboard";
 
 export type DashboardKpiTone = "neutral" | "attention" | "critical" | "calm" | "boss";
-
-export type SparklinePoint = {
-  date: string;
-  value: number;
-};
 
 type DashboardKpiTileProps = {
   icon: ComponentType<{ className?: string }>;
@@ -17,7 +12,7 @@ type DashboardKpiTileProps = {
   value: number;
   delta: string;
   tone: DashboardKpiTone;
-  sparkline: SparklinePoint[];
+  sparkline: DashboardKpiSparklinePoint[];
   onClick: () => void;
 };
 
@@ -53,7 +48,7 @@ function sparklineColorForTone(tone: DashboardKpiTone): string {
   }
 }
 
-function MiniSparkline({ data, stroke }: { data: SparklinePoint[]; stroke: string }) {
+function MiniSparkline({ data, stroke }: { data: DashboardKpiSparklinePoint[]; stroke: string }) {
   if (data.length === 0) {
     return <div className="h-14 w-full" />;
   }
@@ -76,16 +71,6 @@ function MiniSparkline({ data, stroke }: { data: SparklinePoint[]; stroke: strin
       </ResponsiveContainer>
     </div>
   );
-}
-
-export function mapDashboardSparkline(
-  series7d: DashboardSummary["series7d"] | undefined,
-  valueKey: "unreadNow" | "needsReplyOpen" | "overdue" | "dueToday" | "snoozed" | "unreadBoss"
-): SparklinePoint[] {
-  return (series7d ?? []).map((point) => ({
-    date: point.date,
-    value: point[valueKey] ?? 0,
-  }));
 }
 
 export function DashboardKpiTile({

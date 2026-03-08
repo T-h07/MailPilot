@@ -61,6 +61,7 @@ export type MailboxListItem = {
   snippet: string;
   receivedAt: string;
   isUnread: boolean;
+  seenInApp: boolean;
   hasAttachments: boolean;
   chips: string[];
   tags: string[];
@@ -74,6 +75,7 @@ export type MailboxListItem = {
 export type MailboxQueryResponse = {
   items: MailboxListItem[];
   nextCursor: string | null;
+  totalCount: number;
 };
 
 export type MessageDetailResponse = {
@@ -87,6 +89,7 @@ export type MessageDetailResponse = {
   receivedAt: string;
   openInGmailUrl: string | null;
   isUnread: boolean;
+  seenInApp: boolean;
   isSent: boolean;
   body: {
     mime: string;
@@ -98,6 +101,8 @@ export type MessageDetailResponse = {
     filename: string;
     mimeType: string;
     sizeBytes: number;
+    isInline: boolean;
+    downloadable: boolean;
   }>;
   thread: {
     messages: Array<{
@@ -153,6 +158,14 @@ export function setRead(id: string, isUnread: boolean, signal?: AbortSignal) {
   return fetchJson<{ status: string }>(`/api/messages/${id}/read`, {
     method: "POST",
     body: { isUnread },
+    signal,
+  });
+}
+
+export function markSeen(id: string, signal?: AbortSignal) {
+  return fetchJson<{ status: string }>(`/api/messages/${id}/seen`, {
+    method: "POST",
+    body: {},
     signal,
   });
 }

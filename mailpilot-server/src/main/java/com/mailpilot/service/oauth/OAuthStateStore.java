@@ -4,38 +4,79 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
-import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 @Service
 public class OAuthStateStore {
 
+  private static final Logger LOGGER = LoggerFactory.getLogger(OAuthStateStore.class);
   private static final Duration PENDING_TTL = Duration.ofMinutes(10);
-  private static final Duration RESULT_TTL = Duration.ofMinutes(10);
+  private static final Duration RETENTION_AFTER_EXPIRY = Duration.ofHours(24);
+  private static final String EXPIRED_MESSAGE = "OAuth flow expired. Please try again.";
 
   private final SecureRandom secureRandom = new SecureRandom();
-  private final Map<String, PendingState> pendingStates = new ConcurrentHashMap<>();
-  private final Map<String, OAuthFlowStatus> finalStatuses = new ConcurrentHashMap<>();
+  private final JdbcTemplate jdbcTemplate;
+
+  public OAuthStateStore(JdbcTemplate jdbcTemplate) {
+    this.jdbcTemplate = jdbcTemplate;
+  }
 
   public PkceState create() {
-    return create("READONLY");
+    return create("READONLY", null, null);
   }
 
   public PkceState create(String mode) {
+    return create(mode, null, null);
+  }
+
+  public PkceState create(String mode, String context, String accountHint) {
     cleanup();
 
     String state = randomBase64Url(32);
     String codeVerifier = randomBase64Url(64);
     String codeChallenge = sha256Base64Url(codeVerifier);
     String resolvedMode = StringUtils.hasText(mode) ? mode.trim().toUpperCase() : "READONLY";
+    String resolvedContext = StringUtils.hasText(context) ? context.trim().toUpperCase() : null;
+    String resolvedHint =
+        StringUtils.hasText(accountHint) ? accountHint.trim().toLowerCase() : null;
 
-    pendingStates.put(state, new PendingState(codeVerifier, resolvedMode, Instant.now().plus(PENDING_TTL)));
+    jdbcTemplate.update(
+        """
+        INSERT INTO oauth_pending_flows (
+          state,
+          provider,
+          mode,
+          code_verifier,
+          context,
+          account_hint,
+          expires_at,
+          status
+        )
+        VALUES (?, 'GMAIL', ?, ?, ?, ?, ?, 'PENDING')
+        """,
+        state,
+        resolvedMode,
+        codeVerifier,
+        resolvedContext,
+        resolvedHint,
+        Timestamp.from(Instant.now().plus(PENDING_TTL)));
+
+    LOGGER.info(
+        "Created OAuth pending flow state={} provider=GMAIL mode={} context={}",
+        state,
+        resolvedMode,
+        resolvedContext == null ? "N/A" : resolvedContext);
+
     return new PkceState(state, codeVerifier, codeChallenge);
   }
 
@@ -45,58 +86,220 @@ public class OAuthStateStore {
       return Optional.empty();
     }
 
-    PendingState pendingState = pendingStates.remove(state);
-    if (pendingState == null) {
-      return Optional.empty();
+    Optional<PkceVerification> verification =
+        jdbcTemplate
+            .query(
+                """
+            UPDATE oauth_pending_flows
+            SET consumed_at = now()
+            WHERE state = ?
+              AND status = 'PENDING'
+              AND consumed_at IS NULL
+              AND expires_at > now()
+            RETURNING code_verifier, mode, context, account_hint
+            """,
+                (resultSet, rowNum) ->
+                    new PkceVerification(
+                        resultSet.getString("code_verifier"),
+                        resultSet.getString("mode"),
+                        resultSet.getString("context"),
+                        resultSet.getString("account_hint")),
+                state.trim())
+            .stream()
+            .findFirst();
+
+    if (verification.isPresent()) {
+      LOGGER.info("Consumed OAuth pending flow state={}", state.trim());
+    } else {
+      LOGGER.warn("OAuth pending flow consume failed state={}", state.trim());
     }
 
-    if (pendingState.expiresAt().isBefore(Instant.now())) {
-      return Optional.empty();
-    }
-
-    return Optional.of(new PkceVerification(pendingState.codeVerifier(), pendingState.mode()));
+    return verification;
   }
 
   public void markSuccess(String state, String message) {
-    markFinalState(state, "SUCCESS", message);
+    markSuccess(state, message, null, null);
+  }
+
+  public void markSuccess(String state, String message, UUID accountId, String email) {
+    if (!StringUtils.hasText(state)) {
+      return;
+    }
+
+    jdbcTemplate.update(
+        """
+        UPDATE oauth_pending_flows
+        SET status = 'SUCCESS',
+            message = ?,
+            result_account_id = ?,
+            result_email = ?,
+            error = NULL,
+            consumed_at = COALESCE(consumed_at, now())
+        WHERE state = ?
+        """,
+        sanitizeMessage(message),
+        accountId,
+        normalizeEmail(email),
+        state.trim());
+
+    LOGGER.info(
+        "OAuth flow completed state={} accountId={} email={}",
+        state.trim(),
+        accountId,
+        normalizeEmail(email));
   }
 
   public void markError(String state, String message) {
-    markFinalState(state, "ERROR", message);
+    if (!StringUtils.hasText(state)) {
+      return;
+    }
+
+    String safeMessage = sanitizeMessage(message);
+    jdbcTemplate.update(
+        """
+        UPDATE oauth_pending_flows
+        SET status = 'ERROR',
+            message = ?,
+            error = ?,
+            consumed_at = COALESCE(consumed_at, now())
+        WHERE state = ?
+        """,
+        safeMessage,
+        safeMessage,
+        state.trim());
+
+    LOGGER.warn("OAuth flow failed state={} message={}", state.trim(), safeMessage);
   }
 
   public OAuthFlowStatus status(String state) {
     cleanup();
     if (!StringUtils.hasText(state)) {
-      return new OAuthFlowStatus("UNKNOWN", "Missing state");
+      return new OAuthFlowStatus("EXPIRED", EXPIRED_MESSAGE, null, null);
     }
 
-    OAuthFlowStatus finalState = finalStatuses.get(state);
-    if (finalState != null) {
-      return finalState;
+    FlowRow row =
+        jdbcTemplate
+            .query(
+                """
+                SELECT
+                  state,
+                  status,
+                  message,
+                  result_account_id,
+                  result_email,
+                  consumed_at,
+                  expires_at
+                FROM oauth_pending_flows
+                WHERE state = ?
+                """,
+                (resultSet, rowNum) ->
+                    new FlowRow(
+                        resultSet.getString("state"),
+                        resultSet.getString("status"),
+                        resultSet.getString("message"),
+                        resultSet.getObject("result_account_id", UUID.class),
+                        resultSet.getString("result_email"),
+                        resultSet.getTimestamp("consumed_at") == null
+                            ? null
+                            : resultSet.getTimestamp("consumed_at").toInstant(),
+                        resultSet.getTimestamp("expires_at").toInstant()),
+                state.trim())
+            .stream()
+            .findFirst()
+            .orElse(null);
+
+    if (row == null) {
+      LOGGER.warn("OAuth status requested for unknown state={}", state.trim());
+      return new OAuthFlowStatus("EXPIRED", EXPIRED_MESSAGE, null, null);
     }
 
-    PendingState pendingState = pendingStates.get(state);
-    if (pendingState != null && pendingState.expiresAt().isAfter(Instant.now())) {
-      return new OAuthFlowStatus("PENDING", "Awaiting OAuth callback", pendingState.expiresAt());
+    if (row.expiresAt().isBefore(Instant.now()) && "PENDING".equalsIgnoreCase(row.status())) {
+      jdbcTemplate.update(
+          """
+          UPDATE oauth_pending_flows
+          SET status = 'EXPIRED',
+              message = ?,
+              error = ?,
+              consumed_at = COALESCE(consumed_at, now())
+          WHERE state = ?
+            AND status = 'PENDING'
+          """,
+          EXPIRED_MESSAGE,
+          EXPIRED_MESSAGE,
+          row.state());
+      LOGGER.warn("OAuth flow expired state={}", row.state());
+      return new OAuthFlowStatus("EXPIRED", EXPIRED_MESSAGE, null, null);
     }
 
-    return new OAuthFlowStatus("UNKNOWN", "No OAuth flow found for this state");
-  }
-
-  private void markFinalState(String state, String status, String message) {
-    if (!StringUtils.hasText(state)) {
-      return;
+    String normalizedStatus =
+        StringUtils.hasText(row.status()) ? row.status().trim().toUpperCase() : "PENDING";
+    if (!"PENDING".equals(normalizedStatus)
+        && !"SUCCESS".equals(normalizedStatus)
+        && !"ERROR".equals(normalizedStatus)
+        && !"EXPIRED".equals(normalizedStatus)) {
+      normalizedStatus = "ERROR";
     }
-    cleanup();
-    pendingStates.remove(state);
-    finalStatuses.put(state, new OAuthFlowStatus(status, message, Instant.now().plus(RESULT_TTL)));
+
+    String message = sanitizeMessage(row.message());
+    if (!StringUtils.hasText(message)) {
+      if ("SUCCESS".equals(normalizedStatus)) {
+        message = "Google account connected.";
+      } else if ("PENDING".equals(normalizedStatus) && row.consumedAt() != null) {
+        message = "Finishing OAuth callback...";
+      } else if ("PENDING".equals(normalizedStatus)) {
+        message = "Awaiting OAuth callback";
+      } else if ("EXPIRED".equals(normalizedStatus)) {
+        message = EXPIRED_MESSAGE;
+      } else {
+        message = "OAuth flow failed.";
+      }
+    }
+
+    return new OAuthFlowStatus(normalizedStatus, message, row.resultAccountId(), row.resultEmail());
   }
 
   private void cleanup() {
-    Instant now = Instant.now();
-    pendingStates.entrySet().removeIf((entry) -> entry.getValue().expiresAt().isBefore(now));
-    finalStatuses.entrySet().removeIf((entry) -> entry.getValue().expiresAt().isBefore(now));
+    int expiredMarked =
+        jdbcTemplate.update(
+            """
+        UPDATE oauth_pending_flows
+        SET status = 'EXPIRED',
+            message = ?,
+            error = ?,
+            consumed_at = COALESCE(consumed_at, now())
+        WHERE status = 'PENDING'
+          AND expires_at < now()
+        """,
+            EXPIRED_MESSAGE,
+            EXPIRED_MESSAGE);
+
+    Instant purgeBefore = Instant.now().minus(RETENTION_AFTER_EXPIRY);
+    int deletedRows =
+        jdbcTemplate.update(
+            "DELETE FROM oauth_pending_flows WHERE expires_at < ?", Timestamp.from(purgeBefore));
+
+    if (expiredMarked > 0 || deletedRows > 0) {
+      LOGGER.info(
+          "OAuth flow cleanup markedExpired={} deleted={} cutoff={}",
+          expiredMarked,
+          deletedRows,
+          purgeBefore);
+    }
+  }
+
+  private String sanitizeMessage(String value) {
+    if (!StringUtils.hasText(value)) {
+      return null;
+    }
+    String trimmed = value.trim();
+    return trimmed.length() > 400 ? trimmed.substring(0, 400) : trimmed;
+  }
+
+  private String normalizeEmail(String email) {
+    if (!StringUtils.hasText(email)) {
+      return null;
+    }
+    return email.trim().toLowerCase();
   }
 
   private String randomBase64Url(int byteLength) {
@@ -115,15 +318,19 @@ public class OAuthStateStore {
     }
   }
 
-  private record PendingState(String codeVerifier, String mode, Instant expiresAt) {}
+  private record FlowRow(
+      String state,
+      String status,
+      String message,
+      UUID resultAccountId,
+      String resultEmail,
+      Instant consumedAt,
+      Instant expiresAt) {}
 
   public record PkceState(String state, String codeVerifier, String codeChallenge) {}
 
-  public record PkceVerification(String codeVerifier, String mode) {}
+  public record PkceVerification(
+      String codeVerifier, String mode, String context, String accountHint) {}
 
-  public record OAuthFlowStatus(String status, String message, Instant expiresAt) {
-    public OAuthFlowStatus(String status, String message) {
-      this(status, message, Instant.now().plus(RESULT_TTL));
-    }
-  }
+  public record OAuthFlowStatus(String status, String message, UUID accountId, String email) {}
 }

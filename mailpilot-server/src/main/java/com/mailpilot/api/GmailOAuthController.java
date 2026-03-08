@@ -24,46 +24,44 @@ public class GmailOAuthController {
   private final GmailOAuthService gmailOAuthService;
 
   public GmailOAuthController(
-    GoogleOAuthClientConfigService configService,
-    GmailOAuthService gmailOAuthService
-  ) {
+      GoogleOAuthClientConfigService configService, GmailOAuthService gmailOAuthService) {
     this.configService = configService;
     this.gmailOAuthService = gmailOAuthService;
   }
 
   @GetMapping("/config-check")
   public GmailOAuthConfigCheckResponse configCheck() {
-    GoogleOAuthClientConfigService.GoogleOAuthConfigCheck check = configService.checkConfiguration();
+    GoogleOAuthClientConfigService.GoogleOAuthConfigCheck check =
+        configService.checkConfiguration();
     return new GmailOAuthConfigCheckResponse(check.configured(), check.path(), check.message());
   }
 
   @PostMapping("/start")
-  public GmailOAuthStartResponse start(@RequestBody(required = false) GmailOAuthStartRequest request) {
-    return gmailOAuthService.start(request == null ? null : request.mode());
+  public GmailOAuthStartResponse start(
+      @RequestBody(required = false) GmailOAuthStartRequest request) {
+    return gmailOAuthService.start(
+        request == null ? null : request.mode(),
+        request == null ? null : request.context(),
+        request == null ? null : request.accountHint());
   }
 
   @GetMapping("/status")
   public GmailOAuthStatusResponse status(@RequestParam("state") String state) {
     OAuthFlowStatus status = gmailOAuthService.status(state);
-    return new GmailOAuthStatusResponse(state, status.status(), status.message());
+    return new GmailOAuthStatusResponse(
+        state, status.status(), status.message(), status.accountId(), status.email());
   }
 
   @GetMapping(value = "/callback", produces = MediaType.TEXT_HTML_VALUE)
   public ResponseEntity<String> callback(
-    @RequestParam(value = "code", required = false) String code,
-    @RequestParam(value = "state", required = false) String state,
-    @RequestParam(value = "error", required = false) String error,
-    @RequestParam(value = "error_description", required = false) String errorDescription
-  ) {
-    GmailOAuthService.OAuthCallbackResult result = gmailOAuthService.handleCallback(
-      code,
-      state,
-      error,
-      errorDescription
-    );
-    return ResponseEntity
-      .status(result.httpStatusCode())
-      .contentType(MediaType.TEXT_HTML)
-      .body(result.html());
+      @RequestParam(value = "code", required = false) String code,
+      @RequestParam(value = "state", required = false) String state,
+      @RequestParam(value = "error", required = false) String error,
+      @RequestParam(value = "error_description", required = false) String errorDescription) {
+    GmailOAuthService.OAuthCallbackResult result =
+        gmailOAuthService.handleCallback(code, state, error, errorDescription);
+    return ResponseEntity.status(result.httpStatusCode())
+        .contentType(MediaType.TEXT_HTML)
+        .body(result.html());
   }
 }

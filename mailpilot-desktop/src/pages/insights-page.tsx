@@ -16,10 +16,10 @@ import {
   InsightsRankedBars,
   type InsightsRankedItem,
 } from "@/components/insights/InsightsRankedBars";
+import { StatePanel } from "@/components/common/state-panel";
 import { AccentCard, type AccentColor } from "@/components/ui/AccentCard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { useMetricCarousel } from "@/hooks/useMetricCarousel";
 import { getInsightsSummary, type InsightsRange, type InsightsSummary } from "@/lib/api/insights";
@@ -180,6 +180,7 @@ export function InsightsPage() {
   const [summary, setSummary] = useState<InsightsSummary | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const isInitialLoad = isLoading && !summary;
 
   const comparison = summary?.comparison ?? {
     receivedPreviousCount: 0,
@@ -390,47 +391,60 @@ export function InsightsPage() {
         <Badge variant="outline">{rangeWindowDates(summary?.range ?? range)}</Badge>
       </div>
 
-      {error && (
-        <Card>
-          <CardContent className="space-y-3 p-4">
-            <p className="text-sm text-destructive">{error}</p>
+      {error ? (
+        <StatePanel
+          actions={
             <Button onClick={() => void loadSummary(range)} size="sm" variant="outline">
               Retry
             </Button>
-          </CardContent>
-        </Card>
-      )}
+          }
+          description="Retry the analytics query to reload historical trends and drilldowns."
+          title={error}
+          variant="error"
+        />
+      ) : null}
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <InsightsKpiCard
-          accent="blue"
-          delta={`${formatPercent(comparison.receivedDeltaPct)} vs previous window`}
-          label="Messages received"
-          subtitle="Inbound count in selected range."
-          value={isLoading ? "..." : String(summary?.receivedCount ?? 0)}
-        />
-        <InsightsKpiCard
-          accent="green"
-          delta={`${formatPercent(comparison.uniqueSendersDeltaPct)} vs previous window`}
-          label="Unique senders"
-          subtitle="Distinct sender emails in range."
-          value={isLoading ? "..." : String(summary?.uniqueSenders ?? 0)}
-        />
-        <InsightsKpiCard
-          accent="purple"
-          delta={topDomain ? `${topDomainShare.toFixed(1)}% share` : "--"}
-          label="Top domain"
-          subtitle="Highest contributor domain."
-          value={isLoading ? "..." : topDomain ? `${topDomain.domain} (${topDomain.count})` : "--"}
-        />
-        <InsightsKpiCard
-          accent="gold"
-          delta={topSender ? `${topSenderShare.toFixed(1)}% share` : "--"}
-          label="Top sender"
-          subtitle="Most frequent sender."
-          value={isLoading ? "..." : topSender ? `${topSender.email} (${topSender.count})` : "--"}
-        />
-      </div>
+      {isInitialLoad ? (
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {Array.from({ length: 4 }, (_, index) => (
+            <div
+              className="h-[154px] animate-pulse rounded-xl border border-border bg-card/70"
+              key={`insights-kpi-loading-${index}`}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <InsightsKpiCard
+            accent="blue"
+            delta={`${formatPercent(comparison.receivedDeltaPct)} vs previous window`}
+            label="Messages received"
+            subtitle="Inbound count in selected range."
+            value={String(summary?.receivedCount ?? 0)}
+          />
+          <InsightsKpiCard
+            accent="green"
+            delta={`${formatPercent(comparison.uniqueSendersDeltaPct)} vs previous window`}
+            label="Unique senders"
+            subtitle="Distinct sender emails in range."
+            value={String(summary?.uniqueSenders ?? 0)}
+          />
+          <InsightsKpiCard
+            accent="purple"
+            delta={topDomain ? `${topDomainShare.toFixed(1)}% share` : "--"}
+            label="Top domain"
+            subtitle="Highest contributor domain."
+            value={topDomain ? `${topDomain.domain} (${topDomain.count})` : "--"}
+          />
+          <InsightsKpiCard
+            accent="gold"
+            delta={topSender ? `${topSenderShare.toFixed(1)}% share` : "--"}
+            label="Top sender"
+            subtitle="Most frequent sender."
+            value={topSender ? `${topSender.email} (${topSender.count})` : "--"}
+          />
+        </div>
+      )}
 
       <AccentCard
         accent="blue"
@@ -501,57 +515,69 @@ export function InsightsPage() {
             )}
           </div>
 
-          <div
-            className="h-[300px] rounded-md border border-border bg-card/70 p-2"
-            onMouseEnter={handleChartMouseEnter}
-            onMouseLeave={handleChartMouseLeave}
-          >
-            <ResponsiveContainer height="100%" width="100%">
-              <LineChart data={chartRows} margin={{ left: 6, right: 10, top: 10, bottom: 6 }}>
-                <CartesianGrid stroke="hsl(var(--border))" strokeDasharray="3 3" />
-                <XAxis
-                  axisLine={false}
-                  dataKey="date"
-                  minTickGap={24}
-                  tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
-                  tickFormatter={formatShortDate}
-                  tickLine={false}
-                />
-                <YAxis
-                  axisLine={false}
-                  allowDecimals={false}
-                  tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
-                  tickLine={false}
-                  width={32}
-                />
-                <Tooltip
-                  content={(tooltipProps) => (
-                    <InsightsChartTooltip {...tooltipProps} activeMetricLabel={activeMetricLabel} />
-                  )}
-                />
-                <Line
-                  dataKey="received"
-                  dot={false}
-                  name="Received per day"
-                  stroke="hsl(var(--primary))"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={3}
-                  type="monotone"
-                />
-                <Line
-                  dataKey={activeMetricKey}
-                  dot={false}
-                  name={activeMetricLabel}
-                  stroke={activeMetricColor}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2.5}
-                  type="monotone"
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
+          {chartRows.length === 0 && !isLoading ? (
+            <StatePanel
+              compact
+              description="Run sync and widen the selected range if you want historical trends here."
+              title="No analytics available for this range"
+              variant="empty"
+            />
+          ) : (
+            <div
+              className="h-[300px] rounded-md border border-border bg-card/70 p-2"
+              onMouseEnter={handleChartMouseEnter}
+              onMouseLeave={handleChartMouseLeave}
+            >
+              <ResponsiveContainer height="100%" width="100%">
+                <LineChart data={chartRows} margin={{ left: 6, right: 10, top: 10, bottom: 6 }}>
+                  <CartesianGrid stroke="hsl(var(--border))" strokeDasharray="3 3" />
+                  <XAxis
+                    axisLine={false}
+                    dataKey="date"
+                    minTickGap={24}
+                    tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
+                    tickFormatter={formatShortDate}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    axisLine={false}
+                    allowDecimals={false}
+                    tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
+                    tickLine={false}
+                    width={32}
+                  />
+                  <Tooltip
+                    content={(tooltipProps) => (
+                      <InsightsChartTooltip
+                        {...tooltipProps}
+                        activeMetricLabel={activeMetricLabel}
+                      />
+                    )}
+                  />
+                  <Line
+                    dataKey="received"
+                    dot={false}
+                    name="Received per day"
+                    stroke="hsl(var(--primary))"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={3}
+                    type="monotone"
+                  />
+                  <Line
+                    dataKey={activeMetricKey}
+                    dot={false}
+                    name={activeMetricLabel}
+                    stroke={activeMetricColor}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2.5}
+                    type="monotone"
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
         </div>
       </AccentCard>
 

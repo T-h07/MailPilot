@@ -1,4 +1,4 @@
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import type { AppOutletContext } from "@/App";
@@ -10,10 +10,13 @@ import {
   type AccountRecord,
   type AccountRole,
 } from "@/lib/api/accounts";
-import { ApiClientError, getApiHealth, resolveApiBase } from "@/api/client";
-import { configCheck, getGmailOAuthStatus, startGmailOAuth } from "@/lib/api/oauth";
+import { getApiHealth, resolveApiBase } from "@/api/client";
+import { configCheck, startGmailOAuth } from "@/lib/api/oauth";
+import { openGmailOAuthUrl, waitForGmailOAuthOutcome } from "@/lib/oauth/gmail-oauth-flow";
 import { repairMessageMetadata, runAccountSync, runAllAccountsSync } from "@/lib/api/sync";
-import { useLiveEvents } from "@/lib/events/live-events-context";
+import { resetApp } from "@/lib/api/system";
+import { changeAppPassword, getAppState, setAppPassword } from "@/lib/api/app-state";
+import { useLiveEvents } from "@/lib/events/use-live-events";
 import {
   createSenderRule,
   deleteSenderRule,
@@ -24,6 +27,7 @@ import {
   type SenderRuleUpsertPayload,
 } from "@/lib/api/sender-rules";
 import { ACCENT_TOKENS, getAccentClasses, type AccentToken } from "@/features/mailbox/utils/accent";
+import { StatePanel } from "@/components/common/state-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -36,6 +40,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { toApiErrorMessage } from "@/utils/api-error";
 
 type RuleForm = {
   matchType: SenderRuleMatchType;
@@ -66,21 +71,18 @@ const EMPTY_RULE_FORM: RuleForm = {
   accent: "gold",
 };
 
-const WINDOWS_OAUTH_JSON_PATH =
-  "C:\\Users\\taulanth\\AppData\\Local\\MailPilot\\google-oauth-client.json";
-const OAUTH_POLL_INTERVAL_MS = 2000;
-const OAUTH_POLL_TIMEOUT_MS = 45000;
+const DEFAULT_OAUTH_JSON_PATH = "%LOCALAPPDATA%\\MailPilot\\google-oauth-client.json";
+const DEFAULT_OAUTH_JSON_ENV_COMMAND =
+  '$env:MAILPILOT_GOOGLE_OAUTH_CLIENT_JSON="${env:LOCALAPPDATA}\\MailPilot\\google-oauth-client.json"';
 const DEFAULT_SYNC_MAX_MESSAGES = 500;
 const ACCOUNT_ROLE_SAVE_DEBOUNCE_MS = 400;
 
-function toErrorMessage(error: unknown): string {
-  if (error instanceof ApiClientError) {
-    return error.message;
+async function closeDesktopAppWindow() {
+  try {
+    await getCurrentWindow().close();
+  } catch {
+    window.close();
   }
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return "Request failed";
 }
 
 function validateRuleForm(form: RuleForm): RuleFormErrors {
@@ -135,12 +137,6 @@ function formatLastSync(lastSyncAt: string | null): string {
   }
 
   return parsed.toLocaleString();
-}
-
-function sleep(durationMs: number) {
-  return new Promise<void>((resolve) => {
-    window.setTimeout(resolve, durationMs);
-  });
 }
 
 function timeoutConnectMessage() {
@@ -224,13 +220,10 @@ function withoutRecordKey<T extends Record<string, unknown>>(record: T, keyToRem
 }
 
 export function SettingsPage() {
-  const { themeMode, setThemeMode } = useOutletContext<AppOutletContext>();
+  const { themeVariant, setThemeVariant } = useOutletContext<AppOutletContext>();
   const { refreshSyncStatus, sseConnected, syncByAccountId } = useLiveEvents();
   const showSenderHighlightsInSettings = false;
   const isDevMode = import.meta.env.DEV;
-  const nextTheme = themeMode === "dark" ? "light" : "dark";
-  const modeLabel = themeMode === "dark" ? "Dark" : "Light";
-  const nextThemeLabel = nextTheme === "dark" ? "Dark" : "Light";
   const apiBase = useMemo(() => resolveApiBase(), []);
 
   const noticeTimeoutRef = useRef<number | null>(null);
@@ -239,6 +232,13 @@ export function SettingsPage() {
 
   const [healthStatus, setHealthStatus] = useState<string>("Unknown");
   const [isCheckingHealth, setIsCheckingHealth] = useState(false);
+  const [hasLocalPassword, setHasLocalPassword] = useState<boolean | null>(null);
+  const [authStatusError, setAuthStatusError] = useState<string | null>(null);
+  const [currentPasswordInput, setCurrentPasswordInput] = useState("");
+  const [newPasswordInput, setNewPasswordInput] = useState("");
+  const [confirmNewPasswordInput, setConfirmNewPasswordInput] = useState("");
+  const [passwordFormError, setPasswordFormError] = useState<string | null>(null);
+  const [isSavingPassword, setIsSavingPassword] = useState(false);
 
   const [accounts, setAccounts] = useState<AccountRecord[]>([]);
   const [isLoadingAccounts, setIsLoadingAccounts] = useState(false);
@@ -246,7 +246,7 @@ export function SettingsPage() {
   const [oauthError, setOauthError] = useState<string | null>(null);
   const [isConnectingGmail, setIsConnectingGmail] = useState(false);
   const [oauthConfigDialogOpen, setOauthConfigDialogOpen] = useState(false);
-  const [oauthConfigPath, setOauthConfigPath] = useState<string>(WINDOWS_OAUTH_JSON_PATH);
+  const [oauthConfigPath, setOauthConfigPath] = useState<string>(DEFAULT_OAUTH_JSON_PATH);
   const [oauthConfigMessage, setOauthConfigMessage] = useState(
     "Google OAuth configuration is missing."
   );
@@ -266,6 +266,12 @@ export function SettingsPage() {
   const [detachConfirmInput, setDetachConfirmInput] = useState("");
   const [detachError, setDetachError] = useState<string | null>(null);
   const [detachingAccountId, setDetachingAccountId] = useState<string | null>(null);
+  const [resetDialogOpen, setResetDialogOpen] = useState(false);
+  const [resetPassword, setResetPassword] = useState("");
+  const [resetConfirmText, setResetConfirmText] = useState("");
+  const [resetAcknowledgeChecked, setResetAcknowledgeChecked] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
+  const [isResettingApp, setIsResettingApp] = useState(false);
 
   const [senderRules, setSenderRules] = useState<SenderRuleRecord[]>([]);
   const [isLoadingRules, setIsLoadingRules] = useState(false);
@@ -327,11 +333,22 @@ export function SettingsPage() {
       const response = await listAccounts();
       applyAccountSnapshot(response);
     } catch (error) {
-      setAccountsError(toErrorMessage(error));
+      setAccountsError(toApiErrorMessage(error));
     } finally {
       setIsLoadingAccounts(false);
     }
   }, [applyAccountSnapshot]);
+
+  const loadAuthStatus = useCallback(async () => {
+    setAuthStatusError(null);
+    try {
+      const response = await getAppState();
+      setHasLocalPassword(response.hasPassword);
+    } catch (error) {
+      setHasLocalPassword(null);
+      setAuthStatusError(toApiErrorMessage(error));
+    }
+  }, []);
 
   const loadSenderRules = useCallback(async () => {
     setIsLoadingRules(true);
@@ -340,14 +357,16 @@ export function SettingsPage() {
       const response = await listSenderRules();
       setSenderRules(response);
     } catch (error) {
-      setRulesError(toErrorMessage(error));
+      setRulesError(toApiErrorMessage(error));
     } finally {
       setIsLoadingRules(false);
     }
   }, []);
 
   useEffect(() => {
+    const labelSaveTimeouts = labelSaveTimeoutsRef.current;
     void loadAccounts();
+    void loadAuthStatus();
     void loadSenderRules();
     void refreshSyncStatus();
 
@@ -355,12 +374,12 @@ export function SettingsPage() {
       if (noticeTimeoutRef.current !== null) {
         window.clearTimeout(noticeTimeoutRef.current);
       }
-      labelSaveTimeoutsRef.current.forEach((timeoutId) => {
+      labelSaveTimeouts.forEach((timeoutId) => {
         window.clearTimeout(timeoutId);
       });
-      labelSaveTimeoutsRef.current.clear();
+      labelSaveTimeouts.clear();
     };
-  }, [loadAccounts, loadSenderRules, refreshSyncStatus]);
+  }, [loadAccounts, loadAuthStatus, loadSenderRules, refreshSyncStatus]);
 
   useEffect(() => {
     const hasRunningSync = Object.values(syncByAccountId).some(
@@ -380,93 +399,119 @@ export function SettingsPage() {
       const health = await getApiHealth();
       setHealthStatus(`${health.status.toUpperCase()} · ${health.time}`);
     } catch (error) {
-      setHealthStatus(`Error · ${toErrorMessage(error)}`);
+      setHealthStatus(`Error · ${toApiErrorMessage(error)}`);
     } finally {
       setIsCheckingHealth(false);
     }
   };
 
+  const handleSavePassword = useCallback(async () => {
+    setPasswordFormError(null);
+
+    const trimmedCurrent = currentPasswordInput.trim();
+    const trimmedNew = newPasswordInput.trim();
+    const trimmedConfirm = confirmNewPasswordInput.trim();
+
+    if (trimmedNew.length < 8) {
+      setPasswordFormError("New password must be at least 8 characters.");
+      return;
+    }
+    if (trimmedNew.length > 128) {
+      setPasswordFormError("New password must be at most 128 characters.");
+      return;
+    }
+    if (trimmedNew !== trimmedConfirm) {
+      setPasswordFormError("New password and confirmation do not match.");
+      return;
+    }
+    if (hasLocalPassword && trimmedCurrent.length === 0) {
+      setPasswordFormError("Current password is required.");
+      return;
+    }
+
+    setIsSavingPassword(true);
+    try {
+      if (hasLocalPassword) {
+        await changeAppPassword(trimmedCurrent, trimmedNew, trimmedConfirm);
+      } else {
+        await setAppPassword(trimmedNew);
+      }
+      setCurrentPasswordInput("");
+      setNewPasswordInput("");
+      setConfirmNewPasswordInput("");
+      await loadAuthStatus();
+      showNotice("Password updated");
+    } catch (error) {
+      setPasswordFormError(toApiErrorMessage(error));
+    } finally {
+      setIsSavingPassword(false);
+    }
+  }, [
+    confirmNewPasswordInput,
+    currentPasswordInput,
+    hasLocalPassword,
+    loadAuthStatus,
+    newPasswordInput,
+    showNotice,
+  ]);
+
   const pollForGmailConnection = useCallback(
     async (state: string, baselineByEmail: Map<string, string>) => {
-      const pollStartedAt = Date.now();
+      try {
+        await waitForGmailOAuthOutcome(state, {
+          timeoutMessage: timeoutConnectMessage(),
+          onPoll: async () => {
+            try {
+              const latestAccounts = await listAccounts();
+              applyAccountSnapshot(latestAccounts);
+              setAccountsError(null);
 
-      while (Date.now() - pollStartedAt <= OAUTH_POLL_TIMEOUT_MS) {
-        await sleep(OAUTH_POLL_INTERVAL_MS);
-
-        const [accountsResult, statusResult] = await Promise.allSettled([
-          listAccounts(),
-          getGmailOAuthStatus(state),
-        ]);
-
-        let latestAccounts: AccountRecord[] = accounts;
-        if (accountsResult.status === "fulfilled") {
-          latestAccounts = accountsResult.value;
-          applyAccountSnapshot(latestAccounts);
-          setAccountsError(null);
-        } else {
-          setAccountsError(toErrorMessage(accountsResult.reason));
-        }
-
-        if (statusResult.status === "fulfilled" && statusResult.value.status === "ERROR") {
-          return statusResult.value.message;
-        }
-
-        const gmailConnected = latestAccounts.some((account) => {
-          if (account.provider !== "GMAIL") {
-            return false;
-          }
-          const baselineStatus = baselineByEmail.get(account.email.toLowerCase());
-          return baselineStatus === undefined;
+              return latestAccounts.some((account) => {
+                if (account.provider !== "GMAIL") {
+                  return false;
+                }
+                const baselineStatus = baselineByEmail.get(account.email.toLowerCase());
+                return baselineStatus === undefined;
+              });
+            } catch (error) {
+              setAccountsError(toApiErrorMessage(error));
+              return false;
+            }
+          },
         });
-
-        if (gmailConnected) {
-          return null;
-        }
-
-        if (statusResult.status === "fulfilled" && statusResult.value.status === "SUCCESS") {
-          return null;
-        }
+        return null;
+      } catch (error) {
+        return toApiErrorMessage(error) || timeoutConnectMessage();
       }
-
-      return timeoutConnectMessage();
     },
-    [accounts, applyAccountSnapshot]
+    [applyAccountSnapshot]
   );
 
   const pollForSendCapability = useCallback(
     async (state: string, accountId: string) => {
-      const pollStartedAt = Date.now();
+      try {
+        await waitForGmailOAuthOutcome(state, {
+          timeoutMessage: timeoutReauthMessage(),
+          onPoll: async () => {
+            try {
+              const latestAccounts = await listAccounts();
+              applyAccountSnapshot(latestAccounts);
+              setAccountsError(null);
 
-      while (Date.now() - pollStartedAt <= OAUTH_POLL_TIMEOUT_MS) {
-        await sleep(OAUTH_POLL_INTERVAL_MS);
-
-        const [accountsResult, statusResult] = await Promise.allSettled([
-          listAccounts(),
-          getGmailOAuthStatus(state),
-        ]);
-
-        let latestAccounts: AccountRecord[] = accounts;
-        if (accountsResult.status === "fulfilled") {
-          latestAccounts = accountsResult.value;
-          applyAccountSnapshot(latestAccounts);
-          setAccountsError(null);
-        } else {
-          setAccountsError(toErrorMessage(accountsResult.reason));
-        }
-
-        const account = latestAccounts.find((candidate) => candidate.id === accountId);
-        if (account?.canSend) {
-          return null;
-        }
-
-        if (statusResult.status === "fulfilled" && statusResult.value.status === "ERROR") {
-          return statusResult.value.message;
-        }
+              const account = latestAccounts.find((candidate) => candidate.id === accountId);
+              return Boolean(account?.canSend);
+            } catch (error) {
+              setAccountsError(toApiErrorMessage(error));
+              return false;
+            }
+          },
+        });
+        return null;
+      } catch (error) {
+        return toApiErrorMessage(error) || timeoutReauthMessage();
       }
-
-      return timeoutReauthMessage();
     },
-    [accounts, applyAccountSnapshot]
+    [applyAccountSnapshot]
   );
 
   const handleConnectGmail = async () => {
@@ -480,7 +525,7 @@ export function SettingsPage() {
     try {
       const config = await configCheck();
       if (!config.configured) {
-        setOauthConfigPath(config.path ?? WINDOWS_OAUTH_JSON_PATH);
+        setOauthConfigPath(config.path ?? DEFAULT_OAUTH_JSON_PATH);
         setOauthConfigMessage(config.message);
         setOauthConfigDialogOpen(true);
         return;
@@ -488,17 +533,11 @@ export function SettingsPage() {
 
       const startResponse = await startGmailOAuth({
         returnTo: "mailpilot://oauth-done",
-        mode: "READONLY",
+        mode: "SEND",
+        context: "SETTINGS_CONNECT",
       });
 
-      try {
-        await openUrl(startResponse.authUrl);
-      } catch (openError) {
-        const popup = window.open(startResponse.authUrl, "_blank", "noopener,noreferrer");
-        if (!popup) {
-          throw new ApiClientError("Unable to open the system browser for Google OAuth.");
-        }
-      }
+      await openGmailOAuthUrl(startResponse.authUrl);
 
       const pollError = await pollForGmailConnection(startResponse.state, baselineByEmail);
       if (pollError) {
@@ -508,9 +547,9 @@ export function SettingsPage() {
 
       await loadAccounts();
       await refreshSyncStatus();
-      showNotice("Gmail account connected");
+      showNotice("Gmail account connected with send access");
     } catch (error) {
-      setOauthError(toErrorMessage(error));
+      setOauthError(toApiErrorMessage(error));
     } finally {
       setIsConnectingGmail(false);
     }
@@ -521,9 +560,10 @@ export function SettingsPage() {
     setIsConnectingGmail(true);
 
     try {
+      const targetAccount = accounts.find((account) => account.id === accountId);
       const config = await configCheck();
       if (!config.configured) {
-        setOauthConfigPath(config.path ?? WINDOWS_OAUTH_JSON_PATH);
+        setOauthConfigPath(config.path ?? DEFAULT_OAUTH_JSON_PATH);
         setOauthConfigMessage(config.message);
         setOauthConfigDialogOpen(true);
         return;
@@ -532,16 +572,11 @@ export function SettingsPage() {
       const startResponse = await startGmailOAuth({
         returnTo: "mailpilot://oauth-done",
         mode: "SEND",
+        context: "SETTINGS_REAUTH_SEND",
+        accountHint: targetAccount?.email ?? undefined,
       });
 
-      try {
-        await openUrl(startResponse.authUrl);
-      } catch {
-        const popup = window.open(startResponse.authUrl, "_blank", "noopener,noreferrer");
-        if (!popup) {
-          throw new ApiClientError("Unable to open the system browser for Google OAuth.");
-        }
-      }
+      await openGmailOAuthUrl(startResponse.authUrl);
 
       const pollError = await pollForSendCapability(startResponse.state, accountId);
       if (pollError) {
@@ -550,9 +585,9 @@ export function SettingsPage() {
       }
 
       await loadAccounts();
-      showNotice("Sending scope granted");
+      showNotice("Gmail sending access granted");
     } catch (error) {
-      setOauthError(toErrorMessage(error));
+      setOauthError(toApiErrorMessage(error));
     } finally {
       setIsConnectingGmail(false);
     }
@@ -566,7 +601,7 @@ export function SettingsPage() {
       showNotice(`Sync started for ${response.accountsQueued} account(s)`);
       await refreshSyncStatus();
     } catch (error) {
-      setSyncError(toErrorMessage(error));
+      setSyncError(toApiErrorMessage(error));
     } finally {
       setIsSyncingAll(false);
     }
@@ -580,7 +615,7 @@ export function SettingsPage() {
       showNotice("Account sync started");
       await refreshSyncStatus();
     } catch (error) {
-      setSyncError(toErrorMessage(error));
+      setSyncError(toApiErrorMessage(error));
     } finally {
       setSyncingAccountId(null);
     }
@@ -595,7 +630,7 @@ export function SettingsPage() {
       await refreshSyncStatus();
       await loadAccounts();
     } catch (error) {
-      setSyncError(toErrorMessage(error));
+      setSyncError(toApiErrorMessage(error));
     } finally {
       setIsRepairingMetadata(false);
     }
@@ -661,7 +696,7 @@ export function SettingsPage() {
       } catch (error) {
         setLabelSaveErrorByAccountId((previous) => ({
           ...previous,
-          [accountId]: toErrorMessage(error),
+          [accountId]: toApiErrorMessage(error),
         }));
       } finally {
         setSavingLabelByAccountId((previous) => withoutRecordKey(previous, accountId));
@@ -758,11 +793,50 @@ export function SettingsPage() {
       await loadAccounts();
       await refreshSyncStatus();
     } catch (error) {
-      setDetachError(toErrorMessage(error));
+      setDetachError(toApiErrorMessage(error));
     } finally {
       setDetachingAccountId(null);
     }
   }, [detachConfirmInput, detachDialogAccount, loadAccounts, refreshSyncStatus, showNotice]);
+
+  const openResetDialog = useCallback(() => {
+    setResetDialogOpen(true);
+    setResetPassword("");
+    setResetConfirmText("");
+    setResetAcknowledgeChecked(false);
+    setResetError(null);
+  }, []);
+
+  const closeResetDialog = useCallback(
+    (open: boolean) => {
+      if (!open && !isResettingApp) {
+        setResetDialogOpen(false);
+        setResetPassword("");
+        setResetConfirmText("");
+        setResetAcknowledgeChecked(false);
+        setResetError(null);
+      }
+    },
+    [isResettingApp]
+  );
+
+  const handleResetApp = useCallback(async () => {
+    setResetError(null);
+    setIsResettingApp(true);
+    try {
+      await resetApp({
+        password: resetPassword,
+        confirmText: resetConfirmText,
+      });
+      showNotice("Reset complete. Closing app...");
+      await closeDesktopAppWindow();
+      setIsResettingApp(false);
+      setResetDialogOpen(false);
+    } catch (error) {
+      setResetError(toApiErrorMessage(error));
+      setIsResettingApp(false);
+    }
+  }, [resetConfirmText, resetPassword, showNotice]);
 
   const openCreateRuleDialog = () => {
     setEditingRuleId(null);
@@ -802,7 +876,7 @@ export function SettingsPage() {
       setRuleDialogOpen(false);
       await loadSenderRules();
     } catch (error) {
-      setRuleActionError(toErrorMessage(error));
+      setRuleActionError(toApiErrorMessage(error));
     } finally {
       setIsSavingRule(false);
     }
@@ -822,7 +896,7 @@ export function SettingsPage() {
       setRuleActionMessage("Sender highlight rule deleted");
       await loadSenderRules();
     } catch (error) {
-      setRuleActionError(toErrorMessage(error));
+      setRuleActionError(toApiErrorMessage(error));
     } finally {
       setDeletingRuleId(null);
     }
@@ -830,6 +904,11 @@ export function SettingsPage() {
 
   const detachEmailMatches =
     detachDialogAccount !== null && detachConfirmInput === detachDialogAccount.email;
+  const canConfirmReset =
+    resetPassword.trim().length > 0 &&
+    resetConfirmText === "RESET" &&
+    resetAcknowledgeChecked &&
+    !isResettingApp;
 
   return (
     <section className="space-y-6">
@@ -844,12 +923,167 @@ export function SettingsPage() {
         <CardHeader>
           <CardTitle>Theme</CardTitle>
           <CardDescription>
-            Persisted locally. This currently controls the desktop shell visuals only.
+            Persisted locally and applied instantly across shell, onboarding, and login.
           </CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-wrap items-center gap-3">
-          <Badge variant="secondary">Current mode: {modeLabel}</Badge>
-          <Button onClick={() => setThemeMode(nextTheme)}>Switch to {nextThemeLabel}</Button>
+        <CardContent className="space-y-3">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <button
+              className={cn(
+                "rounded-lg border p-3 text-left transition-colors",
+                themeVariant === "balanced"
+                  ? "border-primary/40 bg-accent"
+                  : "border-border bg-card hover:bg-muted"
+              )}
+              onClick={() => setThemeVariant("balanced")}
+              type="button"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold">Balanced</p>
+                {themeVariant === "balanced" ? <Badge variant="secondary">Active</Badge> : null}
+              </div>
+              <p className="pt-1 text-xs text-muted-foreground">
+                Navy-balanced dark surfaces with cool contrast.
+              </p>
+              <div className="mt-3 flex items-center gap-2">
+                <span className="h-4 w-4 rounded-full border border-white/15 bg-[#111a2a]" />
+                <span className="h-4 w-4 rounded-full border border-white/15 bg-[#1b2740]" />
+                <span className="h-4 w-4 rounded-full border border-white/15 bg-[#273451]" />
+              </div>
+            </button>
+
+            <button
+              className={cn(
+                "rounded-lg border p-3 text-left transition-colors",
+                themeVariant === "pure-black"
+                  ? "border-primary/40 bg-accent"
+                  : "border-border bg-card hover:bg-muted"
+              )}
+              onClick={() => setThemeVariant("pure-black")}
+              type="button"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold">Pure Black</p>
+                {themeVariant === "pure-black" ? <Badge variant="secondary">Active</Badge> : null}
+              </div>
+              <p className="pt-1 text-xs text-muted-foreground">
+                Premium black and charcoal surfaces with high-contrast text.
+              </p>
+              <div className="mt-3 flex items-center gap-2">
+                <span className="h-4 w-4 rounded-full border border-white/15 bg-[#050505]" />
+                <span className="h-4 w-4 rounded-full border border-white/15 bg-[#101010]" />
+                <span className="h-4 w-4 rounded-full border border-white/15 bg-[#1b1b1b]" />
+              </div>
+            </button>
+
+            <button
+              className={cn(
+                "rounded-lg border p-3 text-left transition-colors",
+                themeVariant === "paper"
+                  ? "border-primary/40 bg-accent"
+                  : "border-border bg-card hover:bg-muted"
+              )}
+              onClick={() => setThemeVariant("paper")}
+              type="button"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold">Paper</p>
+                {themeVariant === "paper" ? <Badge variant="secondary">Active</Badge> : null}
+              </div>
+              <p className="pt-1 text-xs text-muted-foreground">
+                Soft off-white layers with gentle contrast and minimal glare.
+              </p>
+              <div className="mt-3 flex items-center gap-2">
+                <span className="h-4 w-4 rounded-full border border-black/10 bg-[#efefec]" />
+                <span className="h-4 w-4 rounded-full border border-black/10 bg-[#f5f4f1]" />
+                <span className="h-4 w-4 rounded-full border border-black/10 bg-[#fbfaf7]" />
+              </div>
+            </button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Accent priority colors remain unchanged across all themes.
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Local App Password</CardTitle>
+          <CardDescription>
+            Used for local login, lock/unlock, and privacy protection on this desktop.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm text-muted-foreground">
+          {authStatusError && <p className="text-destructive">{authStatusError}</p>}
+          {hasLocalPassword === null && !authStatusError && <p>Loading password status...</p>}
+
+          {hasLocalPassword !== null && (
+            <>
+              {hasLocalPassword && (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium">Current password</p>
+                  <Input
+                    autoComplete="current-password"
+                    disabled={isSavingPassword}
+                    onChange={(event) => {
+                      setCurrentPasswordInput(event.target.value);
+                      setPasswordFormError(null);
+                    }}
+                    placeholder="Current password"
+                    type="password"
+                    value={currentPasswordInput}
+                  />
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <p className="text-xs font-medium">New password</p>
+                <Input
+                  autoComplete="new-password"
+                  disabled={isSavingPassword}
+                  onChange={(event) => {
+                    setNewPasswordInput(event.target.value);
+                    setPasswordFormError(null);
+                  }}
+                  placeholder="New password"
+                  type="password"
+                  value={newPasswordInput}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-xs font-medium">Confirm new password</p>
+                <Input
+                  autoComplete="new-password"
+                  disabled={isSavingPassword}
+                  onChange={(event) => {
+                    setConfirmNewPasswordInput(event.target.value);
+                    setPasswordFormError(null);
+                  }}
+                  placeholder="Confirm new password"
+                  type="password"
+                  value={confirmNewPasswordInput}
+                />
+              </div>
+
+              {passwordFormError && <p className="text-xs text-destructive">{passwordFormError}</p>}
+
+              <div className="flex flex-wrap items-center gap-3">
+                <Button
+                  disabled={isSavingPassword || hasLocalPassword === null}
+                  onClick={() => void handleSavePassword()}
+                  size="sm"
+                >
+                  {isSavingPassword
+                    ? "Saving..."
+                    : hasLocalPassword
+                      ? "Change password"
+                      : "Set password"}
+                </Button>
+                <p className="text-xs text-muted-foreground">Password must be 8-128 characters.</p>
+              </div>
+            </>
+          )}
         </CardContent>
       </Card>
 
@@ -882,6 +1116,21 @@ export function SettingsPage() {
             )}
             <Badge variant="secondary">{healthStatus}</Badge>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card className="border-destructive/40">
+        <CardHeader>
+          <CardTitle className="text-destructive">Danger Zone</CardTitle>
+          <CardDescription>
+            Reset permanently deletes all local MailPilot data (accounts, messages, views,
+            followups, drafts, and rules). This cannot be undone.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button onClick={openResetDialog} variant="destructive">
+            Reset MailPilot
+          </Button>
         </CardContent>
       </Card>
 
@@ -923,31 +1172,31 @@ export function SettingsPage() {
         </CardHeader>
         <CardContent className="space-y-3">
           {oauthError && (
-            <div className="rounded-md border border-border bg-card p-3 text-sm text-muted-foreground">
-              <p className="whitespace-pre-line">{oauthError}</p>
-              <Button
-                className="mt-3"
-                onClick={() => void handleConnectGmail()}
-                size="sm"
-                variant="outline"
-              >
-                Retry
-              </Button>
-            </div>
+            <StatePanel
+              actions={
+                <Button onClick={() => void handleConnectGmail()} size="sm" variant="outline">
+                  Retry
+                </Button>
+              }
+              compact
+              description="Retry the Gmail browser flow after confirming OAuth configuration and account access."
+              title={oauthError}
+              variant="error"
+            />
           )}
 
           {syncError && (
-            <div className="rounded-md border border-border bg-card p-3 text-sm text-muted-foreground">
-              <p>{syncError}</p>
-              <Button
-                className="mt-3"
-                onClick={() => void refreshSyncStatus()}
-                size="sm"
-                variant="outline"
-              >
-                Retry
-              </Button>
-            </div>
+            <StatePanel
+              actions={
+                <Button onClick={() => void refreshSyncStatus()} size="sm" variant="outline">
+                  Retry
+                </Button>
+              }
+              compact
+              description="Retry the sync request to refresh account progress and capability state."
+              title={syncError}
+              variant="error"
+            />
           )}
 
           {isLoadingAccounts && (
@@ -962,23 +1211,26 @@ export function SettingsPage() {
           )}
 
           {!isLoadingAccounts && accountsError && (
-            <div className="rounded-md border border-border bg-card p-3 text-sm text-muted-foreground">
-              <p>{accountsError}</p>
-              <Button
-                className="mt-3"
-                onClick={() => void loadAccounts()}
-                size="sm"
-                variant="outline"
-              >
-                Retry
-              </Button>
-            </div>
+            <StatePanel
+              actions={
+                <Button onClick={() => void loadAccounts()} size="sm" variant="outline">
+                  Retry
+                </Button>
+              }
+              compact
+              description="Retry to reload connected accounts, role labels, and capability status."
+              title={accountsError}
+              variant="error"
+            />
           )}
 
           {!isLoadingAccounts && !accountsError && accounts.length === 0 && (
-            <p className="rounded-md border border-border bg-card p-3 text-sm text-muted-foreground">
-              No connected accounts yet.
-            </p>
+            <StatePanel
+              compact
+              description="Connect Gmail to unlock mailbox sync, sending, onboarding recovery, and dashboard freshness."
+              title="No connected accounts yet"
+              variant="empty"
+            />
           )}
 
           {!isLoadingAccounts && !accountsError && accounts.length > 0 && (
@@ -993,6 +1245,9 @@ export function SettingsPage() {
                 const roleSaveError = labelSaveErrorByAccountId[account.id] ?? null;
                 const isSavingLabel = savingLabelByAccountId[account.id] ?? false;
                 const isDetaching = detachingAccountId === account.id;
+                const requiresSendReauth = account.provider === "GMAIL" && !account.canSend;
+                const connectionLabel = account.canRead ? "Connected" : "Read access missing";
+                const connectionBadgeVariant = account.canRead ? "secondary" : "outline";
 
                 return (
                   <div
@@ -1003,11 +1258,15 @@ export function SettingsPage() {
                       <div className="flex flex-wrap items-center gap-2">
                         <Badge variant="outline">{account.provider}</Badge>
                         <p className="truncate text-sm font-medium">{account.email}</p>
-                        <Badge variant={account.status === "CONNECTED" ? "secondary" : "outline"}>
-                          {account.status}
+                        <Badge variant={connectionBadgeVariant}>{connectionLabel}</Badge>
+                        <Badge variant={account.canRead ? "secondary" : "outline"}>
+                          {account.canRead ? "Can read" : "Read access missing"}
                         </Badge>
                         <Badge variant={account.canSend ? "secondary" : "outline"}>
-                          {account.canSend ? "Can send" : "Send disabled"}
+                          {account.canSend ? "Can send" : "Send not enabled"}
+                        </Badge>
+                        <Badge variant={requiresSendReauth ? "outline" : "secondary"}>
+                          {requiresSendReauth ? "Re-auth required" : "Send ready"}
                         </Badge>
                         <Badge variant={account.role === "PRIMARY" ? "secondary" : "outline"}>
                           {roleBadgeLabel(account)}
@@ -1063,14 +1322,14 @@ export function SettingsPage() {
                         <p className="text-xs text-destructive sm:text-right">{roleSaveError}</p>
                       )}
                       <div className="flex flex-wrap items-center justify-end gap-2">
-                        {!account.canSend && account.provider === "GMAIL" && (
+                        {requiresSendReauth && (
                           <Button
                             disabled={isConnectingGmail || isDetaching}
                             onClick={() => void handleReauthForSending(account.id)}
                             size="sm"
                             variant="outline"
                           >
-                            {isConnectingGmail ? "Starting..." : "Re-auth for sending"}
+                            {isConnectingGmail ? "Starting..." : "Reconnect Gmail"}
                           </Button>
                         )}
                         <Button
@@ -1256,6 +1515,84 @@ export function SettingsPage() {
         </DialogContent>
       </Dialog>
 
+      <Dialog onOpenChange={closeResetDialog} open={resetDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-destructive">Reset MailPilot?</DialogTitle>
+            <DialogDescription>
+              This permanently deletes all local MailPilot data and closes the app. On next launch,
+              onboarding starts again.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 text-sm">
+            <div className="space-y-2">
+              <p className="text-muted-foreground">Enter local app password:</p>
+              <Input
+                autoComplete="current-password"
+                disabled={isResettingApp}
+                onChange={(event) => {
+                  setResetPassword(event.target.value);
+                  setResetError(null);
+                }}
+                placeholder="Password"
+                type="password"
+                value={resetPassword}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-muted-foreground">Type RESET to confirm:</p>
+              <Input
+                autoComplete="off"
+                disabled={isResettingApp}
+                onChange={(event) => {
+                  setResetConfirmText(event.target.value);
+                  setResetError(null);
+                }}
+                placeholder="RESET"
+                value={resetConfirmText}
+              />
+            </div>
+
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <input
+                checked={resetAcknowledgeChecked}
+                className="h-4 w-4 rounded border border-input bg-background"
+                disabled={isResettingApp}
+                onChange={(event) => {
+                  setResetAcknowledgeChecked(event.target.checked);
+                  setResetError(null);
+                }}
+                type="checkbox"
+              />
+              I understand this deletes all data.
+            </label>
+
+            {resetError && <p className="text-xs text-destructive">{resetError}</p>}
+          </div>
+
+          <DialogFooter>
+            <Button
+              disabled={isResettingApp}
+              onClick={() => closeResetDialog(false)}
+              type="button"
+              variant="outline"
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={!canConfirmReset}
+              onClick={() => void handleResetApp()}
+              type="button"
+              variant="destructive"
+            >
+              {isResettingApp ? "Resetting..." : "Reset & Close App"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog onOpenChange={setOauthConfigDialogOpen} open={oauthConfigDialogOpen}>
         <DialogContent className="max-w-xl">
           <DialogHeader>
@@ -1266,13 +1603,13 @@ export function SettingsPage() {
           <div className="space-y-3 text-sm text-muted-foreground">
             <p>Place the downloaded OAuth desktop JSON at:</p>
             <p className="rounded-md border border-border bg-card px-3 py-2 font-mono text-xs">
-              {WINDOWS_OAUTH_JSON_PATH}
+              {DEFAULT_OAUTH_JSON_PATH}
             </p>
             <p>Or set the environment variable before starting the server:</p>
             <p className="rounded-md border border-border bg-card px-3 py-2 font-mono text-xs">
-              {`$env:MAILPILOT_GOOGLE_OAUTH_CLIENT_JSON="${WINDOWS_OAUTH_JSON_PATH}"`}
+              {DEFAULT_OAUTH_JSON_ENV_COMMAND}
             </p>
-            {oauthConfigPath && oauthConfigPath !== WINDOWS_OAUTH_JSON_PATH && (
+            {oauthConfigPath && oauthConfigPath !== DEFAULT_OAUTH_JSON_PATH && (
               <p className="rounded-md border border-border bg-card px-3 py-2 font-mono text-xs">
                 Resolved path: {oauthConfigPath}
               </p>

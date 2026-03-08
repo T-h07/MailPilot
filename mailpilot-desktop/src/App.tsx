@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { openPath } from "@tauri-apps/plugin-opener";
 import {
   BrowserRouter,
   Navigate,
@@ -7,6 +9,7 @@ import {
   Route,
   Routes,
   useLocation,
+  useNavigate,
 } from "react-router-dom";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -14,12 +17,16 @@ import {
   ChevronDown,
   Cog,
   FileText,
+  FolderOpen,
   Gauge,
   LayoutDashboard,
+  Lock,
+  LogOut,
   Mailbox,
   Menu,
+  RefreshCcw,
   Send,
-  Sparkles,
+  ShieldCheck,
   Target,
 } from "lucide-react";
 import { InboxPage } from "@/pages/inbox-page";
@@ -32,6 +39,9 @@ import { ViewPage } from "@/pages/view-page";
 import { InsightsPage } from "@/pages/insights-page";
 import { SettingsPage } from "@/pages/settings-page";
 import { ViewsHubPage } from "@/pages/views-hub-page";
+import { OnboardingPage } from "@/pages/onboarding-page";
+import { LocalLoginPage } from "@/pages/local-login-page";
+import { LocalPasswordRecoveryPage } from "@/pages/local-password-recovery-page";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -40,17 +50,29 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { AppLockOverlay } from "@/components/common/app-lock-overlay";
+import { AuthShell } from "@/components/common/auth-shell";
+import { StatePanel } from "@/components/common/state-panel";
 import { ApiClientError } from "@/api/client";
 import { listViews, type ViewRecord } from "@/lib/api/views";
-import { LiveEventsProvider, useLiveEvents } from "@/lib/events/live-events-context";
+import {
+  getAppState,
+  lockApp,
+  loginApp,
+  logoutApp,
+  type AppStateRecord,
+  unlockApp,
+} from "@/lib/api/app-state";
+import { LiveEventsProvider } from "@/lib/events/live-events-context";
+import { useLiveEvents } from "@/lib/events/use-live-events";
 
-type ThemeMode = "light" | "dark";
+type ThemeVariant = "balanced" | "pure-black" | "paper";
 
-const THEME_STORAGE_KEY = "mailpilot-theme";
+const THEME_VARIANT_STORAGE_KEY = "mailpilot.themeVariant";
 
 export type AppOutletContext = {
-  themeMode: ThemeMode;
-  setThemeMode: (mode: ThemeMode) => void;
+  themeVariant: ThemeVariant;
+  setThemeVariant: (mode: ThemeVariant) => void;
   views: ViewRecord[];
   viewsLoading: boolean;
   viewsError: string | null;
@@ -71,6 +93,10 @@ type SidebarProps = {
   viewBadgeCounts: Record<string, number>;
   viewsTotalBadgeCount: number;
   onRetryViews: () => void;
+  onLock: () => Promise<void>;
+  onLogout: () => Promise<void>;
+  lockInFlight: boolean;
+  logoutInFlight: boolean;
   onNavigate?: () => void;
 };
 
@@ -95,12 +121,44 @@ const settingsItem: SidebarLink = {
   icon: Cog,
 };
 
-function getInitialThemeMode(): ThemeMode {
-  const storedTheme = localStorage.getItem(THEME_STORAGE_KEY);
-  if (storedTheme === "light" || storedTheme === "dark") {
-    return storedTheme;
+const BOOTSTRAP_RETRY_ATTEMPTS = 120;
+const BOOTSTRAP_RETRY_DELAY_MS = 1000;
+
+type BackendStartupStatus = {
+  phase: string;
+  detail: string | null;
+  attempt: number;
+  maxAttempts: number;
+};
+
+function deriveParentPath(path: string | null): string | null {
+  if (!path) {
+    return null;
   }
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+
+  const normalized = path.replace(/[\\/]+$/, "");
+  const separatorIndex = Math.max(normalized.lastIndexOf("\\"), normalized.lastIndexOf("/"));
+  if (separatorIndex <= 0) {
+    return null;
+  }
+  return normalized.slice(0, separatorIndex);
+}
+
+function getInitialThemeVariant(): ThemeVariant {
+  const storedVariant = localStorage.getItem(THEME_VARIANT_STORAGE_KEY);
+  if (storedVariant === "balanced" || storedVariant === "pure-black" || storedVariant === "paper") {
+    return storedVariant;
+  }
+
+  const legacyThemeMode = localStorage.getItem("mailpilot-theme");
+  if (legacyThemeMode === "light") {
+    return "paper";
+  }
+  if (legacyThemeMode === "dark") {
+    return "balanced";
+  }
+
+  return "balanced";
 }
 
 function toApiErrorMessage(error: unknown): string {
@@ -111,6 +169,67 @@ function toApiErrorMessage(error: unknown): string {
     return error.message;
   }
   return "Failed to load views";
+}
+
+async function getBackendLaunchError(): Promise<string | null> {
+  try {
+    const launchError = await invoke<string | null>("get_backend_launch_error");
+    if (typeof launchError === "string" && launchError.trim().length > 0) {
+      return launchError.trim();
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+async function getBackendStartupStatus(): Promise<BackendStartupStatus | null> {
+  try {
+    return await invoke<BackendStartupStatus>("get_backend_startup_status");
+  } catch {
+    return null;
+  }
+}
+
+async function getBackendLogsDir(): Promise<string | null> {
+  try {
+    const logsDir = await invoke<string | null>("get_backend_logs_dir");
+    if (typeof logsDir === "string" && logsDir.trim().length > 0) {
+      return logsDir.trim();
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+async function markBackendUiReady(): Promise<void> {
+  try {
+    await invoke("mark_backend_ui_ready");
+  } catch {
+    // Best-effort logging only.
+  }
+}
+
+async function toBootstrapErrorMessage(error: unknown): Promise<string> {
+  if (error instanceof ApiClientError && error.status === 0) {
+    const launchError = await getBackendLaunchError();
+    if (launchError) {
+      return launchError;
+    }
+
+    return "MailPilot backend did not become ready. Check Java 21+ and backend logs under %LOCALAPPDATA%\\MailPilot\\logs.";
+  }
+
+  return toApiErrorMessage(error);
+}
+
+async function waitForDelay(delayMs: number): Promise<void> {
+  await new Promise((resolve) => {
+    window.setTimeout(resolve, delayMs);
+  });
 }
 
 function resolveHeaderTitle(pathname: string, views: ViewRecord[]): string {
@@ -189,6 +308,10 @@ function Sidebar({
   viewBadgeCounts,
   viewsTotalBadgeCount,
   onRetryViews,
+  onLock,
+  onLogout,
+  lockInFlight,
+  logoutInFlight,
   onNavigate,
 }: SidebarProps) {
   const location = useLocation();
@@ -205,9 +328,11 @@ function Sidebar({
     <div className="flex h-full flex-col">
       <div className="flex h-16 items-center border-b border-border px-4">
         <div className="flex items-center gap-2">
-          <div className="rounded-lg bg-primary/15 p-2 text-primary">
-            <Sparkles className="h-[18px] w-[18px]" />
-          </div>
+          <img
+            alt="MailPilot"
+            className="h-10 w-10 rounded-xl border border-border object-cover shadow-sm"
+            src="/mailpilot-icon.png"
+          />
           <div>
             <p className="text-base font-semibold leading-none">MailPilot</p>
             <p className="pt-0.5 text-xs text-muted-foreground">Inbox Cockpit</p>
@@ -351,16 +476,100 @@ function Sidebar({
           <settingsItem.icon className="h-[18px] w-[18px] shrink-0" />
           <span>{settingsItem.label}</span>
         </NavLink>
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          <Button
+            className="justify-start gap-2"
+            disabled={lockInFlight}
+            onClick={() => {
+              void onLock();
+              onNavigate?.();
+            }}
+            size="sm"
+            variant="outline"
+          >
+            <Lock className="h-4 w-4" />
+            {lockInFlight ? "Locking..." : "Lock"}
+          </Button>
+          <Button
+            className="justify-start gap-2"
+            disabled={logoutInFlight}
+            onClick={() => {
+              void onLogout();
+              onNavigate?.();
+            }}
+            size="sm"
+            variant="outline"
+          >
+            <LogOut className="h-4 w-4" />
+            {logoutInFlight ? "Logging out..." : "Logout"}
+          </Button>
+        </div>
       </div>
     </div>
   );
 }
 
-function AppShell() {
+type AppShellProps = {
+  locked: boolean;
+  lockInFlight: boolean;
+  logoutInFlight: boolean;
+  unlockInFlight: boolean;
+  unlockError: string | null;
+  themeVariant: ThemeVariant;
+  setThemeVariant: (variant: ThemeVariant) => void;
+  onLock: () => Promise<void>;
+  onLogout: () => Promise<void>;
+  onUnlock: (password: string) => Promise<void>;
+  onForgotPassword: () => void;
+};
+
+type AppRouteGuardProps = {
+  appState: AppStateRecord | null;
+  loggedIn: boolean;
+  lockInFlight: boolean;
+  logoutInFlight: boolean;
+  unlockInFlight: boolean;
+  unlockError: string | null;
+  themeVariant: ThemeVariant;
+  setThemeVariant: (variant: ThemeVariant) => void;
+  onLock: () => Promise<void>;
+  onLogout: () => Promise<void>;
+  onUnlock: (password: string) => Promise<void>;
+  onForgotPassword: () => void;
+};
+
+type OnboardingRouteProps = {
+  appState: AppStateRecord | null;
+  loggedIn: boolean;
+  onEnterInbox: () => Promise<void>;
+};
+
+type LoginRouteProps = {
+  appState: AppStateRecord | null;
+  loggedIn: boolean;
+  loginInFlight: boolean;
+  loginError: string | null;
+  onLogin: (password: string) => Promise<void>;
+  onForgotPassword: () => void;
+};
+
+function AppShell({
+  locked,
+  lockInFlight,
+  logoutInFlight,
+  unlockInFlight,
+  unlockError,
+  themeVariant,
+  setThemeVariant,
+  onLock,
+  onLogout,
+  onUnlock,
+  onForgotPassword,
+}: AppShellProps) {
   const location = useLocation();
+  const navigate = useNavigate();
   const { badges, latestNewMail, newMailSequence, sseConnected, syncByAccountId } = useLiveEvents();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const [themeMode, setThemeMode] = useState<ThemeMode>(getInitialThemeMode);
   const [toasts, setToasts] = useState<AppToast[]>([]);
   const toastTimeoutsRef = useRef<Map<number, number>>(new Map());
 
@@ -417,11 +626,6 @@ function AppShell() {
     };
   }, [sseConnected, syncByAccountId]);
 
-  useLayoutEffect(() => {
-    document.documentElement.classList.toggle("dark", themeMode === "dark");
-    localStorage.setItem(THEME_STORAGE_KEY, themeMode);
-  }, [themeMode]);
-
   useEffect(() => {
     if (!latestNewMail || newMailSequence === 0) {
       return;
@@ -463,119 +667,591 @@ function AppShell() {
   }, [latestNewMail, newMailSequence, views]);
 
   useEffect(() => {
+    const toastTimeouts = toastTimeoutsRef.current;
     return () => {
-      for (const timeoutId of toastTimeoutsRef.current.values()) {
+      for (const timeoutId of toastTimeouts.values()) {
         window.clearTimeout(timeoutId);
       }
-      toastTimeoutsRef.current.clear();
+      toastTimeouts.clear();
     };
   }, []);
 
   return (
-    <div className="flex h-screen bg-background text-foreground">
-      <aside className="sidebar-panel hidden w-[260px] shrink-0 border-r border-border md:block">
-        <Sidebar
-          inboxBadgeCount={badges.inboxCount}
-          onRetryViews={() => {
-            void refreshViews();
-          }}
-          viewBadgeCounts={badges.viewCounts}
-          views={views}
-          viewsError={viewsError}
-          viewsTotalBadgeCount={badges.viewsTotal}
-          viewsLoading={viewsLoading}
-        />
-      </aside>
-      <div className="app-shell-main flex min-w-0 flex-1 flex-col">
-        <header className="flex h-16 items-center justify-between border-b border-border bg-background px-4 md:px-6">
-          <div className="flex min-w-0 items-center gap-3">
-            <Sheet onOpenChange={setMobileNavOpen} open={mobileNavOpen}>
-              <SheetTrigger asChild>
-                <Button className="md:hidden" size="icon" variant="outline">
-                  <Menu className="h-4 w-4" />
-                </Button>
-              </SheetTrigger>
-              <SheetContent className="w-[280px] p-0" side="left">
-                <SheetHeader className="sr-only">
-                  <SheetTitle>Navigation</SheetTitle>
-                </SheetHeader>
-                <Sidebar
-                  inboxBadgeCount={badges.inboxCount}
-                  onNavigate={() => setMobileNavOpen(false)}
-                  onRetryViews={() => {
-                    void refreshViews();
-                  }}
-                  viewBadgeCounts={badges.viewCounts}
-                  views={views}
-                  viewsError={viewsError}
-                  viewsTotalBadgeCount={badges.viewsTotal}
-                  viewsLoading={viewsLoading}
-                />
-              </SheetContent>
-            </Sheet>
-            <div className="min-w-0">
-              <p className="truncate text-lg font-semibold leading-none">{pageTitle}</p>
-              <p className="pt-1 text-xs text-muted-foreground">Desktop command deck</p>
-            </div>
-          </div>
-          <Badge className="rounded-full px-3 py-1 text-xs" variant={syncPill.variant}>
-            {syncPill.label}
-          </Badge>
-        </header>
-        <main className="flex-1 overflow-auto p-4 md:p-6">
-          <div className="mx-auto max-w-7xl">
-            <Outlet
-              context={{
-                themeMode,
-                setThemeMode,
-                views,
-                viewsLoading,
-                viewsError,
-                refreshViews,
-              }}
-            />
-          </div>
-        </main>
-        {toasts.length > 0 && (
-          <div className="pointer-events-none fixed bottom-5 right-5 z-[80] space-y-2">
-            {toasts.map((toast) => (
-              <div
-                className="w-[320px] rounded-lg border border-border bg-card px-3 py-2 shadow-lg"
-                key={toast.id}
-              >
-                <p className="text-xs font-semibold">{toast.title}</p>
-                <p className="pt-1 text-xs text-muted-foreground">{toast.body}</p>
-              </div>
-            ))}
-          </div>
+    <div className="relative h-screen">
+      <div
+        className={cn(
+          "flex h-full bg-background text-foreground transition duration-200",
+          locked && "pointer-events-none select-none blur-[2px]"
         )}
+      >
+        <aside className="sidebar-panel hidden w-[260px] shrink-0 border-r border-border md:block">
+          <Sidebar
+            inboxBadgeCount={badges.inboxCount}
+            lockInFlight={lockInFlight}
+            logoutInFlight={logoutInFlight}
+            onLock={onLock}
+            onLogout={onLogout}
+            onRetryViews={() => {
+              void refreshViews();
+            }}
+            viewBadgeCounts={badges.viewCounts}
+            views={views}
+            viewsError={viewsError}
+            viewsTotalBadgeCount={badges.viewsTotal}
+            viewsLoading={viewsLoading}
+          />
+        </aside>
+        <div className="app-shell-main flex min-w-0 flex-1 flex-col">
+          <header className="flex h-16 items-center justify-between border-b border-border bg-background px-4 md:px-6">
+            <div className="flex min-w-0 items-center gap-3">
+              <Sheet onOpenChange={setMobileNavOpen} open={mobileNavOpen}>
+                <SheetTrigger asChild>
+                  <Button className="md:hidden" size="icon" variant="outline">
+                    <Menu className="h-4 w-4" />
+                  </Button>
+                </SheetTrigger>
+                <SheetContent className="w-[280px] p-0" side="left">
+                  <SheetHeader className="sr-only">
+                    <SheetTitle>Navigation</SheetTitle>
+                  </SheetHeader>
+                  <Sidebar
+                    inboxBadgeCount={badges.inboxCount}
+                    lockInFlight={lockInFlight}
+                    logoutInFlight={logoutInFlight}
+                    onLock={onLock}
+                    onLogout={onLogout}
+                    onNavigate={() => setMobileNavOpen(false)}
+                    onRetryViews={() => {
+                      void refreshViews();
+                    }}
+                    viewBadgeCounts={badges.viewCounts}
+                    views={views}
+                    viewsError={viewsError}
+                    viewsTotalBadgeCount={badges.viewsTotal}
+                    viewsLoading={viewsLoading}
+                  />
+                </SheetContent>
+              </Sheet>
+              <div className="min-w-0">
+                <p className="truncate text-lg font-semibold leading-none">{pageTitle}</p>
+                <p className="pt-1 text-xs text-muted-foreground">Desktop command deck</p>
+              </div>
+            </div>
+            <Badge className="rounded-full px-3 py-1 text-xs" variant={syncPill.variant}>
+              {syncPill.label}
+            </Badge>
+          </header>
+          <main className="flex-1 overflow-auto p-4 md:p-6">
+            <div className="mx-auto max-w-7xl">
+              <Outlet
+                context={{
+                  themeVariant,
+                  setThemeVariant,
+                  views,
+                  viewsLoading,
+                  viewsError,
+                  refreshViews,
+                }}
+              />
+            </div>
+          </main>
+          {toasts.length > 0 && (
+            <div className="pointer-events-none fixed bottom-5 right-5 z-[80] space-y-2">
+              {toasts.map((toast) => (
+                <div
+                  className="mailbox-toast w-[320px] rounded-lg border border-border bg-card px-3 py-2 shadow-lg"
+                  key={toast.id}
+                >
+                  <p className="text-xs font-semibold">{toast.title}</p>
+                  <p className="pt-1 text-xs text-muted-foreground">{toast.body}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
+      {locked && (
+        <AppLockOverlay
+          error={unlockError}
+          isUnlocking={unlockInFlight}
+          onForgotPassword={() => {
+            onForgotPassword();
+            navigate("/recover", { replace: true });
+          }}
+          onUnlock={onUnlock}
+        />
+      )}
     </div>
   );
 }
 
-function App() {
+function BootstrappingScreen({
+  error,
+  statusMessage,
+  onRetry,
+  onOpenLogs,
+  onOpenAppData,
+}: {
+  error: string | null;
+  statusMessage?: string | null;
+  onRetry: () => void;
+  onOpenLogs?: (() => void) | null;
+  onOpenAppData?: (() => void) | null;
+}) {
+  const description = error
+    ? "MailPilot could not finish its local startup sequence. Use the recovery actions below and check the local logs before retrying."
+    : "MailPilot is starting its bundled backend, local database, and event stream before the desktop UI unlocks.";
+
+  return (
+    <AuthShell
+      badge={error ? "Startup Recovery" : "Starting MailPilot"}
+      description={description}
+      highlights={[
+        "MailPilot waits for the bundled backend before entering the inbox UI",
+        "Startup logs are written under %LOCALAPPDATA%\\MailPilot\\logs",
+        "If startup stalls, logs and app data are the first recovery checkpoints",
+      ]}
+      title={error ? "MailPilot needs startup recovery" : "Preparing your workspace"}
+    >
+      <StatePanel
+        actions={
+          error ? (
+            <>
+              <Button className="gap-2" onClick={onRetry}>
+                <RefreshCcw className="h-4 w-4" />
+                Retry startup
+              </Button>
+              {onOpenLogs ? (
+                <Button className="gap-2" onClick={onOpenLogs} variant="outline">
+                  <ShieldCheck className="h-4 w-4" />
+                  Open logs
+                </Button>
+              ) : null}
+              {onOpenAppData ? (
+                <Button className="gap-2" onClick={onOpenAppData} variant="outline">
+                  <FolderOpen className="h-4 w-4" />
+                  Open app data
+                </Button>
+              ) : null}
+            </>
+          ) : null
+        }
+        centered
+        className="min-h-[188px]"
+        description={
+          error ? (
+            <p className="leading-6 text-destructive">{error}</p>
+          ) : (
+            <p className="leading-6">{statusMessage ?? "Starting MailPilot backend..."}</p>
+          )
+        }
+        title={error ? "Startup interrupted" : "Loading MailPilot"}
+        variant={error ? "error" : "loading"}
+      />
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="rounded-2xl border border-border/70 bg-background/70 p-4">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+            Backend
+          </p>
+          <p className="pt-2 text-sm font-medium">Launching bundled services</p>
+          <p className="pt-1 text-xs leading-5 text-muted-foreground">
+            MailPilot waits for the local API and database before routing into the app shell.
+          </p>
+        </div>
+        <div className="rounded-2xl border border-border/70 bg-background/70 p-4">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+            Runtime
+          </p>
+          <p className="pt-2 text-sm font-medium">Verifying desktop state</p>
+          <p className="pt-1 text-xs leading-5 text-muted-foreground">
+            If startup fails, retry here first. If it repeats, inspect logs before relaunching.
+          </p>
+        </div>
+        <div className="rounded-2xl border border-border/70 bg-background/70 p-4">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+            Storage
+          </p>
+          <p className="pt-2 text-sm font-medium">Using local MailPilot data</p>
+          <p className="pt-1 text-xs leading-5 text-muted-foreground">
+            OAuth config, token keys, and logs live outside the repo under local app data.
+          </p>
+        </div>
+      </div>
+    </AuthShell>
+  );
+}
+
+function OnboardingRoute({ appState, loggedIn, onEnterInbox }: OnboardingRouteProps) {
+  if (!appState) {
+    return <BootstrappingScreen error={null} onRetry={() => undefined} />;
+  }
+  if (appState.onboardingComplete && appState.hasPassword) {
+    return <Navigate replace to={loggedIn ? "/inbox" : "/login"} />;
+  }
+  return <OnboardingPage appState={appState} onEnterInbox={onEnterInbox} />;
+}
+
+function LoginRoute({
+  appState,
+  loggedIn,
+  loginInFlight,
+  loginError,
+  onLogin,
+  onForgotPassword,
+}: LoginRouteProps) {
+  const navigate = useNavigate();
+  if (!appState) {
+    return <BootstrappingScreen error={null} onRetry={() => undefined} />;
+  }
+  if (!appState.onboardingComplete || !appState.hasPassword) {
+    return <Navigate replace to="/onboarding" />;
+  }
+  if (loggedIn) {
+    return <Navigate replace to="/inbox" />;
+  }
+  return (
+    <LocalLoginPage
+      error={loginError}
+      isLoading={loginInFlight}
+      onForgotPassword={() => {
+        onForgotPassword();
+        navigate("/recover", { replace: true });
+      }}
+      onLogin={onLogin}
+    />
+  );
+}
+
+function RecoveryRoute({
+  appState,
+  onForgotPassword,
+}: {
+  appState: AppStateRecord | null;
+  onForgotPassword: () => void;
+}) {
+  useEffect(() => {
+    onForgotPassword();
+  }, [onForgotPassword]);
+
+  if (!appState) {
+    return <BootstrappingScreen error={null} onRetry={() => undefined} />;
+  }
+  if (!appState.onboardingComplete || !appState.hasPassword) {
+    return <Navigate replace to="/onboarding" />;
+  }
+  return <LocalPasswordRecoveryPage />;
+}
+
+function ProtectedAppShell({
+  appState,
+  loggedIn,
+  lockInFlight,
+  logoutInFlight,
+  unlockInFlight,
+  unlockError,
+  themeVariant,
+  setThemeVariant,
+  onLock,
+  onLogout,
+  onUnlock,
+  onForgotPassword,
+}: AppRouteGuardProps) {
+  if (!appState) {
+    return <BootstrappingScreen error={null} onRetry={() => undefined} />;
+  }
+  if (!appState.onboardingComplete || !appState.hasPassword) {
+    return <Navigate replace to="/onboarding" />;
+  }
+  if (!loggedIn) {
+    return <Navigate replace to="/login" />;
+  }
+
   return (
     <LiveEventsProvider>
-      <BrowserRouter>
-        <Routes>
-          <Route element={<AppShell />} path="/">
-            <Route element={<Navigate replace to="/inbox" />} index />
-            <Route element={<DashboardPage />} path="dashboard" />
-            <Route element={<InboxPage />} path="inbox" />
-            <Route element={<SentPage />} path="sent" />
-            <Route element={<DraftsPage />} path="drafts" />
-            <Route element={<FocusPage />} path="focus" />
-            <Route element={<FocusDrillPage />} path="focus/drill/:type" />
-            <Route element={<ViewsHubPage />} path="views/manage" />
-            <Route element={<ViewPage />} path="views/:viewId" />
-            <Route element={<InsightsPage />} path="insights" />
-            <Route element={<SettingsPage />} path="settings" />
-          </Route>
-          <Route element={<Navigate replace to="/inbox" />} path="*" />
-        </Routes>
-      </BrowserRouter>
+      <AppShell
+        lockInFlight={lockInFlight}
+        locked={appState.locked}
+        logoutInFlight={logoutInFlight}
+        onLock={onLock}
+        onLogout={onLogout}
+        setThemeVariant={setThemeVariant}
+        themeVariant={themeVariant}
+        onUnlock={onUnlock}
+        onForgotPassword={onForgotPassword}
+        unlockError={unlockError}
+        unlockInFlight={unlockInFlight}
+      />
     </LiveEventsProvider>
+  );
+}
+
+function App() {
+  const [themeVariant, setThemeVariant] = useState<ThemeVariant>(getInitialThemeVariant);
+  const [appState, setAppState] = useState<AppStateRecord | null>(null);
+  const [isBootstrapping, setIsBootstrapping] = useState(true);
+  const [bootstrapError, setBootstrapError] = useState<string | null>(null);
+  const [bootstrapStatusMessage, setBootstrapStatusMessage] = useState<string | null>(
+    "Starting MailPilot backend..."
+  );
+  const [backendLogsDir, setBackendLogsDir] = useState<string | null>(null);
+  const [loggedIn, setLoggedIn] = useState(false);
+  const [loginInFlight, setLoginInFlight] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [lockInFlight, setLockInFlight] = useState(false);
+  const [unlockInFlight, setUnlockInFlight] = useState(false);
+  const [unlockError, setUnlockError] = useState<string | null>(null);
+  const [logoutInFlight, setLogoutInFlight] = useState(false);
+
+  useLayoutEffect(() => {
+    document.documentElement.classList.toggle("dark", themeVariant !== "paper");
+    document.documentElement.setAttribute("data-theme", themeVariant);
+    localStorage.setItem(THEME_VARIANT_STORAGE_KEY, themeVariant);
+  }, [themeVariant]);
+
+  const refreshAppState = useCallback(async () => {
+    const state = await getAppState();
+    setAppState(state);
+  }, []);
+
+  const bootstrapAppState = useCallback(async () => {
+    setIsBootstrapping(true);
+    setBootstrapError(null);
+    setBootstrapStatusMessage("Starting MailPilot backend...");
+    setBackendLogsDir(null);
+    try {
+      let lastError: unknown = null;
+
+      for (let attempt = 1; attempt <= BOOTSTRAP_RETRY_ATTEMPTS; attempt += 1) {
+        try {
+          await refreshAppState();
+          await markBackendUiReady();
+          setBootstrapStatusMessage(null);
+          lastError = null;
+          break;
+        } catch (error) {
+          lastError = error;
+          const launchError = await getBackendLaunchError();
+          if (launchError) {
+            throw new ApiClientError(launchError, 0);
+          }
+
+          const retryable =
+            error instanceof ApiClientError &&
+            (error.status === 0 || (error.status >= 500 && error.status < 600));
+          if (!retryable || attempt === BOOTSTRAP_RETRY_ATTEMPTS) {
+            throw error;
+          }
+          const startupStatus = await getBackendStartupStatus();
+          if (
+            startupStatus &&
+            (startupStatus.phase === "launching" || startupStatus.phase === "waiting")
+          ) {
+            const progress =
+              startupStatus.attempt > 0
+                ? ` (health check ${startupStatus.attempt}/${startupStatus.maxAttempts})`
+                : "";
+            setBootstrapStatusMessage(`Still starting database...${progress}`);
+          } else {
+            setBootstrapStatusMessage("Still starting MailPilot backend...");
+          }
+
+          await waitForDelay(BOOTSTRAP_RETRY_DELAY_MS);
+        }
+      }
+
+      if (lastError) {
+        throw lastError;
+      }
+    } catch (error) {
+      setBootstrapError(await toBootstrapErrorMessage(error));
+      setBootstrapStatusMessage(null);
+      setBackendLogsDir(await getBackendLogsDir());
+    } finally {
+      setIsBootstrapping(false);
+    }
+  }, [refreshAppState]);
+
+  useEffect(() => {
+    void bootstrapAppState();
+  }, [bootstrapAppState]);
+
+  const handleLogin = useCallback(
+    async (password: string) => {
+      setLoginInFlight(true);
+      setLoginError(null);
+      try {
+        await loginApp(password);
+        setLoggedIn(true);
+        await refreshAppState();
+      } catch (error) {
+        setLoginError(toApiErrorMessage(error));
+      } finally {
+        setLoginInFlight(false);
+      }
+    },
+    [refreshAppState]
+  );
+
+  const handleLock = useCallback(async () => {
+    setLockInFlight(true);
+    try {
+      await lockApp();
+      setAppState((previous) => (previous ? { ...previous, locked: true } : previous));
+    } finally {
+      setLockInFlight(false);
+    }
+  }, []);
+
+  const handleUnlock = useCallback(async (password: string) => {
+    setUnlockInFlight(true);
+    setUnlockError(null);
+    try {
+      await unlockApp(password);
+      setAppState((previous) => (previous ? { ...previous, locked: false } : previous));
+    } catch (error) {
+      setUnlockError(toApiErrorMessage(error));
+    } finally {
+      setUnlockInFlight(false);
+    }
+  }, []);
+
+  const handleLogout = useCallback(async () => {
+    setLogoutInFlight(true);
+    try {
+      await logoutApp();
+      setLoggedIn(false);
+      await refreshAppState();
+    } finally {
+      setLogoutInFlight(false);
+    }
+  }, [refreshAppState]);
+
+  const handleOnboardingEnterInbox = useCallback(async () => {
+    setLoggedIn(true);
+    await refreshAppState();
+  }, [refreshAppState]);
+
+  const handleForgotPassword = useCallback(() => {
+    setLoggedIn(false);
+    setLoginError(null);
+    setUnlockError(null);
+  }, []);
+
+  const wildcardRedirect = useMemo(() => {
+    if (!appState || !appState.onboardingComplete || !appState.hasPassword) {
+      return "/onboarding";
+    }
+    if (!loggedIn) {
+      return "/login";
+    }
+    return "/inbox";
+  }, [appState, loggedIn]);
+
+  const handleOpenLogs = useCallback(() => {
+    if (!backendLogsDir) {
+      return;
+    }
+
+    void openPath(backendLogsDir);
+  }, [backendLogsDir]);
+
+  const handleOpenAppData = useCallback(() => {
+    const appDataDir = deriveParentPath(backendLogsDir);
+    if (!appDataDir) {
+      return;
+    }
+
+    void openPath(appDataDir);
+  }, [backendLogsDir]);
+
+  if (isBootstrapping) {
+    return (
+      <BootstrappingScreen
+        error={bootstrapError}
+        onOpenAppData={backendLogsDir ? handleOpenAppData : null}
+        onOpenLogs={backendLogsDir ? handleOpenLogs : null}
+        onRetry={() => void bootstrapAppState()}
+        statusMessage={bootstrapStatusMessage}
+      />
+    );
+  }
+  if (!appState) {
+    return (
+      <BootstrappingScreen
+        error={bootstrapError ?? "Unable to load application state."}
+        onOpenAppData={backendLogsDir ? handleOpenAppData : null}
+        onOpenLogs={backendLogsDir ? handleOpenLogs : null}
+        onRetry={() => void bootstrapAppState()}
+        statusMessage={bootstrapStatusMessage}
+      />
+    );
+  }
+
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route
+          element={
+            <OnboardingRoute
+              appState={appState}
+              loggedIn={loggedIn}
+              onEnterInbox={handleOnboardingEnterInbox}
+            />
+          }
+          path="/onboarding"
+        />
+        <Route
+          element={
+            <LoginRoute
+              appState={appState}
+              loggedIn={loggedIn}
+              loginError={loginError}
+              loginInFlight={loginInFlight}
+              onForgotPassword={handleForgotPassword}
+              onLogin={handleLogin}
+            />
+          }
+          path="/login"
+        />
+        <Route
+          element={<RecoveryRoute appState={appState} onForgotPassword={handleForgotPassword} />}
+          path="/recover"
+        />
+        <Route
+          element={
+            <ProtectedAppShell
+              appState={appState}
+              lockInFlight={lockInFlight}
+              loggedIn={loggedIn}
+              logoutInFlight={logoutInFlight}
+              onLock={handleLock}
+              onLogout={handleLogout}
+              setThemeVariant={setThemeVariant}
+              themeVariant={themeVariant}
+              onForgotPassword={handleForgotPassword}
+              onUnlock={handleUnlock}
+              unlockError={unlockError}
+              unlockInFlight={unlockInFlight}
+            />
+          }
+          path="/"
+        >
+          <Route element={<Navigate replace to="/inbox" />} index />
+          <Route element={<DashboardPage />} path="dashboard" />
+          <Route element={<InboxPage />} path="inbox" />
+          <Route element={<SentPage />} path="sent" />
+          <Route element={<DraftsPage />} path="drafts" />
+          <Route element={<FocusPage />} path="focus" />
+          <Route element={<FocusDrillPage />} path="focus/drill/:type" />
+          <Route element={<ViewsHubPage />} path="views/manage" />
+          <Route element={<ViewPage />} path="views/:viewId" />
+          <Route element={<InsightsPage />} path="insights" />
+          <Route element={<SettingsPage />} path="settings" />
+        </Route>
+        <Route element={<Navigate replace to={wildcardRedirect} />} path="*" />
+      </Routes>
+    </BrowserRouter>
   );
 }
 

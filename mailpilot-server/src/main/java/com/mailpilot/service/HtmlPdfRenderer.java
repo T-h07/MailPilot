@@ -3,14 +3,18 @@ package com.mailpilot.service;
 import com.mailpilot.api.error.ApiInternalException;
 import com.openhtmltopdf.pdfboxout.PdfRendererBuilder;
 import java.io.ByteArrayOutputStream;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import org.jsoup.Jsoup;
+import org.jsoup.nodes.Attribute;
+import org.jsoup.nodes.Comment;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Document.OutputSettings.Syntax;
-import org.jsoup.nodes.Entities;
-import org.jsoup.nodes.Attribute;
 import org.jsoup.nodes.Element;
+import org.jsoup.nodes.Entities;
+import org.jsoup.nodes.Node;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -20,20 +24,16 @@ import org.springframework.util.StringUtils;
 public class HtmlPdfRenderer {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(HtmlPdfRenderer.class);
-  private static final Set<String> EXTERNAL_URI_ATTRIBUTES = Set.of(
-    "src",
-    "href",
-    "poster",
-    "xlink:href",
-    "action"
-  );
+  private static final Set<String> EXTERNAL_URI_ATTRIBUTES =
+      Set.of("src", "href", "poster", "xlink:href", "action");
 
   public byte[] render(String html, String baseUri) {
     String normalizedMarkup = normalizeMarkupForRenderer(html, baseUri);
     try {
       return renderInternal(normalizedMarkup, baseUri);
     } catch (Exception firstFailure) {
-      LOGGER.warn("Primary HTML to PDF render failed; retrying without external assets", firstFailure);
+      LOGGER.warn(
+          "Primary HTML to PDF render failed; retrying without external assets", firstFailure);
       try {
         String strippedHtml = stripExternalAssets(normalizedMarkup, baseUri);
         return renderInternal(strippedHtml, baseUri);
@@ -64,6 +64,7 @@ public class HtmlPdfRenderer {
     document.outputSettings().syntax(Syntax.xml);
     document.outputSettings().escapeMode(Entities.EscapeMode.xhtml);
     document.outputSettings().prettyPrint(false);
+    removeComments(document);
     return document.outerHtml();
   }
 
@@ -72,9 +73,15 @@ public class HtmlPdfRenderer {
     document.outputSettings().syntax(Syntax.xml);
     document.outputSettings().escapeMode(Entities.EscapeMode.xhtml);
     document.outputSettings().prettyPrint(false);
+    removeComments(document);
 
     for (Element element : document.getAllElements()) {
+      List<Attribute> attributes = new ArrayList<>();
       for (Attribute attribute : element.attributes()) {
+        attributes.add(attribute);
+      }
+
+      for (Attribute attribute : attributes) {
         String normalizedName = attribute.getKey().toLowerCase(Locale.ROOT);
         if (!EXTERNAL_URI_ATTRIBUTES.contains(normalizedName)) {
           continue;
@@ -93,5 +100,20 @@ public class HtmlPdfRenderer {
     }
 
     return document.outerHtml();
+  }
+
+  private void removeComments(Document document) {
+    List<Node> comments = new ArrayList<>();
+    for (Element element : document.getAllElements()) {
+      for (Node childNode : element.childNodes()) {
+        if (childNode instanceof Comment) {
+          comments.add(childNode);
+        }
+      }
+    }
+
+    for (Node commentNode : comments) {
+      commentNode.remove();
+    }
   }
 }

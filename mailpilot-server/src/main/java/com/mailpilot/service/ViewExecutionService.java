@@ -104,6 +104,7 @@ public class ViewExecutionService {
                         item.snippet(),
                         item.receivedAt(),
                         item.isUnread(),
+                        item.seenInApp(),
                         item.hasAttachments(),
                         item.chips(),
                         item.tags(),
@@ -111,6 +112,7 @@ public class ViewExecutionService {
                         labelsByMessageId.getOrDefault(item.id(), List.of())))
             .toList();
 
-    return new MailboxQueryResponse(itemsWithViewLabels, baseResponse.nextCursor());
+    return new MailboxQueryResponse(
+        itemsWithViewLabels, baseResponse.nextCursor(), baseResponse.totalCount());
   }
 }
