@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { openPath } from "@tauri-apps/plugin-opener";
 import {
   BrowserRouter,
   Navigate,
@@ -113,6 +115,16 @@ const settingsItem: SidebarLink = {
   icon: Cog,
 };
 
+const BOOTSTRAP_RETRY_ATTEMPTS = 120;
+const BOOTSTRAP_RETRY_DELAY_MS = 1000;
+
+type BackendStartupStatus = {
+  phase: string;
+  detail: string | null;
+  attempt: number;
+  maxAttempts: number;
+};
+
 function getInitialThemeVariant(): ThemeVariant {
   const storedVariant = localStorage.getItem(THEME_VARIANT_STORAGE_KEY);
   if (storedVariant === "balanced" || storedVariant === "pure-black" || storedVariant === "paper") {
@@ -138,6 +150,67 @@ function toApiErrorMessage(error: unknown): string {
     return error.message;
   }
   return "Failed to load views";
+}
+
+async function getBackendLaunchError(): Promise<string | null> {
+  try {
+    const launchError = await invoke<string | null>("get_backend_launch_error");
+    if (typeof launchError === "string" && launchError.trim().length > 0) {
+      return launchError.trim();
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+async function getBackendStartupStatus(): Promise<BackendStartupStatus | null> {
+  try {
+    return await invoke<BackendStartupStatus>("get_backend_startup_status");
+  } catch {
+    return null;
+  }
+}
+
+async function getBackendLogsDir(): Promise<string | null> {
+  try {
+    const logsDir = await invoke<string | null>("get_backend_logs_dir");
+    if (typeof logsDir === "string" && logsDir.trim().length > 0) {
+      return logsDir.trim();
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+async function markBackendUiReady(): Promise<void> {
+  try {
+    await invoke("mark_backend_ui_ready");
+  } catch {
+    // Best-effort logging only.
+  }
+}
+
+async function toBootstrapErrorMessage(error: unknown): Promise<string> {
+  if (error instanceof ApiClientError && error.status === 0) {
+    const launchError = await getBackendLaunchError();
+    if (launchError) {
+      return launchError;
+    }
+
+    return "MailPilot backend did not become ready. Check Java 21+ and backend logs under %LOCALAPPDATA%\\MailPilot\\logs.";
+  }
+
+  return toApiErrorMessage(error);
+}
+
+async function waitForDelay(delayMs: number): Promise<void> {
+  await new Promise((resolve) => {
+    window.setTimeout(resolve, delayMs);
+  });
 }
 
 function resolveHeaderTitle(pathname: string, views: ViewRecord[]): string {
@@ -692,16 +765,34 @@ function AppShell({
   );
 }
 
-function BootstrappingScreen({ error, onRetry }: { error: string | null; onRetry: () => void }) {
+function BootstrappingScreen({
+  error,
+  statusMessage,
+  onRetry,
+  onOpenLogs,
+}: {
+  error: string | null;
+  statusMessage?: string | null;
+  onRetry: () => void;
+  onOpenLogs?: (() => void) | null;
+}) {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background p-6">
       <div className="w-full max-w-md rounded-lg border border-border bg-card p-6">
         <p className="text-lg font-semibold">Loading MailPilot...</p>
         {error ? <p className="pt-2 text-sm text-destructive">{error}</p> : null}
+        {!error && statusMessage ? <p className="pt-2 text-sm text-muted-foreground">{statusMessage}</p> : null}
         {error ? (
-          <Button className="mt-4" onClick={onRetry} variant="outline">
-            Retry
-          </Button>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button onClick={onRetry} variant="outline">
+              Retry
+            </Button>
+            {onOpenLogs ? (
+              <Button onClick={onOpenLogs} variant="outline">
+                Open Logs
+              </Button>
+            ) : null}
+          </div>
         ) : null}
       </div>
     </div>
@@ -817,6 +908,10 @@ function App() {
   const [appState, setAppState] = useState<AppStateRecord | null>(null);
   const [isBootstrapping, setIsBootstrapping] = useState(true);
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
+  const [bootstrapStatusMessage, setBootstrapStatusMessage] = useState<string | null>(
+    "Starting MailPilot backend..."
+  );
+  const [backendLogsDir, setBackendLogsDir] = useState<string | null>(null);
   const [loggedIn, setLoggedIn] = useState(false);
   const [loginInFlight, setLoginInFlight] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
@@ -839,10 +934,56 @@ function App() {
   const bootstrapAppState = useCallback(async () => {
     setIsBootstrapping(true);
     setBootstrapError(null);
+    setBootstrapStatusMessage("Starting MailPilot backend...");
+    setBackendLogsDir(null);
     try {
-      await refreshAppState();
+      let lastError: unknown = null;
+
+      for (let attempt = 1; attempt <= BOOTSTRAP_RETRY_ATTEMPTS; attempt += 1) {
+        try {
+          await refreshAppState();
+          await markBackendUiReady();
+          setBootstrapStatusMessage(null);
+          lastError = null;
+          break;
+        } catch (error) {
+          lastError = error;
+          const launchError = await getBackendLaunchError();
+          if (launchError) {
+            throw new ApiClientError(launchError, 0);
+          }
+
+          const retryable =
+            error instanceof ApiClientError &&
+            (error.status === 0 || (error.status >= 500 && error.status < 600));
+          if (!retryable || attempt === BOOTSTRAP_RETRY_ATTEMPTS) {
+            throw error;
+          }
+          const startupStatus = await getBackendStartupStatus();
+          if (
+            startupStatus &&
+            (startupStatus.phase === "launching" || startupStatus.phase === "waiting")
+          ) {
+            const progress =
+              startupStatus.attempt > 0
+                ? ` (health check ${startupStatus.attempt}/${startupStatus.maxAttempts})`
+                : "";
+            setBootstrapStatusMessage(`Still starting database...${progress}`);
+          } else {
+            setBootstrapStatusMessage("Still starting MailPilot backend...");
+          }
+
+          await waitForDelay(BOOTSTRAP_RETRY_DELAY_MS);
+        }
+      }
+
+      if (lastError) {
+        throw lastError;
+      }
     } catch (error) {
-      setBootstrapError(toApiErrorMessage(error));
+      setBootstrapError(await toBootstrapErrorMessage(error));
+      setBootstrapStatusMessage(null);
+      setBackendLogsDir(await getBackendLogsDir());
     } finally {
       setIsBootstrapping(false);
     }
@@ -924,14 +1065,31 @@ function App() {
     return "/inbox";
   }, [appState, loggedIn]);
 
+  const handleOpenLogs = useCallback(() => {
+    if (!backendLogsDir) {
+      return;
+    }
+
+    void openPath(backendLogsDir);
+  }, [backendLogsDir]);
+
   if (isBootstrapping) {
-    return <BootstrappingScreen error={bootstrapError} onRetry={() => void bootstrapAppState()} />;
+    return (
+      <BootstrappingScreen
+        error={bootstrapError}
+        onOpenLogs={backendLogsDir ? handleOpenLogs : null}
+        onRetry={() => void bootstrapAppState()}
+        statusMessage={bootstrapStatusMessage}
+      />
+    );
   }
   if (!appState) {
     return (
       <BootstrappingScreen
         error={bootstrapError ?? "Unable to load application state."}
+        onOpenLogs={backendLogsDir ? handleOpenLogs : null}
         onRetry={() => void bootstrapAppState()}
+        statusMessage={bootstrapStatusMessage}
       />
     );
   }

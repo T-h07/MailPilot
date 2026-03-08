@@ -39,7 +39,11 @@ public class TokenKeyProvider {
     }
 
     if (environment.acceptsProfiles(Profiles.of("dev"))) {
-      return resolveOrCreateDevKey();
+      return resolveOrCreateLocalKey("dev");
+    }
+
+    if (environment.acceptsProfiles(Profiles.of("desktop"))) {
+      return resolveOrCreateLocalKey("desktop");
     }
 
     byte[] ephemeralKey = randomKey();
@@ -49,8 +53,8 @@ public class TokenKeyProvider {
     return ephemeralKey;
   }
 
-  private byte[] resolveOrCreateDevKey() {
-    Path keyPath = defaultDevKeyPath();
+  private byte[] resolveOrCreateLocalKey(String profileName) {
+    Path keyPath = defaultLocalKeyPath();
 
     if (Files.exists(keyPath)) {
       try {
@@ -83,17 +87,18 @@ public class TokenKeyProvider {
     }
 
     LOGGER.warn(
-      "MAILPILOT_TOKEN_KEY_B64 is not set. Generated a dev token key at {}. Set MAILPILOT_TOKEN_KEY_B64 to that file's value for stable encryption.",
+      "MAILPILOT_TOKEN_KEY_B64 is not set. Generated a persistent {} token key at {}.",
+      profileName,
       keyPath
     );
 
     return generated;
   }
 
-  private Path defaultDevKeyPath() {
+  private Path defaultLocalKeyPath() {
     String localAppData = System.getenv("LOCALAPPDATA");
     if (!StringUtils.hasText(localAppData)) {
-      localAppData = "C:\\Users\\taulanth\\AppData\\Local";
+      localAppData = Paths.get(System.getProperty("user.home"), "AppData", "Local").toString();
     }
     return Paths.get(localAppData, "MailPilot", "token_key.b64");
   }
