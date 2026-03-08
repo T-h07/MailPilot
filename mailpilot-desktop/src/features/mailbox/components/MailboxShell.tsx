@@ -2,35 +2,51 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type {
-  AccountColorToken,
   AccountScope,
   MailAccount,
   MessageFollowup,
   MailMessage,
   QuickFilterKey,
-  ThreadMessageSummary,
   ViewLabelChip as MailViewLabelChip,
 } from "@/features/mailbox/model/types";
 import { CommandBar } from "@/features/mailbox/components/CommandBar";
 import { MailList } from "@/features/mailbox/components/MailList";
 import { PreviewPanel } from "@/features/mailbox/components/PreviewPanel";
 import { ComposeDialog, type ComposeDraft } from "@/features/mailbox/components/ComposeDialog";
+import {
+  buildPreviewMessage,
+  buildQuotedSnippet,
+  defaultFollowupState,
+  describeView,
+  ensurePdfFilename,
+  followupToFlags,
+  leafFilename,
+  mergeAccounts,
+  mergeMessages,
+  resolvePreferredAccountId,
+  sanitizeFilename,
+  summarizeViewRules,
+  toLabelChips,
+  toMailAccount,
+  toMessageFollowup,
+  toSummaryMessage,
+  withSubjectPrefix,
+} from "@/features/mailbox/lib/mailbox-shell-helpers";
 import { listAccounts, type AccountRecord } from "@/lib/api/accounts";
 import { downloadAttachmentFile, exportMessagePdf, exportThreadPdf } from "@/lib/api/exports";
-import { configCheck, getGmailOAuthStatus, startGmailOAuth } from "@/lib/api/oauth";
+import { configCheck, startGmailOAuth } from "@/lib/api/oauth";
 import {
   getMessage,
   loadMessageBody,
   markSeen,
   type MailboxMode,
   type MailboxSortOrder,
+  type MessageDetailResponse,
   queryMailbox,
   queryMailboxView,
   setRead,
-  type MailboxListItem,
-  type MessageDetailResponse,
 } from "@/lib/api/mailbox";
-import { runFollowupAction, updateFollowup, type FollowupState } from "@/lib/api/followups";
+import { runFollowupAction, updateFollowup } from "@/lib/api/followups";
 import { emitFollowupUpdated } from "@/lib/events/followups";
 import { useLiveEvents } from "@/lib/events/live-events-context";
 import { runAccountSync, runAllAccountsSync } from "@/lib/api/sync";
@@ -42,8 +58,9 @@ import {
   type ViewRecord,
 } from "@/lib/api/views";
 import { listSenderRules } from "@/lib/api/sender-rules";
-import { ApiClientError } from "@/api/client";
 import { saveBinaryWithDialog } from "@/lib/files/save-binary";
+import { openGmailOAuthUrl, waitForGmailOAuthOutcome } from "@/lib/oauth/gmail-oauth-flow";
+import { toApiErrorMessage } from "@/utils/api-error";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
@@ -76,373 +93,8 @@ type NoticeState = {
 
 type BodyViewMode = "collapsed" | "inline" | "modal";
 
-const ACCOUNT_COLOR_TOKENS: AccountColorToken[] = ["sky", "emerald", "violet", "amber"];
 const REQUEST_PAGE_SIZE = 50;
-const OAUTH_POLL_INTERVAL_MS = 2000;
-const OAUTH_POLL_TIMEOUT_MS = 45000;
 const ALL_LABEL_FILTER_VALUE = "__ALL_LABELS__";
-
-function nameFromEmail(email: string): string {
-  return email
-    .split("@")[0]
-    .replace(/[._]/g, " ")
-    .replace(/\b\w/g, (char) => char.toUpperCase());
-}
-
-function accountColorFromId(accountId: string): AccountColorToken {
-  let hash = 0;
-  for (let index = 0; index < accountId.length; index += 1) {
-    hash = (hash * 31 + accountId.charCodeAt(index)) >>> 0;
-  }
-  return ACCOUNT_COLOR_TOKENS[hash % ACCOUNT_COLOR_TOKENS.length];
-}
-
-function toMailAccount(accountId: string, accountEmail: string): MailAccount {
-  return {
-    id: accountId,
-    accountEmail,
-    accountLabel: accountEmail,
-    colorToken: accountColorFromId(accountId),
-  };
-}
-
-function chipsToFlags(chips: string[]) {
-  const chipSet = new Set(chips);
-  return {
-    needsReply: chipSet.has("NeedsReply"),
-    overdue: chipSet.has("Overdue"),
-    dueToday: chipSet.has("DueToday"),
-    snoozed: chipSet.has("Snoozed"),
-  };
-}
-
-function followupToFlags(followup: MessageDetailResponse["followup"]) {
-  const dueAt = followup?.dueAt ? new Date(followup.dueAt) : null;
-  const now = new Date();
-  const todayStart = new Date(now);
-  todayStart.setHours(0, 0, 0, 0);
-  const tomorrowStart = new Date(todayStart);
-  tomorrowStart.setDate(todayStart.getDate() + 1);
-
-  return {
-    needsReply: followup?.status === "OPEN" && followup.needsReply,
-    overdue: followup?.status === "OPEN" && dueAt !== null && dueAt.getTime() < now.getTime(),
-    dueToday:
-      followup?.status === "OPEN" &&
-      dueAt !== null &&
-      dueAt.getTime() >= todayStart.getTime() &&
-      dueAt.getTime() < tomorrowStart.getTime(),
-    snoozed:
-      followup?.status === "OPEN" &&
-      followup.snoozedUntil !== null &&
-      new Date(followup.snoozedUntil).getTime() > now.getTime(),
-  };
-}
-
-function defaultFollowupState(): MessageFollowup {
-  return {
-    status: "OPEN",
-    needsReply: false,
-    dueAt: null,
-    snoozedUntil: null,
-  };
-}
-
-function toMessageFollowup(
-  followup: MessageDetailResponse["followup"] | FollowupState
-): MessageFollowup {
-  return {
-    status: followup.status,
-    needsReply: followup.needsReply,
-    dueAt: followup.dueAt,
-    snoozedUntil: followup.snoozedUntil,
-  };
-}
-
-function toSummaryMessage(item: MailboxListItem): MailMessage {
-  const account = toMailAccount(item.accountId, item.accountEmail);
-  const inferredFlags = chipsToFlags(item.chips);
-  return {
-    id: item.id,
-    accountId: item.accountId,
-    accountEmail: item.accountEmail,
-    accountLabel: account.accountLabel,
-    accountColorToken: account.colorToken,
-    senderName: item.senderName,
-    senderEmail: item.senderEmail,
-    senderDomain: item.senderDomain,
-    subject: item.subject,
-    snippet: item.snippet,
-    bodyCache: null,
-    bodyMime: null,
-    openInGmailUrl: null,
-    receivedAt: item.receivedAt,
-    isUnread: item.isUnread,
-    seenInApp: item.seenInApp,
-    flags: inferredFlags,
-    tags: item.tags,
-    viewLabels: item.viewLabels ?? [],
-    hasAttachments: item.hasAttachments,
-    attachments: [],
-    threadId: null,
-    threadMessages: [],
-    followup: {
-      status: "OPEN",
-      needsReply: inferredFlags.needsReply,
-      dueAt: null,
-      snoozedUntil: null,
-    },
-    highlight: item.highlight,
-  };
-}
-
-function mergeMessages(existing: MailMessage[], incoming: MailMessage[]): MailMessage[] {
-  if (existing.length === 0) {
-    return incoming;
-  }
-
-  const indexById = new Map(existing.map((message, index) => [message.id, index]));
-  const next = [...existing];
-  for (const message of incoming) {
-    const existingIndex = indexById.get(message.id);
-    if (existingIndex === undefined) {
-      next.push(message);
-    } else {
-      next[existingIndex] = { ...next[existingIndex], ...message };
-    }
-  }
-  return next;
-}
-
-function mergeAccounts(existing: MailAccount[], incoming: MailAccount[]): MailAccount[] {
-  const nextById = new Map(existing.map((account) => [account.id, account]));
-  for (const account of incoming) {
-    nextById.set(account.id, account);
-  }
-  return Array.from(nextById.values()).sort((left, right) =>
-    left.accountEmail.localeCompare(right.accountEmail)
-  );
-}
-
-function toThreadSummary(
-  threadMessage: MessageDetailResponse["thread"]["messages"][number]
-): ThreadMessageSummary {
-  return {
-    id: threadMessage.id,
-    senderName: nameFromEmail(threadMessage.senderEmail),
-    senderEmail: threadMessage.senderEmail,
-    subject: threadMessage.subject,
-    snippet: "",
-    receivedAt: threadMessage.receivedAt,
-    isUnread: threadMessage.isUnread,
-    hasAttachments: false,
-  };
-}
-
-function buildPreviewMessage(
-  summary: MailMessage,
-  detail: MessageDetailResponse | undefined,
-  accountLookup: Map<string, MailAccount>
-): MailMessage {
-  if (!detail) {
-    return summary;
-  }
-
-  const account =
-    accountLookup.get(detail.accountId) ?? toMailAccount(detail.accountId, detail.accountEmail);
-  return {
-    ...summary,
-    accountId: detail.accountId,
-    accountEmail: detail.accountEmail,
-    accountLabel: account.accountLabel,
-    accountColorToken: account.colorToken,
-    senderName: detail.senderName,
-    senderEmail: detail.senderEmail,
-    subject: detail.subject,
-    receivedAt: detail.receivedAt,
-    isUnread: detail.isUnread,
-    seenInApp: detail.seenInApp || summary.seenInApp,
-    bodyCache: detail.body.content,
-    bodyMime: detail.body.mime,
-    openInGmailUrl: detail.openInGmailUrl,
-    hasAttachments: detail.attachments.length > 0 || summary.hasAttachments,
-    attachments: detail.attachments.map((attachment) => ({
-      id: attachment.id,
-      filename: attachment.filename,
-      mimeType: attachment.mimeType,
-      sizeBytes: attachment.sizeBytes,
-      isInline: attachment.isInline,
-      downloadable: attachment.downloadable,
-    })),
-    threadId: detail.threadId ?? summary.threadId,
-    threadMessages: detail.thread.messages.map((threadMessage) => toThreadSummary(threadMessage)),
-    tags: detail.tags,
-    viewLabels: summary.viewLabels,
-    flags: followupToFlags(detail.followup),
-    followup: toMessageFollowup(detail.followup),
-    highlight: detail.highlight,
-  };
-}
-
-function toErrorMessage(error: unknown): string {
-  if (error instanceof ApiClientError) {
-    if (error.message === "Request cancelled") {
-      return "";
-    }
-    return error.message;
-  }
-  if (
-    typeof error === "object" &&
-    error !== null &&
-    "message" in error &&
-    typeof (error as { message?: unknown }).message === "string"
-  ) {
-    return ((error as { message: string }).message || "").trim();
-  }
-  if (typeof error === "string") {
-    return error;
-  }
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return "Request failed. Check server logs.";
-}
-
-function describeView(view: ViewRecord | null): string {
-  if (!view) {
-    return "Saved view definition could not be loaded.";
-  }
-
-  const parts: string[] = [];
-  if (view.rules.senderDomains.length > 0) {
-    parts.push(`Domains: ${view.rules.senderDomains.slice(0, 2).join(", ")}`);
-  }
-  if (view.rules.senderEmails.length > 0) {
-    parts.push(`Senders: ${view.rules.senderEmails.slice(0, 2).join(", ")}`);
-  }
-  if (view.rules.keywords.length > 0) {
-    parts.push(`Keywords: ${view.rules.keywords.slice(0, 2).join(", ")}`);
-  }
-  if (view.rules.unreadOnly) {
-    parts.push("Unread only");
-  }
-
-  return parts.length > 0
-    ? parts.slice(0, 3).join(" • ")
-    : "Saved mailbox selection with no explicit rule constraints.";
-}
-
-function summarizeViewRules(view: ViewRecord | null): string[] {
-  if (!view) {
-    return [];
-  }
-
-  const chips: string[] = [];
-  view.rules.senderDomains.slice(0, 2).forEach((domain) => chips.push(`Domain:${domain}`));
-  view.rules.senderEmails.slice(0, 2).forEach((email) => chips.push(`Sender:${email}`));
-  view.rules.keywords.slice(0, 2).forEach((keyword) => chips.push(`Keyword:${keyword}`));
-  if (view.rules.unreadOnly) {
-    chips.push("UnreadOnly");
-  }
-  return chips;
-}
-
-function toLabelChips(records: ViewLabelRecord[]): MailViewLabelChip[] {
-  return records.map((record) => ({
-    id: record.id,
-    name: record.name,
-    colorToken: record.colorToken,
-  }));
-}
-
-function sanitizeFilename(value: string | null | undefined, fallback: string): string {
-  const input = value?.trim();
-  if (!input) {
-    return fallback;
-  }
-  const sanitized = input
-    .replace(/[\\/:*?"<>|]/g, "-")
-    .replace(/\s+/g, " ")
-    .trim();
-  return sanitized.length > 0 ? sanitized : fallback;
-}
-
-function ensurePdfFilename(value: string | null | undefined, fallback: string): string {
-  const base = sanitizeFilename(value, fallback);
-  return base.toLowerCase().endsWith(".pdf") ? base : `${base}.pdf`;
-}
-
-function leafFilename(pathValue: string): string {
-  const normalized = pathValue.replace(/\\/g, "/");
-  const parts = normalized.split("/");
-  return parts.length > 0 ? parts[parts.length - 1] : pathValue;
-}
-
-function sleep(durationMs: number) {
-  return new Promise<void>((resolve) => {
-    window.setTimeout(resolve, durationMs);
-  });
-}
-
-function withSubjectPrefix(prefix: "Re" | "Fwd", subject: string): string {
-  const normalized = subject.trim();
-  if (normalized.length === 0) {
-    return `${prefix}: (no subject)`;
-  }
-  const lowercase = normalized.toLowerCase();
-  if (prefix === "Re" && lowercase.startsWith("re:")) {
-    return normalized;
-  }
-  if (prefix === "Fwd" && (lowercase.startsWith("fwd:") || lowercase.startsWith("fw:"))) {
-    return normalized;
-  }
-  return `${prefix}: ${normalized}`;
-}
-
-function buildQuotedSnippet(message: MailMessage): string {
-  const senderLine = `${message.senderName} <${message.senderEmail}>`;
-  const dateLine = new Date(message.receivedAt).toLocaleString();
-  const quoteSource = message.bodyCache?.trim() || message.snippet.trim();
-  const quoteLines = quoteSource
-    .split(/\r?\n/)
-    .filter((line) => line.trim().length > 0)
-    .map((line) => `> ${line}`);
-
-  const header = [
-    "",
-    "",
-    "----- Original message -----",
-    `From: ${senderLine}`,
-    `Date: ${dateLine}`,
-    `Subject: ${message.subject}`,
-    "",
-  ];
-  return [...header, ...quoteLines].join("\n");
-}
-
-function resolvePreferredAccountId(
-  accountRecords: AccountRecord[],
-  accounts: MailAccount[],
-  preferredAccountId?: string | null
-): string {
-  if (preferredAccountId && accountRecords.some((account) => account.id === preferredAccountId)) {
-    return preferredAccountId;
-  }
-  const sendEnabled = accountRecords.find(
-    (account) => account.provider === "GMAIL" && account.canSend
-  );
-  if (sendEnabled) {
-    return sendEnabled.id;
-  }
-  const firstGmail = accountRecords.find((account) => account.provider === "GMAIL");
-  if (firstGmail) {
-    return firstGmail.id;
-  }
-  if (accounts.length > 0) {
-    return accounts[0].id;
-  }
-  return "";
-}
 
 export function MailboxShell({
   context,
@@ -736,7 +388,7 @@ export function MailboxShell({
         setViewLabelOptions(labels);
       })
       .catch((error) => {
-        const message = toErrorMessage(error);
+        const message = toApiErrorMessage(error);
         if (message) {
           showNotice(`Failed to load view labels: ${message}`);
         }
@@ -784,7 +436,7 @@ export function MailboxShell({
         }
         applyFetchedDetail(detail);
       } catch (error) {
-        const message = toErrorMessage(error);
+        const message = toApiErrorMessage(error);
         if (!message) {
           return;
         }
@@ -930,7 +582,7 @@ export function MailboxShell({
         setNextCursor(response.nextCursor);
         setTotalCount(response.totalCount);
       } catch (error) {
-        const message = toErrorMessage(error);
+        const message = toApiErrorMessage(error);
         if (!message) {
           return;
         }
@@ -997,7 +649,7 @@ export function MailboxShell({
       }
       showNotice("Sync started. New messages will appear when sync finishes.");
     } catch (error) {
-      const message = toErrorMessage(error) || "Unable to start sync.";
+      const message = toApiErrorMessage(error) || "Unable to start sync.";
       showNotice(message);
     } finally {
       setIsSyncStarting(false);
@@ -1142,7 +794,7 @@ export function MailboxShell({
         if (controller.signal.aborted) {
           return;
         }
-        const message = toErrorMessage(error);
+        const message = toApiErrorMessage(error);
         if (message) {
           showNotice(`Failed to load assigned labels: ${message}`);
         }
@@ -1303,7 +955,7 @@ export function MailboxShell({
         showNotice(successMessage);
       } catch (error) {
         applyFollowupState(messageId, previousFollowup);
-        showNotice(toErrorMessage(error) || "Failed to update followup");
+        showNotice(toApiErrorMessage(error) || "Failed to update followup");
       } finally {
         setIsUpdatingFollowup(false);
       }
@@ -1321,7 +973,7 @@ export function MailboxShell({
         emitFollowupUpdated();
         showNotice("Followup updated");
       } catch (error) {
-        showNotice(toErrorMessage(error) || "Failed to update followup");
+        showNotice(toApiErrorMessage(error) || "Failed to update followup");
       } finally {
         setIsUpdatingFollowup(false);
       }
@@ -1343,7 +995,7 @@ export function MailboxShell({
       await refreshSelectedMessage();
     } catch (error) {
       applyUnreadState(selectedMessage.id, selectedMessage.isUnread);
-      showNotice(toErrorMessage(error) || "Failed to update read state");
+      showNotice(toApiErrorMessage(error) || "Failed to update read state");
     }
   }, [applyUnreadState, refreshSelectedMessage, selectedMessage, showNotice]);
 
@@ -1360,7 +1012,7 @@ export function MailboxShell({
         showNotice("Full body loaded");
         return true;
       } catch (error) {
-        showNotice(toErrorMessage(error) || "Failed to load full body");
+        showNotice(toApiErrorMessage(error) || "Failed to load full body");
         return false;
       } finally {
         setBodyLoadingMessageId((current) => (current === messageId ? null : current));
@@ -1404,7 +1056,7 @@ export function MailboxShell({
     try {
       await openUrl(selectedMessage.openInGmailUrl);
     } catch (error) {
-      showNotice(toErrorMessage(error) || "Failed to open Gmail");
+      showNotice(toApiErrorMessage(error) || "Failed to open Gmail");
     }
   }, [selectedMessage, showNotice]);
 
@@ -1439,7 +1091,7 @@ export function MailboxShell({
         );
         showNotice("View labels updated");
       } catch (error) {
-        showNotice(toErrorMessage(error) || "Failed to save view labels");
+        showNotice(toApiErrorMessage(error) || "Failed to save view labels");
       } finally {
         setIsSavingViewLabels(false);
       }
@@ -1466,7 +1118,7 @@ export function MailboxShell({
           showNotice("Download cancelled");
         }
       } catch (error) {
-        showNotice(toErrorMessage(error) || "Failed to download attachment");
+        showNotice(toApiErrorMessage(error) || "Failed to download attachment");
       } finally {
         setActiveAttachmentDownloadId((current) => (current === attachmentId ? null : current));
       }
@@ -1495,7 +1147,7 @@ export function MailboxShell({
         showNotice(`Saved PDF: ${leafFilename(savedPath)}`);
       }
     } catch (error) {
-      const message = toErrorMessage(error);
+      const message = toApiErrorMessage(error);
       showNotice(message ? `Export failed: ${message}` : "Export failed.");
     } finally {
       setIsExportingPdf(false);
@@ -1524,7 +1176,7 @@ export function MailboxShell({
         showNotice(`Saved PDF: ${leafFilename(savedPath)}`);
       }
     } catch (error) {
-      const message = toErrorMessage(error);
+      const message = toApiErrorMessage(error);
       showNotice(message ? `Export failed: ${message}` : "Export failed.");
     } finally {
       setIsExportingPdf(false);
@@ -1731,43 +1383,22 @@ export function MailboxShell({
           returnTo: "mailpilot://oauth-done",
         });
 
-        try {
-          await openUrl(startResponse.authUrl);
-        } catch {
-          const popup = window.open(startResponse.authUrl, "_blank", "noopener,noreferrer");
-          if (!popup) {
-            throw new ApiClientError("Unable to open the system browser for Google OAuth.");
-          }
-        }
-
-        const pollStartedAt = Date.now();
-        while (Date.now() - pollStartedAt <= OAUTH_POLL_TIMEOUT_MS) {
-          await sleep(OAUTH_POLL_INTERVAL_MS);
-
-          const [accountsResult, statusResult] = await Promise.allSettled([
-            loadAccountRecords(),
-            getGmailOAuthStatus(startResponse.state),
-          ]);
-
-          if (accountsResult.status === "fulfilled") {
-            const refreshed = accountsResult.value;
+        await openGmailOAuthUrl(startResponse.authUrl);
+        await waitForGmailOAuthOutcome(startResponse.state, {
+          timeoutMessage: "Re-auth timed out. Retry and complete consent in the browser tab.",
+          onPoll: async () => {
+            const refreshed = await loadAccountRecords();
             const target = refreshed.find((account) => account.id === accountId);
             if (target?.canSend) {
               showNotice("Sending scope granted.");
               return true;
             }
-          }
-
-          if (statusResult.status === "fulfilled" && statusResult.value.status === "ERROR") {
-            showNotice(statusResult.value.message);
             return false;
-          }
-        }
-
-        showNotice("Re-auth timed out. Retry and complete consent in the browser tab.");
-        return false;
+          },
+        });
+        return true;
       } catch (error) {
-        showNotice(toErrorMessage(error) || "Failed to start Gmail re-auth.");
+        showNotice(toApiErrorMessage(error) || "Failed to start Gmail re-auth.");
         return false;
       }
     },

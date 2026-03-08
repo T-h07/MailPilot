@@ -1,4 +1,3 @@
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -38,9 +37,17 @@ import {
   startOnboarding,
   type OnboardingViewProposal,
 } from "@/lib/api/onboarding";
-import { configCheck, getGmailOAuthStatus, startGmailOAuth } from "@/lib/api/oauth";
+import { configCheck, startGmailOAuth } from "@/lib/api/oauth";
 import { getSyncStatus, runAllAccountsSync } from "@/lib/api/sync";
+import {
+  GMAIL_OAUTH_POLL_INTERVAL_MS,
+  GMAIL_OAUTH_POLL_TIMEOUT_MS,
+  openGmailOAuthUrl,
+  sleep,
+  waitForGmailOAuthOutcome,
+} from "@/lib/oauth/gmail-oauth-flow";
 import { ApiClientError } from "@/api/client";
+import { toApiErrorMessage } from "@/utils/api-error";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AccentCard } from "@/components/ui/AccentCard";
@@ -124,8 +131,6 @@ const FIELD_OF_WORK_OPTIONS = [
   "Other",
 ] as const;
 
-const OAUTH_POLL_INTERVAL_MS = 2000;
-const OAUTH_POLL_TIMEOUT_MS = 45000;
 const ROLE_SAVE_DEBOUNCE_MS = 300;
 const SAVE_HINT_LIFETIME_MS = 1800;
 const SYNC_PROGRESS_MESSAGES = [
@@ -135,16 +140,6 @@ const SYNC_PROGRESS_MESSAGES = [
   "Scoring likely workspace categories...",
   "Preparing your starter views...",
 ] as const;
-
-function toErrorMessage(error: unknown): string {
-  if (error instanceof ApiClientError) {
-    return error.message;
-  }
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return "Request failed";
-}
 
 function clampStep(step: number | undefined): WizardStep {
   if (!step || Number.isNaN(step)) {
@@ -576,7 +571,7 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
       } catch (error) {
         setRoleErrorByAccountId((previous) => ({
           ...previous,
-          [accountId]: toErrorMessage(error),
+          [accountId]: toApiErrorMessage(error),
         }));
       } finally {
         setRoleSavingByAccountId((previous) => ({
@@ -613,7 +608,7 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
       const response = await startOnboarding();
       setStep(clampStep(response.step));
     } catch (error) {
-      setPageError(toErrorMessage(error));
+      setPageError(toApiErrorMessage(error));
     } finally {
       setBusy(false);
     }
@@ -632,38 +627,21 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
         returnTo: "/onboarding",
       });
 
-      try {
-        await openUrl(oauth.authUrl);
-        onBrowserOpened?.();
-      } catch (_error) {
-        throw new ApiClientError("Unable to open the browser for Google OAuth.");
-      }
+      await openGmailOAuthUrl(oauth.authUrl, {
+        fallbackToWindowOpen: false,
+        errorMessage: "Unable to open the browser for Google OAuth.",
+      });
+      onBrowserOpened?.();
 
-      const startedAt = Date.now();
-      let status: "PENDING" | "SUCCESS" | "ERROR" | "EXPIRED" | "UNKNOWN" = "PENDING";
-      let statusMessage = "Waiting for Google OAuth confirmation...";
-      while (Date.now() - startedAt < OAUTH_POLL_TIMEOUT_MS) {
-        const poll = await getGmailOAuthStatus(oauth.state);
-        status = poll.status;
-        statusMessage = poll.message || statusMessage;
-        if (status === "SUCCESS") {
-          break;
-        }
-        if (status === "ERROR" || status === "EXPIRED" || status === "UNKNOWN") {
-          throw new ApiClientError(statusMessage || "OAuth flow failed.");
-        }
-        await new Promise((resolve) => window.setTimeout(resolve, OAUTH_POLL_INTERVAL_MS));
-      }
-
-      if (status !== "SUCCESS") {
-        throw new ApiClientError(
-          "Gmail connection timed out. Complete browser consent and try again."
-        );
-      }
+      await waitForGmailOAuthOutcome(oauth.state, {
+        timeoutMs: GMAIL_OAUTH_POLL_TIMEOUT_MS,
+        pollIntervalMs: GMAIL_OAUTH_POLL_INTERVAL_MS,
+        timeoutMessage: "Gmail connection timed out. Complete browser consent and try again.",
+      });
 
       let selectedAccount: AccountRecord | null = null;
       const waitStart = Date.now();
-      while (Date.now() - waitStart < OAUTH_POLL_TIMEOUT_MS) {
+      while (Date.now() - waitStart < GMAIL_OAUTH_POLL_TIMEOUT_MS) {
         const latestAccounts = await loadAccounts();
         selectedAccount =
           latestAccounts.find(
@@ -680,7 +658,7 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
           break;
         }
 
-        await new Promise((resolve) => window.setTimeout(resolve, OAUTH_POLL_INTERVAL_MS));
+        await sleep(GMAIL_OAUTH_POLL_INTERVAL_MS);
       }
 
       if (!selectedAccount) {
@@ -709,7 +687,7 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
       setStep(3);
     } catch (error) {
       setConnectStage("ERROR");
-      setPageError(toErrorMessage(error));
+      setPageError(toApiErrorMessage(error));
     } finally {
       setBusy(false);
     }
@@ -731,7 +709,7 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
       }
       await loadAccounts();
     } catch (error) {
-      setPageError(toErrorMessage(error));
+      setPageError(toApiErrorMessage(error));
     } finally {
       setBusy(false);
     }
@@ -745,7 +723,7 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
       setStep(4);
       await loadViewProposals();
     } catch (error) {
-      setPageError(toErrorMessage(error));
+      setPageError(toApiErrorMessage(error));
     } finally {
       setBusy(false);
     }
@@ -775,7 +753,7 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
       }
       await loadViewProposals();
     } catch (error) {
-      setPageError(toErrorMessage(error));
+      setPageError(toApiErrorMessage(error));
     } finally {
       setSyncingProposals(false);
     }
@@ -820,7 +798,7 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
 
       await moveToProfileStep();
     } catch (error) {
-      setPageError(toErrorMessage(error));
+      setPageError(toApiErrorMessage(error));
     } finally {
       setApplyingProposals(false);
     }
@@ -833,7 +811,7 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
       setCreatedViewsCount(0);
       await moveToProfileStep();
     } catch (error) {
-      setPageError(toErrorMessage(error));
+      setPageError(toApiErrorMessage(error));
     } finally {
       setApplyingProposals(false);
     }
@@ -874,7 +852,7 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
       });
       setStep(6);
     } catch (error) {
-      setProfileError(toErrorMessage(error));
+      setProfileError(toApiErrorMessage(error));
     } finally {
       setSubmittingProfile(false);
     }
