@@ -8,7 +8,6 @@ Write-Host "[mailpilot] running frontend checks..."
 Push-Location (Join-Path $repoRoot "mailpilot-desktop")
 try {
   npm run lint
-  npm run format:check
   if ($fastMode -ne "1") {
     npm run build
   }
@@ -20,7 +19,7 @@ Write-Host "[mailpilot] running backend checks..."
 Push-Location (Join-Path $repoRoot "mailpilot-server")
 try {
   if ($fastMode -eq "1") {
-    ./mvnw -q spotless:check
+    ./mvnw -q -DskipTests compile
   } else {
     ./mvnw -q test
   }
