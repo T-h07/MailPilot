@@ -1,5 +1,6 @@
 import { Loader2, PencilLine, Paperclip, RefreshCw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { StatePanel } from "@/components/common/state-panel";
 import { ComposeDialog, type ComposeDraft } from "@/features/mailbox/components/ComposeDialog";
 import { listAccounts, type AccountRecord } from "@/lib/api/accounts";
 import {
@@ -9,15 +10,12 @@ import {
   type DraftSortOrder,
   type DraftSummary,
 } from "@/lib/api/drafts";
-import { ApiClientError } from "@/api/client";
-import { configCheck, getGmailOAuthStatus, startGmailOAuth } from "@/lib/api/oauth";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { configCheck, startGmailOAuth } from "@/lib/api/oauth";
+import { openGmailOAuthUrl, waitForGmailOAuthOutcome } from "@/lib/oauth/gmail-oauth-flow";
+import { toApiErrorMessage } from "@/utils/api-error";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-
-const OAUTH_POLL_INTERVAL_MS = 2000;
-const OAUTH_POLL_TIMEOUT_MS = 45000;
 
 const EMPTY_COMPOSE_DRAFT: ComposeDraft = {
   mode: "NEW",
@@ -64,7 +62,7 @@ export function DraftsPage() {
 
   useEffect(() => {
     void loadAccounts().catch((error) => {
-      setListError(toErrorMessage(error));
+      setListError(toApiErrorMessage(error));
     });
   }, [loadAccounts]);
 
@@ -79,7 +77,7 @@ export function DraftsPage() {
       });
       setDrafts(loaded);
     } catch (error) {
-      setListError(toErrorMessage(error));
+      setListError(toApiErrorMessage(error));
       setDrafts([]);
     } finally {
       setIsLoading(false);
@@ -131,7 +129,7 @@ export function DraftsPage() {
       });
       setComposeOpen(true);
     } catch (error) {
-      setListError(toErrorMessage(error));
+      setListError(toApiErrorMessage(error));
     } finally {
       setLoadingDraftId(null);
     }
@@ -147,7 +145,7 @@ export function DraftsPage() {
       await deleteDraft(draft.id);
       setDrafts((previous) => previous.filter((item) => item.id !== draft.id));
     } catch (error) {
-      setListError(toErrorMessage(error));
+      setListError(toApiErrorMessage(error));
     } finally {
       setDeletingDraftId(null);
     }
@@ -193,42 +191,18 @@ export function DraftsPage() {
           returnTo: "mailpilot://oauth-done",
         });
 
-        try {
-          await openUrl(startResponse.authUrl);
-        } catch {
-          const popup = window.open(startResponse.authUrl, "_blank", "noopener,noreferrer");
-          if (!popup) {
-            throw new ApiClientError("Unable to open the system browser for Google OAuth.");
-          }
-        }
-
-        const pollStartedAt = Date.now();
-        while (Date.now() - pollStartedAt <= OAUTH_POLL_TIMEOUT_MS) {
-          await sleep(OAUTH_POLL_INTERVAL_MS);
-
-          const [accountsResult, statusResult] = await Promise.allSettled([
-            loadAccounts(),
-            getGmailOAuthStatus(startResponse.state),
-          ]);
-
-          if (accountsResult.status === "fulfilled") {
-            const refreshed = accountsResult.value;
+        await openGmailOAuthUrl(startResponse.authUrl);
+        await waitForGmailOAuthOutcome(startResponse.state, {
+          timeoutMessage: "Re-auth timed out. Retry and complete consent in the browser tab.",
+          onPoll: async () => {
+            const refreshed = await loadAccounts();
             const account = refreshed.find((item) => item.id === accountId);
-            if (account?.canSend) {
-              return true;
-            }
-          }
-
-          if (statusResult.status === "fulfilled" && statusResult.value.status === "ERROR") {
-            setListError(statusResult.value.message);
-            return false;
-          }
-        }
-
-        setListError("Re-auth timed out. Retry and complete consent in the browser tab.");
-        return false;
+            return Boolean(account?.canSend);
+          },
+        });
+        return true;
       } catch (error) {
-        setListError(toErrorMessage(error));
+        setListError(toApiErrorMessage(error));
         return false;
       }
     },
@@ -307,14 +281,47 @@ export function DraftsPage() {
       </div>
 
       <div className="mailbox-panel divide-y divide-border">
-        {listError && <div className="p-4 text-sm text-destructive">{listError}</div>}
+        {listError && (
+          <div className="p-4">
+            <StatePanel
+              actions={
+                <Button onClick={handleRefresh} size="sm" variant="outline">
+                  Retry
+                </Button>
+              }
+              compact
+              description="Retry the draft query to reload local saved drafts."
+              title={listError}
+              variant="error"
+            />
+          </div>
+        )}
 
         {!listError && isLoading && (
-          <div className="p-6 text-sm text-muted-foreground">Loading drafts...</div>
+          <div className="p-4">
+            <StatePanel
+              compact
+              description="Loading local drafts, send-ready accounts, and saved attachments."
+              title="Loading drafts"
+              variant="loading"
+            />
+          </div>
         )}
 
         {!listError && !isLoading && drafts.length === 0 && (
-          <div className="p-6 text-sm text-muted-foreground">No drafts yet.</div>
+          <div className="p-4">
+            <StatePanel
+              actions={
+                <Button onClick={handleOpenNewDraft} size="sm" variant="outline">
+                  Compose new draft
+                </Button>
+              }
+              compact
+              description="Start a draft here and MailPilot will keep it locally until you send or discard it."
+              title="No drafts yet"
+              variant="empty"
+            />
+          </div>
         )}
 
         {!listError &&
@@ -400,16 +407,6 @@ export function DraftsPage() {
   );
 }
 
-function toErrorMessage(error: unknown): string {
-  if (error instanceof ApiClientError) {
-    return error.message;
-  }
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return "Request failed";
-}
-
 function formatRelativeTime(input: string): string {
   const target = new Date(input).getTime();
   if (Number.isNaN(target)) {
@@ -438,10 +435,4 @@ function formatRelativeTime(input: string): string {
   }
 
   return new Date(input).toLocaleDateString();
-}
-
-function sleep(durationMs: number) {
-  return new Promise<void>((resolve) => {
-    window.setTimeout(resolve, durationMs);
-  });
 }

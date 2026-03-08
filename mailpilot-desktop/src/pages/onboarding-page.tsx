@@ -1,4 +1,3 @@
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -38,9 +37,18 @@ import {
   startOnboarding,
   type OnboardingViewProposal,
 } from "@/lib/api/onboarding";
-import { configCheck, getGmailOAuthStatus, startGmailOAuth } from "@/lib/api/oauth";
+import { configCheck, startGmailOAuth } from "@/lib/api/oauth";
 import { getSyncStatus, runAllAccountsSync } from "@/lib/api/sync";
+import {
+  GMAIL_OAUTH_POLL_INTERVAL_MS,
+  GMAIL_OAUTH_POLL_TIMEOUT_MS,
+  openGmailOAuthUrl,
+  sleep,
+  waitForGmailOAuthOutcome,
+} from "@/lib/oauth/gmail-oauth-flow";
 import { ApiClientError } from "@/api/client";
+import { toApiErrorMessage } from "@/utils/api-error";
+import { StatePanel } from "@/components/common/state-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AccentCard } from "@/components/ui/AccentCard";
@@ -124,8 +132,6 @@ const FIELD_OF_WORK_OPTIONS = [
   "Other",
 ] as const;
 
-const OAUTH_POLL_INTERVAL_MS = 2000;
-const OAUTH_POLL_TIMEOUT_MS = 45000;
 const ROLE_SAVE_DEBOUNCE_MS = 300;
 const SAVE_HINT_LIFETIME_MS = 1800;
 const SYNC_PROGRESS_MESSAGES = [
@@ -135,16 +141,6 @@ const SYNC_PROGRESS_MESSAGES = [
   "Scoring likely workspace categories...",
   "Preparing your starter views...",
 ] as const;
-
-function toErrorMessage(error: unknown): string {
-  if (error instanceof ApiClientError) {
-    return error.message;
-  }
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return "Request failed";
-}
 
 function clampStep(step: number | undefined): WizardStep {
   if (!step || Number.isNaN(step)) {
@@ -486,15 +482,17 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
   }, [accounts]);
 
   useEffect(() => {
+    const roleSaveTimeouts = saveTimeoutsRef.current;
+    const roleSavedHintTimeouts = savedHintTimeoutsRef.current;
     return () => {
-      for (const timeoutId of saveTimeoutsRef.current.values()) {
+      for (const timeoutId of roleSaveTimeouts.values()) {
         window.clearTimeout(timeoutId);
       }
-      saveTimeoutsRef.current.clear();
-      for (const timeoutId of savedHintTimeoutsRef.current.values()) {
+      roleSaveTimeouts.clear();
+      for (const timeoutId of roleSavedHintTimeouts.values()) {
         window.clearTimeout(timeoutId);
       }
-      savedHintTimeoutsRef.current.clear();
+      roleSavedHintTimeouts.clear();
     };
   }, []);
 
@@ -576,7 +574,7 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
       } catch (error) {
         setRoleErrorByAccountId((previous) => ({
           ...previous,
-          [accountId]: toErrorMessage(error),
+          [accountId]: toApiErrorMessage(error),
         }));
       } finally {
         setRoleSavingByAccountId((previous) => ({
@@ -613,7 +611,7 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
       const response = await startOnboarding();
       setStep(clampStep(response.step));
     } catch (error) {
-      setPageError(toErrorMessage(error));
+      setPageError(toApiErrorMessage(error));
     } finally {
       setBusy(false);
     }
@@ -632,38 +630,21 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
         returnTo: "/onboarding",
       });
 
-      try {
-        await openUrl(oauth.authUrl);
-        onBrowserOpened?.();
-      } catch (_error) {
-        throw new ApiClientError("Unable to open the browser for Google OAuth.");
-      }
+      await openGmailOAuthUrl(oauth.authUrl, {
+        fallbackToWindowOpen: false,
+        errorMessage: "Unable to open the browser for Google OAuth.",
+      });
+      onBrowserOpened?.();
 
-      const startedAt = Date.now();
-      let status: "PENDING" | "SUCCESS" | "ERROR" | "EXPIRED" | "UNKNOWN" = "PENDING";
-      let statusMessage = "Waiting for Google OAuth confirmation...";
-      while (Date.now() - startedAt < OAUTH_POLL_TIMEOUT_MS) {
-        const poll = await getGmailOAuthStatus(oauth.state);
-        status = poll.status;
-        statusMessage = poll.message || statusMessage;
-        if (status === "SUCCESS") {
-          break;
-        }
-        if (status === "ERROR" || status === "EXPIRED" || status === "UNKNOWN") {
-          throw new ApiClientError(statusMessage || "OAuth flow failed.");
-        }
-        await new Promise((resolve) => window.setTimeout(resolve, OAUTH_POLL_INTERVAL_MS));
-      }
-
-      if (status !== "SUCCESS") {
-        throw new ApiClientError(
-          "Gmail connection timed out. Complete browser consent and try again."
-        );
-      }
+      await waitForGmailOAuthOutcome(oauth.state, {
+        timeoutMs: GMAIL_OAUTH_POLL_TIMEOUT_MS,
+        pollIntervalMs: GMAIL_OAUTH_POLL_INTERVAL_MS,
+        timeoutMessage: "Gmail connection timed out. Complete browser consent and try again.",
+      });
 
       let selectedAccount: AccountRecord | null = null;
       const waitStart = Date.now();
-      while (Date.now() - waitStart < OAUTH_POLL_TIMEOUT_MS) {
+      while (Date.now() - waitStart < GMAIL_OAUTH_POLL_TIMEOUT_MS) {
         const latestAccounts = await loadAccounts();
         selectedAccount =
           latestAccounts.find(
@@ -680,7 +661,7 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
           break;
         }
 
-        await new Promise((resolve) => window.setTimeout(resolve, OAUTH_POLL_INTERVAL_MS));
+        await sleep(GMAIL_OAUTH_POLL_INTERVAL_MS);
       }
 
       if (!selectedAccount) {
@@ -709,7 +690,7 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
       setStep(3);
     } catch (error) {
       setConnectStage("ERROR");
-      setPageError(toErrorMessage(error));
+      setPageError(toApiErrorMessage(error));
     } finally {
       setBusy(false);
     }
@@ -731,7 +712,7 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
       }
       await loadAccounts();
     } catch (error) {
-      setPageError(toErrorMessage(error));
+      setPageError(toApiErrorMessage(error));
     } finally {
       setBusy(false);
     }
@@ -745,7 +726,7 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
       setStep(4);
       await loadViewProposals();
     } catch (error) {
-      setPageError(toErrorMessage(error));
+      setPageError(toApiErrorMessage(error));
     } finally {
       setBusy(false);
     }
@@ -775,7 +756,7 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
       }
       await loadViewProposals();
     } catch (error) {
-      setPageError(toErrorMessage(error));
+      setPageError(toApiErrorMessage(error));
     } finally {
       setSyncingProposals(false);
     }
@@ -820,7 +801,7 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
 
       await moveToProfileStep();
     } catch (error) {
-      setPageError(toErrorMessage(error));
+      setPageError(toApiErrorMessage(error));
     } finally {
       setApplyingProposals(false);
     }
@@ -833,7 +814,7 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
       setCreatedViewsCount(0);
       await moveToProfileStep();
     } catch (error) {
-      setPageError(toErrorMessage(error));
+      setPageError(toApiErrorMessage(error));
     } finally {
       setApplyingProposals(false);
     }
@@ -874,7 +855,7 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
       });
       setStep(6);
     } catch (error) {
-      setProfileError(toErrorMessage(error));
+      setProfileError(toApiErrorMessage(error));
     } finally {
       setSubmittingProfile(false);
     }
@@ -1024,28 +1005,25 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
                   {(connectStage === "OPENING_BROWSER" ||
                     connectStage === "WAITING_FOR_CALLBACK" ||
                     busy) && (
-                    <div className="rounded-lg border border-sky-500/25 bg-sky-500/10 p-3">
-                      <div className="flex items-center gap-2">
-                        <span className="h-4 w-4 animate-spin rounded-full border-2 border-sky-300/70 border-t-transparent" />
-                        <p className="text-sm">
-                          {connectStage === "OPENING_BROWSER"
-                            ? "Opening browser for Google sign-in..."
-                            : "Waiting for Google sign-in to finish..."}
-                        </p>
-                      </div>
-                      <p className="pt-1 text-xs text-muted-foreground">
-                        Securing your connection and waiting for callback confirmation.
-                      </p>
-                    </div>
+                    <StatePanel
+                      compact
+                      description="Securing your connection and waiting for callback confirmation."
+                      title={
+                        connectStage === "OPENING_BROWSER"
+                          ? "Opening browser for Google sign-in"
+                          : "Waiting for Google sign-in to finish"
+                      }
+                      variant="loading"
+                    />
                   )}
 
                   {connectStage === "ERROR" && friendlyConnectError && (
-                    <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm">
-                      <p>{friendlyConnectError}</p>
-                      <p className="pt-1 text-xs text-muted-foreground">
-                        Retry to start a fresh Google sign-in session.
-                      </p>
-                    </div>
+                    <StatePanel
+                      compact
+                      description="Retry to start a fresh Google sign-in session."
+                      title={friendlyConnectError}
+                      variant="error"
+                    />
                   )}
 
                   <div className="flex flex-wrap gap-2">
@@ -1239,24 +1217,23 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
               >
                 <div className="space-y-3">
                   {(loadingProposals || syncingProposals) && (
-                    <div className="rounded-lg border border-violet-500/30 bg-violet-500/10 p-4">
-                      <div className="flex items-center gap-2">
-                        <span className="h-4 w-4 animate-spin rounded-full border-2 border-violet-300/70 border-t-transparent" />
-                        <p className="text-sm">{syncProgressMessage}</p>
-                      </div>
-                      <p className="pt-1 text-xs text-muted-foreground">
-                        This can take a moment while sync and proposal analysis finish.
-                      </p>
-                    </div>
+                    <StatePanel
+                      compact
+                      description="This can take a moment while sync and proposal analysis finish."
+                      title={syncProgressMessage}
+                      variant="loading"
+                    />
                   )}
 
                   {!loadingProposals && proposals.length === 0 && (
-                    <div className="rounded-lg border border-border/70 bg-muted/25 p-4">
-                      <p className="text-sm text-muted-foreground">
-                        {proposalMessage ??
-                          "Not enough mail history yet. Run initial sync and retry proposal generation."}
-                      </p>
-                    </div>
+                    <StatePanel
+                      compact
+                      description="Run initial sync again after more mail history lands if you want stronger starter recommendations."
+                      title={
+                        proposalMessage ?? "Not enough mail history yet to recommend starter views."
+                      }
+                      variant="empty"
+                    />
                   )}
                 </div>
               </AccentCard>
@@ -1795,9 +1772,12 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
           )}
 
           {pageError && !(step === 2 && connectStage === "ERROR") ? (
-            <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-              {pageError}
-            </div>
+            <StatePanel
+              compact
+              description="Retry the current onboarding step after fixing the issue above."
+              title={pageError}
+              variant="error"
+            />
           ) : null}
         </CardContent>
       </Card>

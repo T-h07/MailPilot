@@ -1,21 +1,22 @@
 package com.mailpilot.service.sync;
 
 import com.mailpilot.api.error.ApiBadRequestException;
+import com.mailpilot.service.AttachmentMetadataService;
 import com.mailpilot.service.BadgeService;
 import com.mailpilot.service.events.AppEventBus;
+import com.mailpilot.service.gmail.GmailApiExecutor;
 import com.mailpilot.service.gmail.GmailClient;
 import com.mailpilot.service.gmail.GmailClient.GmailHistoryExpiredException;
 import com.mailpilot.service.gmail.GmailClient.GmailMessageNotFoundException;
 import com.mailpilot.service.gmail.GmailClient.GmailMessageResponse;
 import com.mailpilot.service.gmail.GmailClient.GmailProfileResponse;
-import com.mailpilot.service.gmail.GmailClient.GmailUnauthorizedException;
 import com.mailpilot.service.gmail.GmailClient.HistoryListResponse;
 import com.mailpilot.service.gmail.GmailClient.HistoryMessageContainer;
 import com.mailpilot.service.gmail.GmailClient.HistoryRecord;
 import com.mailpilot.service.gmail.GmailClient.MessageListResponse;
 import com.mailpilot.service.gmail.GmailClient.MessageRef;
 import com.mailpilot.service.logging.LogSanitizer;
-import com.mailpilot.service.oauth.TokenService;
+import com.mailpilot.service.oauth.GmailScopeService;
 import jakarta.annotation.PreDestroy;
 import java.time.OffsetDateTime;
 import java.util.Collection;
@@ -32,7 +33,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.function.Function;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -42,7 +42,6 @@ import org.springframework.util.StringUtils;
 @Service
 public class GmailSyncService {
 
-  private static final String GMAIL_READ_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
   public static final int DEFAULT_MAX_MESSAGES = 500;
   public static final int MAX_MAX_MESSAGES = 2000;
   private static final int GMAIL_LIST_PAGE_SIZE = 100;
@@ -54,7 +53,9 @@ public class GmailSyncService {
   private final JdbcTemplate jdbcTemplate;
   private final GmailClient gmailClient;
   private final GmailMessageMapper gmailMessageMapper;
-  private final TokenService tokenService;
+  private final GmailApiExecutor gmailApiExecutor;
+  private final GmailScopeService gmailScopeService;
+  private final AttachmentMetadataService attachmentMetadataService;
   private final BadgeService badgeService;
   private final AppEventBus appEventBus;
   private final ExecutorService messageFetchExecutor =
@@ -64,13 +65,17 @@ public class GmailSyncService {
       JdbcTemplate jdbcTemplate,
       GmailClient gmailClient,
       GmailMessageMapper gmailMessageMapper,
-      TokenService tokenService,
+      GmailApiExecutor gmailApiExecutor,
+      GmailScopeService gmailScopeService,
+      AttachmentMetadataService attachmentMetadataService,
       BadgeService badgeService,
       AppEventBus appEventBus) {
     this.jdbcTemplate = jdbcTemplate;
     this.gmailClient = gmailClient;
     this.gmailMessageMapper = gmailMessageMapper;
-    this.tokenService = tokenService;
+    this.gmailApiExecutor = gmailApiExecutor;
+    this.gmailScopeService = gmailScopeService;
+    this.attachmentMetadataService = attachmentMetadataService;
     this.badgeService = badgeService;
     this.appEventBus = appEventBus;
   }
@@ -95,7 +100,7 @@ public class GmailSyncService {
     if (!"GMAIL".equalsIgnoreCase(account.provider())) {
       throw new ApiBadRequestException("Account provider must be GMAIL");
     }
-    if (!hasScope(account.scope(), GMAIL_READ_SCOPE)) {
+    if (!gmailScopeService.hasReadScope(account.scope())) {
       throw new ApiBadRequestException(
           "Account is missing Gmail read scope. Reconnect Gmail and grant read access.");
     }
@@ -105,7 +110,7 @@ public class GmailSyncService {
 
     try {
       GmailProfileResponse profile =
-          executeWithTokenRetry(accountId, (accessToken) -> gmailClient.getProfile(accessToken));
+          gmailApiExecutor.execute(accountId, (accessToken) -> gmailClient.getProfile(accessToken));
 
       String profileEmail = normalize(profile.emailAddress());
       if (!StringUtils.hasText(profileEmail)) {
@@ -140,7 +145,7 @@ public class GmailSyncService {
       }
 
       GmailProfileResponse latestProfile =
-          executeWithTokenRetry(accountId, (accessToken) -> gmailClient.getProfile(accessToken));
+          gmailApiExecutor.execute(accountId, (accessToken) -> gmailClient.getProfile(accessToken));
       String latestHistoryId =
           StringUtils.hasText(latestProfile.historyId())
               ? latestProfile.historyId()
@@ -228,7 +233,7 @@ public class GmailSyncService {
       int batchSize = Math.min(GMAIL_LIST_PAGE_SIZE, maxMessages - messageIds.size());
       String currentPageToken = pageToken;
       MessageListResponse response =
-          executeWithTokenRetry(
+          gmailApiExecutor.execute(
               accountId,
               (accessToken) ->
                   gmailClient.listMessages(accessToken, batchSize, currentPageToken, null));
@@ -265,7 +270,7 @@ public class GmailSyncService {
     while (true) {
       String currentPageToken = pageToken;
       HistoryListResponse response =
-          executeWithTokenRetry(
+          gmailApiExecutor.execute(
               accountId,
               (accessToken) ->
                   gmailClient.historyList(accessToken, startHistoryId, currentPageToken));
@@ -438,7 +443,7 @@ public class GmailSyncService {
   private FetchedMessage fetchMessage(UUID accountId, String messageId) {
     try {
       GmailMessageResponse response =
-          executeWithTokenRetry(
+          gmailApiExecutor.execute(
               accountId, (accessToken) -> gmailClient.getMessageFull(accessToken, messageId));
       return new FetchedMessage(messageId, false, response);
     } catch (GmailMessageNotFoundException exception) {
@@ -522,7 +527,8 @@ public class GmailSyncService {
       throw new IllegalStateException("Failed to upsert message metadata");
     }
 
-    upsertAttachmentMetadata(upsertMessageResult.messageId(), metadata.attachments());
+    attachmentMetadataService.syncAttachments(
+        upsertMessageResult.messageId(), metadata.attachments());
     return upsertMessageResult;
   }
 
@@ -550,151 +556,6 @@ public class GmailSyncService {
     }
 
     return threadId;
-  }
-
-  private void upsertAttachmentMetadata(
-      UUID messageId, List<GmailMessageMapper.AttachmentMetadata> attachments) {
-    List<GmailMessageMapper.AttachmentMetadata> downloadableAttachments =
-        attachments.stream().filter((attachment) -> !attachment.isInline()).toList();
-
-    if (downloadableAttachments.isEmpty()) {
-      jdbcTemplate.update("DELETE FROM attachments WHERE message_id = ?", messageId);
-      return;
-    }
-
-    for (GmailMessageMapper.AttachmentMetadata attachment : downloadableAttachments) {
-      if (StringUtils.hasText(attachment.providerAttachmentId())) {
-        int updatedRows =
-            jdbcTemplate.update(
-                """
-          UPDATE attachments
-          SET filename = ?, mime_type = ?, size_bytes = ?, is_inline = ?, part_id = ?, content_id = ?
-          WHERE message_id = ? AND provider_attachment_id = ?
-          """,
-                attachment.filename(),
-                attachment.mimeType(),
-                attachment.sizeBytes(),
-                attachment.isInline(),
-                attachment.partId(),
-                attachment.contentId(),
-                messageId,
-                attachment.providerAttachmentId());
-
-        if (updatedRows == 0) {
-          jdbcTemplate.update(
-              """
-            INSERT INTO attachments (
-              message_id,
-              provider_attachment_id,
-              filename,
-              mime_type,
-              size_bytes,
-              is_inline,
-              part_id,
-              content_id
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-              messageId,
-              attachment.providerAttachmentId(),
-              attachment.filename(),
-              attachment.mimeType(),
-              attachment.sizeBytes(),
-              attachment.isInline(),
-              attachment.partId(),
-              attachment.contentId());
-        }
-        continue;
-      }
-
-      UUID existingId = null;
-      if (StringUtils.hasText(attachment.partId())) {
-        existingId =
-            jdbcTemplate
-                .query(
-                    """
-          SELECT id
-          FROM attachments
-          WHERE message_id = ?
-            AND part_id = ?
-          ORDER BY created_at DESC
-          LIMIT 1
-          """,
-                    (resultSet, rowNum) -> resultSet.getObject("id", UUID.class),
-                    messageId,
-                    attachment.partId())
-                .stream()
-                .findFirst()
-                .orElse(null);
-      }
-
-      if (existingId == null) {
-        existingId =
-            jdbcTemplate
-                .query(
-                    """
-          SELECT id
-          FROM attachments
-          WHERE message_id = ?
-            AND provider_attachment_id IS NULL
-            AND filename = ?
-            AND size_bytes = ?
-          ORDER BY created_at DESC
-          LIMIT 1
-          """,
-                    (resultSet, rowNum) -> resultSet.getObject("id", UUID.class),
-                    messageId,
-                    attachment.filename(),
-                    attachment.sizeBytes())
-                .stream()
-                .findFirst()
-                .orElse(null);
-      }
-
-      if (existingId != null) {
-        jdbcTemplate.update(
-            """
-          UPDATE attachments
-          SET
-            filename = ?,
-            mime_type = ?,
-            size_bytes = ?,
-            is_inline = ?,
-            part_id = ?,
-            content_id = ?
-          WHERE id = ?
-          """,
-            attachment.filename(),
-            attachment.mimeType(),
-            attachment.sizeBytes(),
-            attachment.isInline(),
-            attachment.partId(),
-            attachment.contentId(),
-            existingId);
-      } else {
-        jdbcTemplate.update(
-            """
-          INSERT INTO attachments (
-            message_id,
-            provider_attachment_id,
-            filename,
-            mime_type,
-            size_bytes,
-            is_inline,
-            part_id,
-            content_id
-          )
-          VALUES (?, NULL, ?, ?, ?, ?, ?, ?)
-          """,
-            messageId,
-            attachment.filename(),
-            attachment.mimeType(),
-            attachment.sizeBytes(),
-            attachment.isInline(),
-            attachment.partId(),
-            attachment.contentId());
-      }
-    }
   }
 
   private int deleteMessagesByProviderIds(UUID accountId, Collection<String> providerMessageIds) {
@@ -737,7 +598,7 @@ public class GmailSyncService {
 
         try {
           GmailMessageResponse message =
-              executeWithTokenRetry(
+              gmailApiExecutor.execute(
                   account.id(),
                   (accessToken) -> gmailClient.getMessageFull(accessToken, providerMessageId));
           GmailMessageMapper.GmailMetadata metadata = gmailMessageMapper.mapCoreFields(message);
@@ -822,35 +683,11 @@ public class GmailSyncService {
         days);
   }
 
-  private <T> T executeWithTokenRetry(UUID accountId, Function<String, T> request) {
-    String accessToken = tokenService.getValidAccessToken(accountId).accessToken();
-
-    try {
-      return request.apply(accessToken);
-    } catch (GmailUnauthorizedException unauthorizedException) {
-      String refreshedAccessToken = tokenService.refreshAccessToken(accountId).accessToken();
-      return request.apply(refreshedAccessToken);
-    }
-  }
-
   private String normalize(String value) {
     if (!StringUtils.hasText(value)) {
       return "";
     }
     return value.trim().toLowerCase(Locale.ROOT);
-  }
-
-  private boolean hasScope(String scopeValue, String requiredScope) {
-    if (!StringUtils.hasText(scopeValue) || !StringUtils.hasText(requiredScope)) {
-      return false;
-    }
-    String required = requiredScope.trim().toLowerCase(Locale.ROOT);
-    for (String scope : scopeValue.trim().split("[\\s,]+")) {
-      if (required.equals(scope.toLowerCase(Locale.ROOT))) {
-        return true;
-      }
-    }
-    return false;
   }
 
   public record SyncResult(

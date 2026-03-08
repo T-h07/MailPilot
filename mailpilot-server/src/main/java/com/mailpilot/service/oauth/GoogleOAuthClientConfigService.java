@@ -22,8 +22,8 @@ public class GoogleOAuthClientConfigService {
 
   private static final Logger LOGGER =
       LoggerFactory.getLogger(GoogleOAuthClientConfigService.class);
-  private static final Path WINDOWS_DEFAULT_PATH =
-      Paths.get("C:\\Users\\taulanth\\AppData\\Local\\MailPilot\\google-oauth-client.json");
+  private static final String MAILPILOT_DIRECTORY = "MailPilot";
+  private static final String OAUTH_CLIENT_FILE_NAME = "google-oauth-client.json";
 
   private final Environment environment;
   private final ObjectMapper objectMapper;
@@ -126,10 +126,28 @@ public class GoogleOAuthClientConfigService {
     }
 
     if (isWindows()) {
-      return WINDOWS_DEFAULT_PATH;
+      return defaultWindowsOAuthPath();
     }
 
     return null;
+  }
+
+  private Path defaultWindowsOAuthPath() {
+    String localAppData = environment.getProperty("LOCALAPPDATA");
+    if (StringUtils.hasText(localAppData)) {
+      try {
+        return Paths.get(localAppData.trim(), MAILPILOT_DIRECTORY, OAUTH_CLIENT_FILE_NAME)
+            .toAbsolutePath()
+            .normalize();
+      } catch (InvalidPathException ignored) {
+        // Fall back to user.home/AppData/Local below.
+      }
+    }
+
+    String userHome = System.getProperty("user.home", ".");
+    return Paths.get(userHome, "AppData", "Local", MAILPILOT_DIRECTORY, OAUTH_CLIENT_FILE_NAME)
+        .toAbsolutePath()
+        .normalize();
   }
 
   private boolean isDevProfile() {

@@ -1,13 +1,20 @@
 name: CI
 
+permissions:
+  contents: read
+
 on:
+  workflow_dispatch:
   pull_request:
   push:
     branches:
       - main
       - develop
-      - AdditionalFeatures
-      - cleanup/**
+      - feature/**
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   backend:
@@ -33,9 +40,6 @@ jobs:
       - name: Run tests
         run: ./mvnw -q test
 
-      - name: Fetch Spotless ratchet baseline
-        run: git fetch --no-tags --depth=1 origin +refs/heads/main:refs/remotes/origin/main
-
       - name: Spotless check
         run: ./mvnw -q spotless:check
 
@@ -60,7 +64,7 @@ jobs:
         run: npm ci
 
       - name: Lint
-        run: npm run lint
+        run: npm run lint:ci
 
       - name: Format check
         run: npm run format:check

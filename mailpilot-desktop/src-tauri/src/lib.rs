@@ -193,7 +193,7 @@ fn launch_bundled_backend<R: tauri::Runtime>(
         .path()
         .resource_dir()
         .map_err(|error| format!("Failed to resolve resource directory: {error}"))?;
-    let backend_jar_path = resource_dir.join(BACKEND_JAR_RELATIVE_PATH);
+    let backend_jar_path = normalize_path_for_process(resource_dir.join(BACKEND_JAR_RELATIVE_PATH));
     if !backend_jar_path.exists() {
         return Err(format!(
             "Bundled backend JAR not found at {}",
@@ -311,6 +311,18 @@ fn launch_bundled_backend<R: tauri::Runtime>(
         "Unable to locate a Java runtime for the bundled backend. Install Java 21+ or bundle a runtime under backend/runtime."
             .to_string()
     }))
+}
+
+fn normalize_path_for_process(path: PathBuf) -> PathBuf {
+    #[cfg(target_os = "windows")]
+    {
+        let raw = path.to_string_lossy();
+        if let Some(stripped) = raw.strip_prefix(r"\\?\") {
+            return PathBuf::from(stripped);
+        }
+    }
+
+    path
 }
 
 fn update_backend_startup_status<R: tauri::Runtime>(

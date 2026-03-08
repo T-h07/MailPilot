@@ -4,25 +4,20 @@ import com.mailpilot.api.error.ApiBadRequestException;
 import com.mailpilot.api.error.ApiNotFoundException;
 import com.mailpilot.api.model.MessageBodyLoadResponse;
 import com.mailpilot.api.model.MessageDetailResponse;
+import com.mailpilot.service.AttachmentMetadataService.StoredAttachment;
+import com.mailpilot.service.gmail.GmailApiExecutor;
 import com.mailpilot.service.gmail.GmailClient;
-import com.mailpilot.service.gmail.GmailClient.GmailBody;
 import com.mailpilot.service.gmail.GmailClient.GmailMessageResponse;
-import com.mailpilot.service.gmail.GmailClient.GmailPayload;
-import com.mailpilot.service.gmail.GmailClient.GmailUnauthorizedException;
-import com.mailpilot.service.oauth.TokenService;
-import com.mailpilot.service.sync.GmailMessageMapper;
+import com.mailpilot.service.gmail.GmailMimeParser;
+import com.mailpilot.service.gmail.GmailMimeParser.DecodedBody;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
-import java.util.ArrayList;
-import java.util.Base64;
 import java.util.List;
-import java.util.Locale;
 import java.util.UUID;
-import java.util.function.Function;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -39,20 +34,23 @@ public class MessageService {
   private final JdbcTemplate jdbcTemplate;
   private final SenderHighlightResolver senderHighlightResolver;
   private final GmailClient gmailClient;
-  private final TokenService tokenService;
-  private final GmailMessageMapper gmailMessageMapper;
+  private final GmailApiExecutor gmailApiExecutor;
+  private final GmailMimeParser gmailMimeParser;
+  private final AttachmentMetadataService attachmentMetadataService;
 
   public MessageService(
       JdbcTemplate jdbcTemplate,
       SenderHighlightResolver senderHighlightResolver,
       GmailClient gmailClient,
-      TokenService tokenService,
-      GmailMessageMapper gmailMessageMapper) {
+      GmailApiExecutor gmailApiExecutor,
+      GmailMimeParser gmailMimeParser,
+      AttachmentMetadataService attachmentMetadataService) {
     this.jdbcTemplate = jdbcTemplate;
     this.senderHighlightResolver = senderHighlightResolver;
     this.gmailClient = gmailClient;
-    this.tokenService = tokenService;
-    this.gmailMessageMapper = gmailMessageMapper;
+    this.gmailApiExecutor = gmailApiExecutor;
+    this.gmailMimeParser = gmailMimeParser;
+    this.attachmentMetadataService = attachmentMetadataService;
   }
 
   public MessageDetailResponse getMessageDetail(UUID messageId) {
@@ -203,21 +201,21 @@ public class MessageService {
     }
 
     GmailMessageResponse response =
-        executeWithTokenRetry(
+        gmailApiExecutor.execute(
             message.accountId(),
             (accessToken) ->
                 gmailClient.getMessageFull(accessToken, message.providerMessageId().trim()));
 
-    CachedBody extractedBody = extractBody(response.payload());
+    DecodedBody extractedBody = gmailMimeParser.extractPreferredBody(response.payload());
     int contentLength = utf8Length(extractedBody.content());
     if (contentLength > MAX_BODY_CACHE_BYTES) {
       throw new ApiBadRequestException("Message body exceeds the 5 MB cache limit.");
     }
 
     OffsetDateTime cachedAt = OffsetDateTime.now(ZoneOffset.UTC);
-    List<GmailMessageMapper.AttachmentMetadata> refreshedAttachments =
-        extractDownloadableAttachments(response.payload());
-    upsertAttachmentMetadata(message.id(), refreshedAttachments);
+    var refreshedAttachments =
+        attachmentMetadataService.extractDownloadableAttachments(response.payload());
+    attachmentMetadataService.syncAttachments(message.id(), refreshedAttachments);
     boolean hasAttachments = !refreshedAttachments.isEmpty();
 
     int updatedRows =
@@ -228,7 +226,7 @@ public class MessageService {
       WHERE id = ?
       """,
             extractedBody.content(),
-            extractedBody.mime(),
+            extractedBody.mimeType(),
             cachedAt,
             hasAttachments,
             message.id());
@@ -237,7 +235,7 @@ public class MessageService {
     }
 
     return new MessageBodyLoadResponse(
-        "ok", message.id(), extractedBody.mime(), cachedAt.toString(), contentLength);
+        "ok", message.id(), extractedBody.mimeType(), cachedAt.toString(), contentLength);
   }
 
   public BodyCacheSnapshot ensureBodyCached(UUID messageId) {
@@ -276,95 +274,6 @@ public class MessageService {
     }
   }
 
-  private CachedBody extractBody(GmailPayload payload) {
-    BodyCollector collector = new BodyCollector(new ArrayList<>(), new ArrayList<>());
-    collectBodyParts(payload, collector);
-
-    String html = joinCollectedParts(collector.htmlParts());
-    if (StringUtils.hasText(html)) {
-      return new CachedBody("text/html", html);
-    }
-
-    String plain = joinCollectedParts(collector.plainParts());
-    if (StringUtils.hasText(plain)) {
-      return new CachedBody("text/plain", plain);
-    }
-
-    if (collector.attachmentOnlyBody()) {
-      throw new ApiBadRequestException(
-          "Message body is stored as attachment-only content and cannot be loaded yet.");
-    }
-    throw new ApiBadRequestException("No body content available from Gmail for this message.");
-  }
-
-  private void collectBodyParts(GmailPayload payload, BodyCollector collector) {
-    if (payload == null) {
-      return;
-    }
-
-    String mimeType = normalizeMime(payload.mimeType());
-    if (mimeType.startsWith("text/plain")) {
-      collectBodyPart(payload.body(), collector.plainParts(), collector);
-    } else if (mimeType.startsWith("text/html")) {
-      collectBodyPart(payload.body(), collector.htmlParts(), collector);
-    }
-
-    List<GmailPayload> parts = payload.parts();
-    if (parts == null || parts.isEmpty()) {
-      return;
-    }
-    for (GmailPayload part : parts) {
-      collectBodyParts(part, collector);
-    }
-  }
-
-  private void collectBodyPart(GmailBody body, List<String> target, BodyCollector collector) {
-    if (body == null) {
-      return;
-    }
-
-    if (StringUtils.hasText(body.data())) {
-      String decoded = decodeBase64UrlToText(body.data());
-      if (StringUtils.hasText(decoded)) {
-        target.add(decoded);
-      }
-      return;
-    }
-
-    if (StringUtils.hasText(body.attachmentId())) {
-      collector.markAttachmentOnlyBody();
-    }
-  }
-
-  private String joinCollectedParts(List<String> parts) {
-    if (parts == null || parts.isEmpty()) {
-      return "";
-    }
-    return String.join("\n\n", parts).trim();
-  }
-
-  private String decodeBase64UrlToText(String value) {
-    String trimmed = value.trim();
-    int paddingNeeded = (4 - (trimmed.length() % 4)) % 4;
-    String padded = trimmed + "=".repeat(paddingNeeded);
-    try {
-      byte[] decoded = Base64.getUrlDecoder().decode(padded);
-      return new String(decoded, StandardCharsets.UTF_8);
-    } catch (IllegalArgumentException exception) {
-      throw new ApiBadRequestException("Message body returned invalid base64 encoding.");
-    }
-  }
-
-  private <T> T executeWithTokenRetry(UUID accountId, Function<String, T> request) {
-    String accessToken = tokenService.getValidAccessToken(accountId).accessToken();
-    try {
-      return request.apply(accessToken);
-    } catch (GmailUnauthorizedException unauthorizedException) {
-      String refreshedAccessToken = tokenService.refreshAccessToken(accountId).accessToken();
-      return request.apply(refreshedAccessToken);
-    }
-  }
-
   private String buildOpenInGmailUrl(String accountEmail, String providerMessageId) {
     if (!StringUtils.hasText(accountEmail) || !StringUtils.hasText(providerMessageId)) {
       return null;
@@ -373,13 +282,6 @@ public class MessageService {
     String authUser = URLEncoder.encode(accountEmail.trim(), StandardCharsets.UTF_8);
     String messageId = URLEncoder.encode(providerMessageId.trim(), StandardCharsets.UTF_8);
     return "https://mail.google.com/mail/u/?authuser=" + authUser + "#all/" + messageId;
-  }
-
-  private String normalizeMime(String mimeType) {
-    if (!StringUtils.hasText(mimeType)) {
-      return "";
-    }
-    return mimeType.trim().toLowerCase(Locale.ROOT);
   }
 
   private int utf8Length(String value) {
@@ -450,14 +352,11 @@ public class MessageService {
   private record BodyLoadRow(
       UUID id,
       UUID accountId,
-      String accountEmail,
       String accountProvider,
       String providerMessageId,
       String bodyCache,
       String bodyCacheMime,
       OffsetDateTime bodyCachedAt) {}
-
-  private record CachedBody(String mime, String content) {}
 
   private BodyLoadRow loadBodyRow(UUID messageId) {
     return jdbcTemplate
@@ -466,7 +365,6 @@ public class MessageService {
       SELECT
         m.id,
         m.account_id,
-        a.email AS account_email,
         a.provider AS account_provider,
         m.provider_message_id,
         m.body_cache,
@@ -480,7 +378,6 @@ public class MessageService {
                 new BodyLoadRow(
                     resultSet.getObject("id", UUID.class),
                     resultSet.getObject("account_id", UUID.class),
-                    resultSet.getString("account_email"),
                     resultSet.getString("account_provider"),
                     resultSet.getString("provider_message_id"),
                     resultSet.getString("body_cache"),
@@ -495,53 +392,10 @@ public class MessageService {
   public record BodyCacheSnapshot(
       UUID messageId, String accountProvider, String bodyCache, String bodyCacheMime) {}
 
-  private static final class BodyCollector {
-
-    private final List<String> plainParts;
-    private final List<String> htmlParts;
-    private boolean attachmentOnlyBody;
-
-    private BodyCollector(List<String> plainParts, List<String> htmlParts) {
-      this.plainParts = plainParts;
-      this.htmlParts = htmlParts;
-      this.attachmentOnlyBody = false;
-    }
-
-    private List<String> plainParts() {
-      return plainParts;
-    }
-
-    private List<String> htmlParts() {
-      return htmlParts;
-    }
-
-    private boolean attachmentOnlyBody() {
-      return attachmentOnlyBody;
-    }
-
-    private void markAttachmentOnlyBody() {
-      attachmentOnlyBody = true;
-    }
-  }
-
   private List<MessageDetailResponse.Attachment> loadMessageAttachments(UUID messageId) {
-    return jdbcTemplate.query(
-        """
-      SELECT id, filename, mime_type, size_bytes, provider_attachment_id, COALESCE(is_inline, false) AS is_inline
-      FROM attachments
-      WHERE message_id = ?
-        AND COALESCE(is_inline, false) = false
-      ORDER BY filename
-      """,
-        (resultSet, rowNum) ->
-            new MessageDetailResponse.Attachment(
-                resultSet.getObject("id", UUID.class),
-                resultSet.getString("filename"),
-                resultSet.getString("mime_type"),
-                resultSet.getLong("size_bytes"),
-                resultSet.getBoolean("is_inline"),
-                true),
-        messageId);
+    return attachmentMetadataService.listDownloadableAttachments(messageId).stream()
+        .map(this::toMessageAttachment)
+        .toList();
   }
 
   private boolean shouldRefreshAttachments(MessageRow messageRow) {
@@ -552,13 +406,13 @@ public class MessageService {
   private void refreshAttachmentMetadata(MessageRow messageRow) {
     try {
       GmailMessageResponse response =
-          executeWithTokenRetry(
+          gmailApiExecutor.execute(
               messageRow.accountId(),
               (accessToken) ->
                   gmailClient.getMessageFull(accessToken, messageRow.providerMessageId()));
-      List<GmailMessageMapper.AttachmentMetadata> attachments =
-          extractDownloadableAttachments(response.payload());
-      upsertAttachmentMetadata(messageRow.id(), attachments);
+      var attachments =
+          attachmentMetadataService.extractDownloadableAttachments(response.payload());
+      attachmentMetadataService.syncAttachments(messageRow.id(), attachments);
       jdbcTemplate.update(
           "UPDATE messages SET has_attachments = ? WHERE id = ?",
           !attachments.isEmpty(),
@@ -571,155 +425,13 @@ public class MessageService {
     }
   }
 
-  private List<GmailMessageMapper.AttachmentMetadata> extractDownloadableAttachments(
-      GmailPayload payload) {
-    return gmailMessageMapper.extractBodyParts(payload).stream()
-        .filter((attachment) -> !attachment.isInline())
-        .toList();
-  }
-
-  private void upsertAttachmentMetadata(
-      UUID messageId, List<GmailMessageMapper.AttachmentMetadata> attachments) {
-    if (attachments.isEmpty()) {
-      jdbcTemplate.update("DELETE FROM attachments WHERE message_id = ?", messageId);
-      return;
-    }
-
-    for (GmailMessageMapper.AttachmentMetadata attachment : attachments) {
-      if (StringUtils.hasText(attachment.providerAttachmentId())) {
-        int updatedRows =
-            jdbcTemplate.update(
-                """
-          UPDATE attachments
-          SET filename = ?, mime_type = ?, size_bytes = ?, is_inline = ?, part_id = ?, content_id = ?
-          WHERE message_id = ? AND provider_attachment_id = ?
-          """,
-                attachment.filename(),
-                attachment.mimeType(),
-                attachment.sizeBytes(),
-                attachment.isInline(),
-                attachment.partId(),
-                attachment.contentId(),
-                messageId,
-                attachment.providerAttachmentId());
-
-        if (updatedRows == 0) {
-          jdbcTemplate.update(
-              """
-            INSERT INTO attachments (
-              message_id,
-              provider_attachment_id,
-              filename,
-              mime_type,
-              size_bytes,
-              is_inline,
-              part_id,
-              content_id
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-              messageId,
-              attachment.providerAttachmentId(),
-              attachment.filename(),
-              attachment.mimeType(),
-              attachment.sizeBytes(),
-              attachment.isInline(),
-              attachment.partId(),
-              attachment.contentId());
-        }
-        continue;
-      }
-
-      UUID existingId = findExistingAttachmentId(messageId, attachment);
-      if (existingId != null) {
-        jdbcTemplate.update(
-            """
-          UPDATE attachments
-          SET
-            filename = ?,
-            mime_type = ?,
-            size_bytes = ?,
-            is_inline = ?,
-            part_id = ?,
-            content_id = ?
-          WHERE id = ?
-          """,
-            attachment.filename(),
-            attachment.mimeType(),
-            attachment.sizeBytes(),
-            attachment.isInline(),
-            attachment.partId(),
-            attachment.contentId(),
-            existingId);
-      } else {
-        jdbcTemplate.update(
-            """
-          INSERT INTO attachments (
-            message_id,
-            provider_attachment_id,
-            filename,
-            mime_type,
-            size_bytes,
-            is_inline,
-            part_id,
-            content_id
-          )
-          VALUES (?, NULL, ?, ?, ?, ?, ?, ?)
-          """,
-            messageId,
-            attachment.filename(),
-            attachment.mimeType(),
-            attachment.sizeBytes(),
-            attachment.isInline(),
-            attachment.partId(),
-            attachment.contentId());
-      }
-    }
-  }
-
-  private UUID findExistingAttachmentId(
-      UUID messageId, GmailMessageMapper.AttachmentMetadata attachment) {
-    if (StringUtils.hasText(attachment.partId())) {
-      UUID byPartId =
-          jdbcTemplate
-              .query(
-                  """
-          SELECT id
-          FROM attachments
-          WHERE message_id = ?
-            AND part_id = ?
-          ORDER BY created_at DESC
-          LIMIT 1
-          """,
-                  (resultSet, rowNum) -> resultSet.getObject("id", UUID.class),
-                  messageId,
-                  attachment.partId())
-              .stream()
-              .findFirst()
-              .orElse(null);
-      if (byPartId != null) {
-        return byPartId;
-      }
-    }
-
-    return jdbcTemplate
-        .query(
-            """
-        SELECT id
-        FROM attachments
-        WHERE message_id = ?
-          AND provider_attachment_id IS NULL
-          AND filename = ?
-          AND size_bytes = ?
-        ORDER BY created_at DESC
-        LIMIT 1
-        """,
-            (resultSet, rowNum) -> resultSet.getObject("id", UUID.class),
-            messageId,
-            attachment.filename(),
-            attachment.sizeBytes())
-        .stream()
-        .findFirst()
-        .orElse(null);
+  private MessageDetailResponse.Attachment toMessageAttachment(StoredAttachment attachment) {
+    return new MessageDetailResponse.Attachment(
+        attachment.id(),
+        attachment.filename(),
+        attachment.mimeType(),
+        attachment.sizeBytes(),
+        attachment.isInline(),
+        true);
   }
 }

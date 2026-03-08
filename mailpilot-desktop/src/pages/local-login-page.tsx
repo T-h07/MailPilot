@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
+import { KeyRound, ShieldCheck } from "lucide-react";
+import { AuthShell } from "@/components/common/auth-shell";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 
 type LocalLoginPageProps = {
@@ -37,42 +38,54 @@ export function LocalLoginPage({
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-6">
-      <Card className="w-full max-w-md border-border bg-card">
-        <CardHeader>
-          <CardTitle className="text-2xl">Login</CardTitle>
-          <CardDescription className="pt-1 text-sm text-muted-foreground">
-            Unlock MailPilot with your local password.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form className="space-y-4" onSubmit={(event) => void handleSubmit(event)}>
-            <Input
-              autoComplete="current-password"
-              disabled={isLoading}
-              onChange={(event) => setPassword(event.target.value)}
-              placeholder="Password"
-              type="password"
-              value={password}
-            />
-            {(localError || error) && (
-              <p className="text-sm text-destructive">{localError ?? error ?? "Login failed."}</p>
-            )}
-            <Button className="w-full" disabled={isLoading} type="submit">
-              {isLoading ? "Logging in..." : "Login"}
-            </Button>
-            <Button
-              className="w-full"
-              disabled={isLoading}
-              onClick={onForgotPassword}
-              type="button"
-              variant="ghost"
-            >
-              Forgot password?
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
-    </div>
+    <AuthShell
+      badge="Local App Login"
+      description="Use the local MailPilot password configured during onboarding to open this desktop workspace."
+      title="Sign in to MailPilot"
+    >
+      <div className="rounded-2xl border border-border/70 bg-background/70 px-4 py-3">
+        <p className="flex items-start gap-2 text-sm leading-6 text-muted-foreground">
+          <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" />
+          This password protects local MailPilot data only. It is separate from Gmail and can be
+          recovered through your primary connected account.
+        </p>
+      </div>
+
+      <form className="space-y-4" onSubmit={(event) => void handleSubmit(event)}>
+        <div className="space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+            Local password
+          </p>
+          <Input
+            autoComplete="current-password"
+            disabled={isLoading}
+            onChange={(event) => setPassword(event.target.value)}
+            placeholder="Enter password"
+            type="password"
+            value={password}
+          />
+        </div>
+        {(localError || error) && (
+          <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {localError ?? error ?? "Login failed."}
+          </div>
+        )}
+        <div className="grid gap-2 sm:grid-cols-2">
+          <Button className="gap-2" disabled={isLoading} type="submit">
+            <KeyRound className="h-4 w-4" />
+            {isLoading ? "Unlocking..." : "Unlock MailPilot"}
+          </Button>
+          <Button
+            className="gap-2"
+            disabled={isLoading}
+            onClick={onForgotPassword}
+            type="button"
+            variant="outline"
+          >
+            Forgot password?
+          </Button>
+        </div>
+      </form>
+    </AuthShell>
   );
 }

@@ -8,13 +8,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.mailpilot.service.gmail.GmailClient.GmailHeader;
 import com.mailpilot.service.gmail.GmailClient.GmailMessageResponse;
 import com.mailpilot.service.gmail.GmailClient.GmailPayload;
+import com.mailpilot.service.gmail.GmailMimeParser;
 import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class GmailMessageMapperTest {
 
-  private final GmailMessageMapper mapper = new GmailMessageMapper();
+  private final GmailMessageMapper mapper = new GmailMessageMapper(new GmailMimeParser());
 
   @Test
   void computeFlagsMarksInboxMessagesCorrectly() {

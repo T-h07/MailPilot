@@ -1,6 +1,7 @@
 import { Download, FileImage, FileText, FileType, Paperclip } from "lucide-react";
 import type { MailAttachment } from "@/features/mailbox/model/types";
 import { formatBytes } from "@/features/mailbox/utils/format";
+import { StatePanel } from "@/components/common/state-panel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -18,7 +19,14 @@ export function AttachmentList({
   const downloadableAttachments = attachments.filter((attachment) => !attachment.isInline);
 
   if (downloadableAttachments.length === 0) {
-    return null;
+    return (
+      <StatePanel
+        compact
+        description="Downloadable files appear here when the selected message includes them."
+        title="No attachments"
+        variant="empty"
+      />
+    );
   }
 
   return (

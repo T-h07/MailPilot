@@ -17,13 +17,16 @@ import {
   ChevronDown,
   Cog,
   FileText,
+  FolderOpen,
   Gauge,
   LayoutDashboard,
   Lock,
   LogOut,
   Mailbox,
   Menu,
+  RefreshCcw,
   Send,
+  ShieldCheck,
   Target,
 } from "lucide-react";
 import { InboxPage } from "@/pages/inbox-page";
@@ -48,6 +51,8 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { AppLockOverlay } from "@/components/common/app-lock-overlay";
+import { AuthShell } from "@/components/common/auth-shell";
+import { StatePanel } from "@/components/common/state-panel";
 import { ApiClientError } from "@/api/client";
 import { listViews, type ViewRecord } from "@/lib/api/views";
 import {
@@ -58,7 +63,8 @@ import {
   type AppStateRecord,
   unlockApp,
 } from "@/lib/api/app-state";
-import { LiveEventsProvider, useLiveEvents } from "@/lib/events/live-events-context";
+import { LiveEventsProvider } from "@/lib/events/live-events-context";
+import { useLiveEvents } from "@/lib/events/use-live-events";
 
 type ThemeVariant = "balanced" | "pure-black" | "paper";
 
@@ -124,6 +130,19 @@ type BackendStartupStatus = {
   attempt: number;
   maxAttempts: number;
 };
+
+function deriveParentPath(path: string | null): string | null {
+  if (!path) {
+    return null;
+  }
+
+  const normalized = path.replace(/[\\/]+$/, "");
+  const separatorIndex = Math.max(normalized.lastIndexOf("\\"), normalized.lastIndexOf("/"));
+  if (separatorIndex <= 0) {
+    return null;
+  }
+  return normalized.slice(0, separatorIndex);
+}
 
 function getInitialThemeVariant(): ThemeVariant {
   const storedVariant = localStorage.getItem(THEME_VARIANT_STORAGE_KEY);
@@ -648,11 +667,12 @@ function AppShell({
   }, [latestNewMail, newMailSequence, views]);
 
   useEffect(() => {
+    const toastTimeouts = toastTimeoutsRef.current;
     return () => {
-      for (const timeoutId of toastTimeoutsRef.current.values()) {
+      for (const timeoutId of toastTimeouts.values()) {
         window.clearTimeout(timeoutId);
       }
-      toastTimeoutsRef.current.clear();
+      toastTimeouts.clear();
     };
   }, []);
 
@@ -739,7 +759,7 @@ function AppShell({
             <div className="pointer-events-none fixed bottom-5 right-5 z-[80] space-y-2">
               {toasts.map((toast) => (
                 <div
-                  className="w-[320px] rounded-lg border border-border bg-card px-3 py-2 shadow-lg"
+                  className="mailbox-toast w-[320px] rounded-lg border border-border bg-card px-3 py-2 shadow-lg"
                   key={toast.id}
                 >
                   <p className="text-xs font-semibold">{toast.title}</p>
@@ -770,32 +790,95 @@ function BootstrappingScreen({
   statusMessage,
   onRetry,
   onOpenLogs,
+  onOpenAppData,
 }: {
   error: string | null;
   statusMessage?: string | null;
   onRetry: () => void;
   onOpenLogs?: (() => void) | null;
+  onOpenAppData?: (() => void) | null;
 }) {
+  const description = error
+    ? "MailPilot could not finish its local startup sequence. Use the recovery actions below and check the local logs before retrying."
+    : "MailPilot is starting its bundled backend, local database, and event stream before the desktop UI unlocks.";
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-6">
-      <div className="w-full max-w-md rounded-lg border border-border bg-card p-6">
-        <p className="text-lg font-semibold">Loading MailPilot...</p>
-        {error ? <p className="pt-2 text-sm text-destructive">{error}</p> : null}
-        {!error && statusMessage ? <p className="pt-2 text-sm text-muted-foreground">{statusMessage}</p> : null}
-        {error ? (
-          <div className="mt-4 flex flex-wrap gap-2">
-            <Button onClick={onRetry} variant="outline">
-              Retry
-            </Button>
-            {onOpenLogs ? (
-              <Button onClick={onOpenLogs} variant="outline">
-                Open Logs
+    <AuthShell
+      badge={error ? "Startup Recovery" : "Starting MailPilot"}
+      description={description}
+      highlights={[
+        "MailPilot waits for the bundled backend before entering the inbox UI",
+        "Startup logs are written under %LOCALAPPDATA%\\MailPilot\\logs",
+        "If startup stalls, logs and app data are the first recovery checkpoints",
+      ]}
+      title={error ? "MailPilot needs startup recovery" : "Preparing your workspace"}
+    >
+      <StatePanel
+        actions={
+          error ? (
+            <>
+              <Button className="gap-2" onClick={onRetry}>
+                <RefreshCcw className="h-4 w-4" />
+                Retry startup
               </Button>
-            ) : null}
-          </div>
-        ) : null}
+              {onOpenLogs ? (
+                <Button className="gap-2" onClick={onOpenLogs} variant="outline">
+                  <ShieldCheck className="h-4 w-4" />
+                  Open logs
+                </Button>
+              ) : null}
+              {onOpenAppData ? (
+                <Button className="gap-2" onClick={onOpenAppData} variant="outline">
+                  <FolderOpen className="h-4 w-4" />
+                  Open app data
+                </Button>
+              ) : null}
+            </>
+          ) : null
+        }
+        centered
+        className="min-h-[188px]"
+        description={
+          error ? (
+            <p className="leading-6 text-destructive">{error}</p>
+          ) : (
+            <p className="leading-6">{statusMessage ?? "Starting MailPilot backend..."}</p>
+          )
+        }
+        title={error ? "Startup interrupted" : "Loading MailPilot"}
+        variant={error ? "error" : "loading"}
+      />
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="rounded-2xl border border-border/70 bg-background/70 p-4">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+            Backend
+          </p>
+          <p className="pt-2 text-sm font-medium">Launching bundled services</p>
+          <p className="pt-1 text-xs leading-5 text-muted-foreground">
+            MailPilot waits for the local API and database before routing into the app shell.
+          </p>
+        </div>
+        <div className="rounded-2xl border border-border/70 bg-background/70 p-4">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+            Runtime
+          </p>
+          <p className="pt-2 text-sm font-medium">Verifying desktop state</p>
+          <p className="pt-1 text-xs leading-5 text-muted-foreground">
+            If startup fails, retry here first. If it repeats, inspect logs before relaunching.
+          </p>
+        </div>
+        <div className="rounded-2xl border border-border/70 bg-background/70 p-4">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+            Storage
+          </p>
+          <p className="pt-2 text-sm font-medium">Using local MailPilot data</p>
+          <p className="pt-1 text-xs leading-5 text-muted-foreground">
+            OAuth config, token keys, and logs live outside the repo under local app data.
+          </p>
+        </div>
       </div>
-    </div>
+    </AuthShell>
   );
 }
 
@@ -1073,10 +1156,20 @@ function App() {
     void openPath(backendLogsDir);
   }, [backendLogsDir]);
 
+  const handleOpenAppData = useCallback(() => {
+    const appDataDir = deriveParentPath(backendLogsDir);
+    if (!appDataDir) {
+      return;
+    }
+
+    void openPath(appDataDir);
+  }, [backendLogsDir]);
+
   if (isBootstrapping) {
     return (
       <BootstrappingScreen
         error={bootstrapError}
+        onOpenAppData={backendLogsDir ? handleOpenAppData : null}
         onOpenLogs={backendLogsDir ? handleOpenLogs : null}
         onRetry={() => void bootstrapAppState()}
         statusMessage={bootstrapStatusMessage}
@@ -1087,6 +1180,7 @@ function App() {
     return (
       <BootstrappingScreen
         error={bootstrapError ?? "Unable to load application state."}
+        onOpenAppData={backendLogsDir ? handleOpenAppData : null}
         onOpenLogs={backendLogsDir ? handleOpenLogs : null}
         onRetry={() => void bootstrapAppState()}
         statusMessage={bootstrapStatusMessage}

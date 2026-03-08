@@ -20,6 +20,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 @RestControllerAdvice
@@ -137,6 +138,12 @@ public class GlobalExceptionHandler {
     LOGGER.error("Unhandled API error", exception);
     return error(
         HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "Internal server error", request);
+  }
+
+  @ExceptionHandler(AsyncRequestNotUsableException.class)
+  public void handleClientDisconnect(
+      AsyncRequestNotUsableException exception, HttpServletRequest request) {
+    LOGGER.debug("Client disconnected before response completed for {}", request.getRequestURI());
   }
 
   private ResponseEntity<ApiErrorResponse> error(

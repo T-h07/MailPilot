@@ -1,17 +1,20 @@
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { KeyRound, LifeBuoy, MailCheck, ShieldAlert, ShieldCheck } from "lucide-react";
 import { ApiClientError } from "@/api/client";
+import { AuthShell } from "@/components/common/auth-shell";
+import { StatePanel } from "@/components/common/state-panel";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { configCheck, getGmailOAuthStatus, startGmailOAuth } from "@/lib/api/oauth";
+import { configCheck, startGmailOAuth } from "@/lib/api/oauth";
 import {
   getRecoveryOptions,
   requestRecoveryCode,
   verifyRecoveryCode,
   type RecoveryReason,
 } from "@/lib/api/app-state";
+import { openGmailOAuthUrl, waitForGmailOAuthOutcome } from "@/lib/oauth/gmail-oauth-flow";
+import { toApiErrorMessage } from "@/utils/api-error";
 
 type RecoveryStage =
   | "LOADING"
@@ -21,19 +24,6 @@ type RecoveryStage =
   | "VERIFYING"
   | "SUCCESS"
   | "UNAVAILABLE";
-const OAUTH_POLL_INTERVAL_MS = 2000;
-const OAUTH_POLL_TIMEOUT_MS = 45000;
-
-function toErrorMessage(error: unknown): string {
-  if (error instanceof ApiClientError) {
-    return error.message;
-  }
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return "Request failed";
-}
-
 function unavailableReasonText(reason: RecoveryReason | null): string {
   if (reason === "NO_PRIMARY") {
     return "No primary account is connected.";
@@ -79,7 +69,7 @@ export function LocalPasswordRecoveryPage() {
         if (cancelled) {
           return;
         }
-        setError(toErrorMessage(requestError));
+        setError(toApiErrorMessage(requestError));
         setStage("UNAVAILABLE");
       }
     };
@@ -112,7 +102,7 @@ export function LocalPasswordRecoveryPage() {
       setCooldownSeconds(response.cooldownSeconds ?? 60);
       setStage("CODE_SENT");
     } catch (requestError) {
-      setError(toErrorMessage(requestError));
+      setError(toApiErrorMessage(requestError));
       setStage("INTRO");
     }
   };
@@ -132,7 +122,7 @@ export function LocalPasswordRecoveryPage() {
       await verifyRecoveryCode(code.trim(), newPassword, confirmPassword);
       setStage("SUCCESS");
     } catch (requestError) {
-      setError(toErrorMessage(requestError));
+      setError(toApiErrorMessage(requestError));
       setStage("CODE_SENT");
     }
   };
@@ -160,145 +150,144 @@ export function LocalPasswordRecoveryPage() {
         accountHint: primaryEmail ?? undefined,
       });
 
-      try {
-        await openUrl(startResponse.authUrl);
-      } catch {
-        const popup = window.open(startResponse.authUrl, "_blank", "noopener,noreferrer");
-        if (!popup) {
-          throw new ApiClientError("Unable to open the browser for Google OAuth.");
-        }
-      }
-
-      const startedAt = Date.now();
-      while (Date.now() - startedAt < OAUTH_POLL_TIMEOUT_MS) {
-        await new Promise((resolve) => window.setTimeout(resolve, OAUTH_POLL_INTERVAL_MS));
-        const status = await getGmailOAuthStatus(startResponse.state);
-        if (status.status === "SUCCESS") {
-          await refreshRecoveryOptions();
-          return;
-        }
-        if (
-          status.status === "ERROR" ||
-          status.status === "EXPIRED" ||
-          status.status === "UNKNOWN"
-        ) {
-          throw new ApiClientError(status.message || "Gmail reconnect failed.");
-        }
-      }
-
-      throw new ApiClientError("Gmail reconnect timed out. Complete consent and retry.");
+      await openGmailOAuthUrl(startResponse.authUrl, {
+        errorMessage: "Unable to open the browser for Google OAuth.",
+      });
+      await waitForGmailOAuthOutcome(startResponse.state, {
+        timeoutMessage: "Gmail reconnect timed out. Complete consent and retry.",
+      });
+      await refreshRecoveryOptions();
     } catch (requestError) {
-      setError(toErrorMessage(requestError));
+      setError(toApiErrorMessage(requestError));
     } finally {
       setIsReconnecting(false);
     }
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-6">
-      <Card className="w-full max-w-lg border-border bg-card">
-        <CardHeader>
-          <CardTitle className="text-2xl">Reset local app password</CardTitle>
-          <CardDescription>
-            Recover access to MailPilot using your primary connected Gmail account.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {stage === "LOADING" && (
-            <p className="text-sm text-muted-foreground">Loading recovery options...</p>
-          )}
+    <AuthShell
+      badge="Recovery"
+      description="Recover the local MailPilot password through the primary Gmail account connected to this desktop install."
+      title="Reset local app password"
+    >
+      {stage === "LOADING" && (
+        <StatePanel
+          description="Checking whether the connected primary account can deliver recovery codes."
+          title="Loading recovery options"
+          variant="loading"
+        />
+      )}
 
-          {(stage === "INTRO" || stage === "SENDING") && (
-            <div className="space-y-3">
-              <p className="text-sm text-muted-foreground">
-                We can send a one-time recovery code to your primary MailPilot account.
-              </p>
-              <div className="rounded-md border border-border bg-background/70 px-3 py-2 text-sm">
-                Recovery email: <span className="font-medium">{maskedEmail ?? "Unavailable"}</span>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button disabled={stage === "SENDING"} onClick={() => void handleSendCode()}>
-                  {stage === "SENDING" ? "Sending..." : "Send recovery code"}
-                </Button>
-                <Button onClick={() => navigate("/login", { replace: true })} variant="ghost">
+      {(stage === "INTRO" || stage === "SENDING") && (
+        <div className="space-y-4">
+          <div className="rounded-2xl border border-border/70 bg-background/70 px-4 py-3">
+            <p className="flex items-start gap-2 text-sm leading-6 text-muted-foreground">
+              <MailCheck className="mt-0.5 h-4 w-4 shrink-0 text-sky-300" />
+              MailPilot can email a one-time recovery code to your primary connected account.
+            </p>
+          </div>
+          <div className="rounded-2xl border border-border/70 bg-background/70 px-4 py-3 text-sm">
+            Recovery email: <span className="font-medium">{maskedEmail ?? "Unavailable"}</span>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Button disabled={stage === "SENDING"} onClick={() => void handleSendCode()}>
+              {stage === "SENDING" ? "Sending..." : "Send recovery code"}
+            </Button>
+            <Button onClick={() => navigate("/login", { replace: true })} variant="outline">
+              Back to login
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {(stage === "CODE_SENT" || stage === "VERIFYING") && (
+        <div className="space-y-4">
+          <StatePanel
+            compact
+            description={
+              <>
+                We sent a recovery code to{" "}
+                <span className="font-medium text-foreground">
+                  {maskedEmail ?? "your primary account"}
+                </span>
+                . Enter it below and choose a new local app password.
+              </>
+            }
+            icon={MailCheck}
+            title="Recovery code sent"
+            variant="success"
+          />
+          <div className="space-y-3">
+            <Input
+              disabled={stage === "VERIFYING"}
+              maxLength={8}
+              onChange={(event) => setCode(event.target.value)}
+              placeholder="6-digit recovery code"
+              value={code}
+            />
+            <Input
+              autoComplete="new-password"
+              disabled={stage === "VERIFYING"}
+              onChange={(event) => setNewPassword(event.target.value)}
+              placeholder="New local password"
+              type="password"
+              value={newPassword}
+            />
+            <Input
+              autoComplete="new-password"
+              disabled={stage === "VERIFYING"}
+              onChange={(event) => setConfirmPassword(event.target.value)}
+              placeholder="Confirm new local password"
+              type="password"
+              value={confirmPassword}
+            />
+          </div>
+          <div className="grid gap-2 sm:grid-cols-3">
+            <Button
+              className="gap-2"
+              disabled={!canSubmitReset || stage === "VERIFYING"}
+              onClick={() => void handleResetPassword()}
+            >
+              <KeyRound className="h-4 w-4" />
+              {stage === "VERIFYING" ? "Resetting..." : "Reset password"}
+            </Button>
+            <Button
+              disabled={cooldownSeconds > 0 || stage === "VERIFYING"}
+              onClick={() => void handleSendCode()}
+              variant="outline"
+            >
+              {cooldownSeconds > 0 ? `Resend in ${cooldownSeconds}s` : "Resend code"}
+            </Button>
+            <Button onClick={() => navigate("/login", { replace: true })} variant="outline">
+              Back
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {stage === "SUCCESS" && (
+        <div className="space-y-4">
+          <StatePanel
+            description="Your local app password has been updated. Return to login and unlock MailPilot with the new password."
+            icon={ShieldCheck}
+            title="Password updated"
+            variant="success"
+          />
+          <Button className="w-full" onClick={() => navigate("/login", { replace: true })}>
+            Return to login
+          </Button>
+        </div>
+      )}
+
+      {stage === "UNAVAILABLE" && (
+        <div className="space-y-4">
+          <StatePanel
+            actions={
+              <>
+                <Button onClick={() => navigate("/login", { replace: true })} variant="outline">
                   Back to login
                 </Button>
-              </div>
-            </div>
-          )}
-
-          {(stage === "CODE_SENT" || stage === "VERIFYING") && (
-            <div className="space-y-3">
-              <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm">
-                We sent a code to{" "}
-                <span className="font-medium">{maskedEmail ?? "your primary account"}</span>.
-              </div>
-              <Input
-                disabled={stage === "VERIFYING"}
-                maxLength={8}
-                onChange={(event) => setCode(event.target.value)}
-                placeholder="6-digit recovery code"
-                value={code}
-              />
-              <Input
-                autoComplete="new-password"
-                disabled={stage === "VERIFYING"}
-                onChange={(event) => setNewPassword(event.target.value)}
-                placeholder="New password"
-                type="password"
-                value={newPassword}
-              />
-              <Input
-                autoComplete="new-password"
-                disabled={stage === "VERIFYING"}
-                onChange={(event) => setConfirmPassword(event.target.value)}
-                placeholder="Confirm new password"
-                type="password"
-                value={confirmPassword}
-              />
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  disabled={!canSubmitReset || stage === "VERIFYING"}
-                  onClick={() => void handleResetPassword()}
-                >
-                  {stage === "VERIFYING" ? "Resetting..." : "Reset password"}
-                </Button>
-                <Button
-                  disabled={cooldownSeconds > 0 || stage === "VERIFYING"}
-                  onClick={() => void handleSendCode()}
-                  variant="outline"
-                >
-                  {cooldownSeconds > 0 ? `Resend in ${cooldownSeconds}s` : "Resend code"}
-                </Button>
-                <Button onClick={() => navigate("/login", { replace: true })} variant="ghost">
-                  Back
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {stage === "SUCCESS" && (
-            <div className="space-y-3">
-              <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm">
-                Your local app password has been updated.
-              </div>
-              <Button className="w-full" onClick={() => navigate("/login", { replace: true })}>
-                Return to login
-              </Button>
-            </div>
-          )}
-
-          {stage === "UNAVAILABLE" && (
-            <div className="space-y-3">
-              <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm">
-                MailPilot can&apos;t send a recovery code right now.
-                <p className="pt-1 text-muted-foreground">{unavailableReasonText(reason)}</p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button onClick={() => navigate("/login", { replace: true })} variant="ghost">
-                  Back to login
-                </Button>
-                {reason !== "NO_PRIMARY" && (
+                {reason !== "NO_PRIMARY" ? (
                   <Button
                     disabled={isReconnecting}
                     onClick={() => void handleReconnectGmail()}
@@ -306,24 +295,34 @@ export function LocalPasswordRecoveryPage() {
                   >
                     {isReconnecting ? "Reconnecting..." : "Reconnect Gmail"}
                   </Button>
-                )}
+                ) : null}
                 <Button onClick={() => setShowResetHelp((previous) => !previous)} variant="outline">
                   Reset app instead
                 </Button>
-              </div>
-              {showResetHelp && (
-                <div className="rounded-md border border-border bg-background/70 px-3 py-2 text-xs text-muted-foreground">
-                  If recovery stays unavailable, use the existing reset flow from Settings &gt;
-                  Danger Zone when you can access the app, or use your ops reset procedure to return
-                  to onboarding.
-                </div>
-              )}
-            </div>
+              </>
+            }
+            description={unavailableReasonText(reason)}
+            icon={ShieldAlert}
+            title="Recovery code unavailable"
+            variant="error"
+          />
+          {showResetHelp && (
+            <StatePanel
+              compact
+              description="If recovery stays unavailable, use the Settings > Danger Zone reset flow when you regain access, or follow your local ops reset process to return to onboarding."
+              icon={LifeBuoy}
+              title="Fallback path"
+              variant="info"
+            />
           )}
+        </div>
+      )}
 
-          {error && <p className="text-sm text-destructive">{error}</p>}
-        </CardContent>
-      </Card>
-    </div>
+      {error && (
+        <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {error}
+        </div>
+      )}
+    </AuthShell>
   );
 }

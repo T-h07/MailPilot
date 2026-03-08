@@ -4,24 +4,21 @@ import com.mailpilot.api.error.ApiBadRequestException;
 import com.mailpilot.api.error.ApiConflictException;
 import com.mailpilot.api.error.ApiNotFoundException;
 import com.mailpilot.api.errors.UpstreamException;
+import com.mailpilot.service.gmail.GmailApiExecutor;
 import com.mailpilot.service.gmail.GmailClient;
 import com.mailpilot.service.gmail.GmailClient.GmailApiException;
 import com.mailpilot.service.gmail.GmailClient.GmailAttachmentNotFoundException;
 import com.mailpilot.service.gmail.GmailClient.GmailAttachmentResponse;
-import com.mailpilot.service.gmail.GmailClient.GmailHeader;
 import com.mailpilot.service.gmail.GmailClient.GmailMessageNotFoundException;
 import com.mailpilot.service.gmail.GmailClient.GmailMessageResponse;
 import com.mailpilot.service.gmail.GmailClient.GmailPayload;
 import com.mailpilot.service.gmail.GmailClient.GmailUnauthorizedException;
+import com.mailpilot.service.gmail.GmailMimeParser;
+import com.mailpilot.service.gmail.GmailMimeParser.AttachmentLookup;
 import com.mailpilot.service.logging.LogSanitizer;
-import com.mailpilot.service.oauth.TokenService;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.Base64;
-import java.util.List;
-import java.util.Locale;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,17 +34,20 @@ public class AttachmentDownloadService {
 
   private final JdbcTemplate jdbcTemplate;
   private final GmailClient gmailClient;
-  private final TokenService tokenService;
+  private final GmailApiExecutor gmailApiExecutor;
+  private final GmailMimeParser gmailMimeParser;
   private final Path attachmentCacheRoot;
 
   public AttachmentDownloadService(
       JdbcTemplate jdbcTemplate,
       GmailClient gmailClient,
-      TokenService tokenService,
+      GmailApiExecutor gmailApiExecutor,
+      GmailMimeParser gmailMimeParser,
       @Value("${mailpilot.cacheDir:}") String configuredCacheDir) {
     this.jdbcTemplate = jdbcTemplate;
     this.gmailClient = gmailClient;
-    this.tokenService = tokenService;
+    this.gmailApiExecutor = gmailApiExecutor;
+    this.gmailMimeParser = gmailMimeParser;
     this.attachmentCacheRoot = resolveCacheDirectory(configuredCacheDir).resolve("attachments");
   }
 
@@ -145,178 +145,40 @@ public class AttachmentDownloadService {
 
   private byte[] downloadByAttachmentId(AttachmentRow attachment) {
     GmailAttachmentResponse response =
-        executeAttachmentWithTokenRetry(
+        gmailApiExecutor.execute(
             attachment.accountId(),
-            attachment.providerMessageId(),
-            attachment.providerAttachmentId());
+            (accessToken) ->
+                gmailClient.getAttachment(
+                    accessToken,
+                    attachment.providerMessageId(),
+                    attachment.providerAttachmentId()));
     if (!StringUtils.hasText(response.data())) {
       throw new UpstreamException("Gmail attachment response did not include data.");
     }
-    return decodeBase64Url(response.data());
+    return decodeAttachmentData(response.data());
   }
 
   private byte[] downloadInlineAttachment(AttachmentRow attachment) {
     GmailMessageResponse messageResponse =
-        executeMessageWithTokenRetry(attachment.accountId(), attachment.providerMessageId());
-    GmailPayload matchingPart = selectInlineAttachmentPart(messageResponse.payload(), attachment);
+        gmailApiExecutor.execute(
+            attachment.accountId(),
+            (accessToken) ->
+                gmailClient.getMessageFull(accessToken, attachment.providerMessageId()));
+    GmailPayload matchingPart =
+        gmailMimeParser.findInlineAttachmentPayload(
+            messageResponse.payload(),
+            new AttachmentLookup(
+                attachment.partId(),
+                attachment.contentId(),
+                attachment.filename(),
+                attachment.mimeType(),
+                attachment.sizeBytes()));
     if (matchingPart == null
         || matchingPart.body() == null
         || !StringUtils.hasText(matchingPart.body().data())) {
       throw new ApiNotFoundException("Attachment not found in Gmail");
     }
-    return decodeBase64Url(matchingPart.body().data());
-  }
-
-  private GmailAttachmentResponse executeAttachmentWithTokenRetry(
-      UUID accountId, String providerMessageId, String providerAttachmentId) {
-    String accessToken = tokenService.getValidAccessToken(accountId).accessToken();
-    try {
-      return gmailClient.getAttachment(accessToken, providerMessageId, providerAttachmentId);
-    } catch (GmailUnauthorizedException unauthorizedException) {
-      String refreshedAccessToken = tokenService.refreshAccessToken(accountId).accessToken();
-      return gmailClient.getAttachment(
-          refreshedAccessToken, providerMessageId, providerAttachmentId);
-    }
-  }
-
-  private GmailMessageResponse executeMessageWithTokenRetry(
-      UUID accountId, String providerMessageId) {
-    String accessToken = tokenService.getValidAccessToken(accountId).accessToken();
-    try {
-      return gmailClient.getMessageFull(accessToken, providerMessageId);
-    } catch (GmailUnauthorizedException unauthorizedException) {
-      String refreshedAccessToken = tokenService.refreshAccessToken(accountId).accessToken();
-      return gmailClient.getMessageFull(refreshedAccessToken, providerMessageId);
-    }
-  }
-
-  private GmailPayload selectInlineAttachmentPart(GmailPayload payload, AttachmentRow attachment) {
-    if (payload == null) {
-      return null;
-    }
-
-    List<GmailPayload> candidates = new ArrayList<>();
-    collectInlinePayloadCandidates(payload, candidates);
-    if (candidates.isEmpty()) {
-      return null;
-    }
-
-    if (StringUtils.hasText(attachment.partId())) {
-      for (GmailPayload candidate : candidates) {
-        if (attachment.partId().trim().equals(candidate.partId())) {
-          return candidate;
-        }
-      }
-    }
-
-    if (StringUtils.hasText(attachment.contentId())) {
-      String expectedContentId = normalizeComparisonValue(attachment.contentId());
-      for (GmailPayload candidate : candidates) {
-        String candidateContentId = normalizeComparisonValue(extractPartContentId(candidate));
-        if (StringUtils.hasText(candidateContentId)
-            && expectedContentId.equals(candidateContentId)) {
-          return candidate;
-        }
-      }
-    }
-
-    String expectedFilename = normalizeComparisonValue(attachment.filename());
-    String expectedMimeType = normalizeComparisonValue(attachment.mimeType());
-    long expectedSize = Math.max(attachment.sizeBytes(), 0L);
-
-    GmailPayload bestMatch = null;
-    int bestScore = Integer.MIN_VALUE;
-
-    for (GmailPayload candidate : candidates) {
-      int score = 0;
-      String candidateFilename = normalizeComparisonValue(candidate.filename());
-      String candidateMimeType = normalizeComparisonValue(candidate.mimeType());
-      long candidateSize =
-          candidate.body() != null && candidate.body().size() != null
-              ? Math.max(candidate.body().size(), 0L)
-              : 0L;
-
-      if (StringUtils.hasText(expectedFilename) && expectedFilename.equals(candidateFilename)) {
-        score += 6;
-      }
-      if (StringUtils.hasText(expectedMimeType) && expectedMimeType.equals(candidateMimeType)) {
-        score += 3;
-      }
-      if (expectedSize > 0L && candidateSize > 0L) {
-        if (expectedSize == candidateSize) {
-          score += 4;
-        } else if (Math.abs(expectedSize - candidateSize) <= 16L) {
-          score += 1;
-        }
-      }
-
-      if (score > bestScore) {
-        bestScore = score;
-        bestMatch = candidate;
-      }
-    }
-
-    if (bestScore > 0) {
-      return bestMatch;
-    }
-
-    return candidates.size() == 1 ? candidates.get(0) : null;
-  }
-
-  private void collectInlinePayloadCandidates(GmailPayload payload, List<GmailPayload> candidates) {
-    if (payload == null) {
-      return;
-    }
-
-    if (payload.body() != null && StringUtils.hasText(payload.body().data())) {
-      candidates.add(payload);
-    }
-
-    List<GmailPayload> parts = payload.parts();
-    if (parts == null || parts.isEmpty()) {
-      return;
-    }
-    for (GmailPayload part : parts) {
-      collectInlinePayloadCandidates(part, candidates);
-    }
-  }
-
-  private String extractPartContentId(GmailPayload payload) {
-    List<GmailHeader> headers = payload == null ? null : payload.headers();
-    if (headers == null || headers.isEmpty()) {
-      return null;
-    }
-
-    for (GmailHeader header : headers) {
-      if (header == null
-          || !StringUtils.hasText(header.name())
-          || !StringUtils.hasText(header.value())) {
-        continue;
-      }
-      if ("content-id".equalsIgnoreCase(header.name().trim())) {
-        String value = header.value().trim();
-        if (value.startsWith("<") && value.endsWith(">") && value.length() > 2) {
-          return value.substring(1, value.length() - 1);
-        }
-        return value;
-      }
-    }
-    return null;
-  }
-
-  private String normalizeComparisonValue(String value) {
-    return StringUtils.hasText(value) ? value.trim().toLowerCase(Locale.ROOT) : "";
-  }
-
-  private byte[] decodeBase64Url(String value) {
-    String trimmed = value.trim();
-    int paddingNeeded = (4 - (trimmed.length() % 4)) % 4;
-    String padded = trimmed + "=".repeat(paddingNeeded);
-    try {
-      return Base64.getUrlDecoder().decode(padded);
-    } catch (IllegalArgumentException exception) {
-      throw new UpstreamException("Gmail returned malformed attachment data.");
-    }
+    return decodeAttachmentData(matchingPart.body().data());
   }
 
   private Path resolveCachePath(AttachmentRow attachment, String filename) {
@@ -392,6 +254,14 @@ public class AttachmentDownloadService {
       return fallback;
     }
     return sanitized;
+  }
+
+  private byte[] decodeAttachmentData(String value) {
+    try {
+      return gmailMimeParser.decodeBase64Url(value);
+    } catch (IllegalArgumentException exception) {
+      throw new UpstreamException("Gmail returned malformed attachment data.");
+    }
   }
 
   public record DownloadedAttachment(
