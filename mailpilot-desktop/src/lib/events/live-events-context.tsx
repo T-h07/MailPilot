@@ -1,12 +1,4 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   getBadgeSummary,
   markInboxOpened as apiMarkInboxOpened,
@@ -19,40 +11,15 @@ import {
   type NewMailEvent,
   type SyncStatusEvent,
 } from "@/lib/events/sse";
+import {
+  LiveEventsContext,
+  type BadgeState,
+  type LiveEventsContextValue,
+  type LiveSyncState,
+} from "@/lib/events/live-events-store";
 
 const DISCONNECT_FALLBACK_DELAY_MS = 10000;
 const FALLBACK_POLL_INTERVAL_MS = 15000;
-
-type BadgeState = {
-  inboxCount: number;
-  viewsTotal: number;
-  viewCounts: Record<string, number>;
-};
-
-export type LiveSyncState = {
-  accountId: string;
-  email: string;
-  state: "RUNNING" | "IDLE" | "ERROR";
-  processed: number | null;
-  total: number | null;
-  message: string | null;
-  lastSyncAt: string | null;
-  lastRunStartedAt: string | null;
-};
-
-type LiveEventsContextValue = {
-  badges: BadgeState;
-  syncByAccountId: Record<string, LiveSyncState>;
-  sseConnected: boolean;
-  latestNewMail: NewMailEvent | null;
-  newMailSequence: number;
-  refreshBadges: () => Promise<void>;
-  refreshSyncStatus: () => Promise<void>;
-  markInboxOpened: () => Promise<void>;
-  markViewOpened: (viewId: string) => Promise<void>;
-};
-
-const LiveEventsContext = createContext<LiveEventsContextValue | null>(null);
 
 function toBadgeState(payload: BadgeUpdateEvent): BadgeState {
   return {
@@ -280,12 +247,4 @@ export function LiveEventsProvider({ children }: { children: React.ReactNode }) 
   );
 
   return <LiveEventsContext.Provider value={value}>{children}</LiveEventsContext.Provider>;
-}
-
-export function useLiveEvents() {
-  const context = useContext(LiveEventsContext);
-  if (!context) {
-    throw new Error("useLiveEvents must be used within LiveEventsProvider");
-  }
-  return context;
 }

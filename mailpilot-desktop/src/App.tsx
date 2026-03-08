@@ -58,7 +58,8 @@ import {
   type AppStateRecord,
   unlockApp,
 } from "@/lib/api/app-state";
-import { LiveEventsProvider, useLiveEvents } from "@/lib/events/live-events-context";
+import { LiveEventsProvider } from "@/lib/events/live-events-context";
+import { useLiveEvents } from "@/lib/events/use-live-events";
 
 type ThemeVariant = "balanced" | "pure-black" | "paper";
 
@@ -648,11 +649,12 @@ function AppShell({
   }, [latestNewMail, newMailSequence, views]);
 
   useEffect(() => {
+    const toastTimeouts = toastTimeoutsRef.current;
     return () => {
-      for (const timeoutId of toastTimeoutsRef.current.values()) {
+      for (const timeoutId of toastTimeouts.values()) {
         window.clearTimeout(timeoutId);
       }
-      toastTimeoutsRef.current.clear();
+      toastTimeouts.clear();
     };
   }, []);
 

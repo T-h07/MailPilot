@@ -79,7 +79,7 @@ Scopes requested by flow:
 MailPilot/
 ├─ mailpilot-desktop/    # Tauri desktop app
 ├─ mailpilot-server/     # Spring Boot API + sync + business logic
-├─ docs/                 # Runbooks, release checklist, policies
+├─ docs/                 # Runbooks, release, security, and repo hygiene notes
 ├─ tools/                # Dev scripts and optional git hooks
 └─ docker-compose.yml    # Local Postgres
 ```
@@ -123,8 +123,8 @@ Backend:
 
 ```powershell
 cd $env:USERPROFILE\Documents\MailPilot\mailpilot-server
-.\mvnw.cmd test
 .\mvnw.cmd spotless:check
+.\mvnw.cmd test
 ```
 
 Desktop:
@@ -132,8 +132,8 @@ Desktop:
 ```powershell
 cd $env:USERPROFILE\Documents\MailPilot\mailpilot-desktop
 npm ci
-npm run lint
 npm run format:check
+npm run lint:ci
 npm run build
 ```
 
@@ -147,7 +147,7 @@ Expected local secrets/config:
 Example OAuth client JSON path:
 
 ```text
-C:\Users\taulanth\AppData\Local\MailPilot\google-oauth-client.json
+%LOCALAPPDATA%\MailPilot\google-oauth-client.json
 ```
 
 Never commit:
@@ -186,6 +186,8 @@ Flyway migration errors:
 - [Server README](mailpilot-server/README.md)
 - [Desktop README](mailpilot-desktop/README.md)
 - [Ops Runbook](docs/ops-runbook.md)
-- [Release Checklist](docs/release-checklist.md)
+- [Repo Hygiene](docs/repo-hygiene.md)
+- [Security Notes](docs/security-notes.md)
+- [Release Smoke Checklist](docs/release-smoke-checklist.md)
 - [Dependency Discipline](docs/dependency-discipline.md)
 - [Runtime Parity Checklist](docs/runtime-parity-checklist.md)
