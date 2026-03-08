@@ -12,9 +12,11 @@ import org.springframework.util.StringUtils;
 public class OAuthAccountService {
 
   private final JdbcTemplate jdbcTemplate;
+  private final GmailScopeService gmailScopeService;
 
-  public OAuthAccountService(JdbcTemplate jdbcTemplate) {
+  public OAuthAccountService(JdbcTemplate jdbcTemplate, GmailScopeService gmailScopeService) {
     this.jdbcTemplate = jdbcTemplate;
+    this.gmailScopeService = gmailScopeService;
   }
 
   @Transactional
@@ -23,7 +25,7 @@ public class OAuthAccountService {
     String displayName,
     EncryptedTokenPayload tokenPayload
   ) {
-    UUID accountId = upsertConnectedGmailAccount(email, displayName);
+    UUID accountId = upsertConnectedGmailAccount(email, displayName, tokenPayload.scope());
 
     jdbcTemplate.update(
       """
@@ -57,9 +59,11 @@ public class OAuthAccountService {
     return accountId;
   }
 
-  private UUID upsertConnectedGmailAccount(String email, String displayName) {
+  private UUID upsertConnectedGmailAccount(String email, String displayName, String scope) {
     String normalizedEmail = email.trim().toLowerCase(Locale.ROOT);
     String normalizedDisplayName = normalizeDisplayName(displayName);
+    String status =
+        gmailScopeService.resolveStatus(GmailScopeService.GMAIL_PROVIDER, "CONNECTED", scope);
 
     UUID accountId = jdbcTemplate.queryForObject(
       """
@@ -71,18 +75,19 @@ public class OAuthAccountService {
         last_sync_at,
         updated_at
       )
-      VALUES ('GMAIL', ?, ?, 'CONNECTED', now(), now())
+      VALUES ('GMAIL', ?, ?, ?, now(), now())
       ON CONFLICT (provider, email)
       DO UPDATE SET
         display_name = COALESCE(EXCLUDED.display_name, accounts.display_name),
-        status = 'CONNECTED',
+        status = EXCLUDED.status,
         last_sync_at = now(),
         updated_at = now()
       RETURNING id
       """,
       UUID.class,
       normalizedEmail,
-      normalizedDisplayName
+      normalizedDisplayName,
+      status
     );
 
     if (accountId == null) {

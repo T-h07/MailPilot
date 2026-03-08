@@ -3,6 +3,7 @@ package com.mailpilot.service;
 import com.mailpilot.api.error.ApiBadRequestException;
 import com.mailpilot.api.error.ApiNotFoundException;
 import com.mailpilot.api.model.AccountResponse;
+import com.mailpilot.service.oauth.GmailScopeService;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -15,15 +16,15 @@ import org.springframework.util.StringUtils;
 @Service
 public class AccountService {
 
-  private static final String GMAIL_READ_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
-  private static final String GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
   private static final Set<String> ALLOWED_ROLES = Set.of("PRIMARY", "SECONDARY", "CUSTOM");
   private static final int CUSTOM_LABEL_MAX_LENGTH = 30;
 
   private final JdbcTemplate jdbcTemplate;
+  private final GmailScopeService gmailScopeService;
 
-  public AccountService(JdbcTemplate jdbcTemplate) {
+  public AccountService(JdbcTemplate jdbcTemplate, GmailScopeService gmailScopeService) {
     this.jdbcTemplate = jdbcTemplate;
+    this.gmailScopeService = gmailScopeService;
   }
 
   public List<AccountResponse> listAccounts() {
@@ -52,10 +53,10 @@ public class AccountService {
         (resultSet, rowNum) -> {
           String provider = resultSet.getString("provider");
           String scope = resultSet.getString("scope");
-          boolean canRead = isGmailReadEnabled(provider, scope);
-          boolean canSend = isGmailSendEnabled(provider, scope);
+          GmailScopeService.GmailAccountCapabilities capabilities =
+              gmailScopeService.evaluate(provider, scope);
           String effectiveStatus =
-              resolveStatus(provider, resultSet.getString("status"), canRead, canSend);
+              gmailScopeService.resolveStatus(provider, resultSet.getString("status"), scope);
           String role = normalizeRoleForResponse(resultSet.getString("role"));
           String customLabel =
               "CUSTOM".equals(role)
@@ -67,8 +68,8 @@ public class AccountService {
               resultSet.getString("email"),
               provider,
               effectiveStatus,
-              canRead,
-              canSend,
+              capabilities.canRead(),
+              capabilities.canSend(),
               resultSet.getObject("last_sync_at", java.time.OffsetDateTime.class),
               role,
               customLabel);
@@ -196,42 +197,5 @@ public class AccountService {
     String normalized = rawCustomLabel.trim();
     return normalized.isEmpty() ? null : normalized;
   }
-
-  private boolean isGmailReadEnabled(String provider, String scope) {
-    if (!"GMAIL".equalsIgnoreCase(provider)) {
-      return false;
-    }
-    return hasScope(scope, GMAIL_READ_SCOPE);
-  }
-
-  private boolean isGmailSendEnabled(String provider, String scope) {
-    if (!"GMAIL".equalsIgnoreCase(provider)) {
-      return false;
-    }
-    return hasScope(scope, GMAIL_SEND_SCOPE);
-  }
-
-  private String resolveStatus(
-      String provider, String existingStatus, boolean canRead, boolean canSend) {
-    if (!"GMAIL".equalsIgnoreCase(provider)) {
-      return existingStatus;
-    }
-    return (canRead && canSend) ? "CONNECTED" : "REAUTH_REQUIRED";
-  }
-
-  private boolean hasScope(String scopeValue, String requiredScope) {
-    if (!StringUtils.hasText(scopeValue)) {
-      return false;
-    }
-    String[] scopes = scopeValue.trim().split("[\\s,]+");
-    String required = requiredScope.toLowerCase(Locale.ROOT);
-    for (String scope : scopes) {
-      if (required.equals(scope.toLowerCase(Locale.ROOT))) {
-        return true;
-      }
-    }
-    return false;
-  }
-
   private record AccountProviderStatus(String provider, String status) {}
 }
