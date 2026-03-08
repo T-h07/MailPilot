@@ -26,10 +26,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": [
-      "nsis",
-      "msi"
-    ],
+    "targets": ["nsis", "msi"],
     "publisher": "MailPilot",
     "homepage": "https://github.com/T-h07/MailPilot",
     "copyright": "Copyright (c) MailPilot",

@@ -114,10 +114,7 @@ export async function fetchJson<T>(path: string, options: FetchJsonOptions = {})
   return apiJson<T>(path, options);
 }
 
-async function requestApi<T>(
-  path: string,
-  options: InternalRequestOptions = {}
-): Promise<T> {
+async function requestApi<T>(path: string, options: InternalRequestOptions = {}): Promise<T> {
   const responseKind = options.responseKind ?? "json";
   const request = createRequestContext(options.signal, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
 

@@ -8,13 +8,13 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import org.jsoup.Jsoup;
+import org.jsoup.nodes.Attribute;
+import org.jsoup.nodes.Comment;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Document.OutputSettings.Syntax;
-import org.jsoup.nodes.Entities;
-import org.jsoup.nodes.Attribute;
 import org.jsoup.nodes.Element;
+import org.jsoup.nodes.Entities;
 import org.jsoup.nodes.Node;
-import org.jsoup.nodes.Comment;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -24,20 +24,16 @@ import org.springframework.util.StringUtils;
 public class HtmlPdfRenderer {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(HtmlPdfRenderer.class);
-  private static final Set<String> EXTERNAL_URI_ATTRIBUTES = Set.of(
-    "src",
-    "href",
-    "poster",
-    "xlink:href",
-    "action"
-  );
+  private static final Set<String> EXTERNAL_URI_ATTRIBUTES =
+      Set.of("src", "href", "poster", "xlink:href", "action");
 
   public byte[] render(String html, String baseUri) {
     String normalizedMarkup = normalizeMarkupForRenderer(html, baseUri);
     try {
       return renderInternal(normalizedMarkup, baseUri);
     } catch (Exception firstFailure) {
-      LOGGER.warn("Primary HTML to PDF render failed; retrying without external assets", firstFailure);
+      LOGGER.warn(
+          "Primary HTML to PDF render failed; retrying without external assets", firstFailure);
       try {
         String strippedHtml = stripExternalAssets(normalizedMarkup, baseUri);
         return renderInternal(strippedHtml, baseUri);

@@ -21,14 +21,11 @@ public class OAuthAccountService {
 
   @Transactional
   public UUID upsertConnectedGmailAccountAndTokens(
-    String email,
-    String displayName,
-    EncryptedTokenPayload tokenPayload
-  ) {
+      String email, String displayName, EncryptedTokenPayload tokenPayload) {
     UUID accountId = upsertConnectedGmailAccount(email, displayName, tokenPayload.scope());
 
     jdbcTemplate.update(
-      """
+        """
       INSERT INTO oauth_tokens (
         account_id,
         access_token_enc,
@@ -48,13 +45,12 @@ public class OAuthAccountService {
         token_type = EXCLUDED.token_type,
         updated_at = now()
       """,
-      accountId,
-      tokenPayload.accessTokenEncrypted(),
-      tokenPayload.refreshTokenEncrypted(),
-      tokenPayload.expiryAt(),
-      tokenPayload.scope(),
-      tokenPayload.tokenType()
-    );
+        accountId,
+        tokenPayload.accessTokenEncrypted(),
+        tokenPayload.refreshTokenEncrypted(),
+        tokenPayload.expiryAt(),
+        tokenPayload.scope(),
+        tokenPayload.tokenType());
 
     return accountId;
   }
@@ -65,8 +61,9 @@ public class OAuthAccountService {
     String status =
         gmailScopeService.resolveStatus(GmailScopeService.GMAIL_PROVIDER, "CONNECTED", scope);
 
-    UUID accountId = jdbcTemplate.queryForObject(
-      """
+    UUID accountId =
+        jdbcTemplate.queryForObject(
+            """
       INSERT INTO accounts (
         provider,
         email,
@@ -84,11 +81,10 @@ public class OAuthAccountService {
         updated_at = now()
       RETURNING id
       """,
-      UUID.class,
-      normalizedEmail,
-      normalizedDisplayName,
-      status
-    );
+            UUID.class,
+            normalizedEmail,
+            normalizedDisplayName,
+            status);
 
     if (accountId == null) {
       throw new IllegalStateException("Failed to upsert Gmail account");
@@ -106,10 +102,9 @@ public class OAuthAccountService {
   }
 
   public record EncryptedTokenPayload(
-    String accessTokenEncrypted,
-    String refreshTokenEncrypted,
-    OffsetDateTime expiryAt,
-    String scope,
-    String tokenType
-  ) {}
+      String accessTokenEncrypted,
+      String refreshTokenEncrypted,
+      OffsetDateTime expiryAt,
+      String scope,
+      String tokenType) {}
 }

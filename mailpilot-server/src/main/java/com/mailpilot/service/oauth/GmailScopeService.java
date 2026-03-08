@@ -8,8 +8,7 @@ import org.springframework.util.StringUtils;
 public class GmailScopeService {
 
   public static final String GMAIL_PROVIDER = "GMAIL";
-  public static final String GMAIL_READ_SCOPE =
-      "https://www.googleapis.com/auth/gmail.readonly";
+  public static final String GMAIL_READ_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
   public static final String GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
 
   public boolean isGmailProvider(String provider) {

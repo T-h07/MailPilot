@@ -8,7 +8,6 @@ import com.mailpilot.service.AttachmentMetadataService.StoredAttachment;
 import com.mailpilot.service.gmail.GmailApiExecutor;
 import com.mailpilot.service.gmail.GmailClient;
 import com.mailpilot.service.gmail.GmailClient.GmailMessageResponse;
-import com.mailpilot.service.gmail.GmailClient.GmailPayload;
 import com.mailpilot.service.gmail.GmailMimeParser;
 import com.mailpilot.service.gmail.GmailMimeParser.DecodedBody;
 import java.net.URLEncoder;
@@ -18,7 +17,6 @@ import java.sql.SQLException;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
-import java.util.Locale;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -215,7 +213,8 @@ public class MessageService {
     }
 
     OffsetDateTime cachedAt = OffsetDateTime.now(ZoneOffset.UTC);
-    var refreshedAttachments = attachmentMetadataService.extractDownloadableAttachments(response.payload());
+    var refreshedAttachments =
+        attachmentMetadataService.extractDownloadableAttachments(response.payload());
     attachmentMetadataService.syncAttachments(message.id(), refreshedAttachments);
     boolean hasAttachments = !refreshedAttachments.isEmpty();
 
@@ -284,6 +283,7 @@ public class MessageService {
     String messageId = URLEncoder.encode(providerMessageId.trim(), StandardCharsets.UTF_8);
     return "https://mail.google.com/mail/u/?authuser=" + authUser + "#all/" + messageId;
   }
+
   private int utf8Length(String value) {
     if (value == null) {
       return 0;
@@ -391,6 +391,7 @@ public class MessageService {
 
   public record BodyCacheSnapshot(
       UUID messageId, String accountProvider, String bodyCache, String bodyCacheMime) {}
+
   private List<MessageDetailResponse.Attachment> loadMessageAttachments(UUID messageId) {
     return attachmentMetadataService.listDownloadableAttachments(messageId).stream()
         .map(this::toMessageAttachment)
@@ -409,7 +410,8 @@ public class MessageService {
               messageRow.accountId(),
               (accessToken) ->
                   gmailClient.getMessageFull(accessToken, messageRow.providerMessageId()));
-      var attachments = attachmentMetadataService.extractDownloadableAttachments(response.payload());
+      var attachments =
+          attachmentMetadataService.extractDownloadableAttachments(response.payload());
       attachmentMetadataService.syncAttachments(messageRow.id(), attachments);
       jdbcTemplate.update(
           "UPDATE messages SET has_attachments = ? WHERE id = ?",

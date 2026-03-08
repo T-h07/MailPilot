@@ -197,5 +197,6 @@ public class AccountService {
     String normalized = rawCustomLabel.trim();
     return normalized.isEmpty() ? null : normalized;
   }
+
   private record AccountProviderStatus(String provider, String status) {}
 }

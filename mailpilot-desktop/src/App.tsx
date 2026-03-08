@@ -63,7 +63,8 @@ import {
   type AppStateRecord,
   unlockApp,
 } from "@/lib/api/app-state";
-import { LiveEventsProvider, useLiveEvents } from "@/lib/events/live-events-context";
+import { LiveEventsProvider } from "@/lib/events/live-events-context";
+import { useLiveEvents } from "@/lib/events/use-live-events";
 
 type ThemeVariant = "balanced" | "pure-black" | "paper";
 

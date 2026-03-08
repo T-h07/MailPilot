@@ -14,7 +14,8 @@ import {
   DashboardDriverList,
   type DashboardDriverItem,
 } from "@/components/dashboard/DashboardDriverList";
-import { DashboardKpiTile, mapDashboardSparkline } from "@/components/dashboard/DashboardKpiTile";
+import { DashboardKpiTile } from "@/components/dashboard/DashboardKpiTile";
+import { mapDashboardSparkline } from "@/components/dashboard/dashboard-kpi-sparkline";
 import { StatePanel } from "@/components/common/state-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -23,7 +24,7 @@ import { Separator } from "@/components/ui/separator";
 import { type AccountRecord, listAccounts } from "@/lib/api/accounts";
 import { getDashboardSummary, type DashboardSummary } from "@/lib/api/dashboard";
 import { runAllAccountsSync } from "@/lib/api/sync";
-import { useLiveEvents } from "@/lib/events/live-events-context";
+import { useLiveEvents } from "@/lib/events/use-live-events";
 import { cn } from "@/lib/utils";
 import { toApiErrorMessage } from "@/utils/api-error";
 import { buildInboxDrilldownPath, type InboxDrilldownParams } from "@/utils/mailbox-drilldown";
@@ -241,7 +242,12 @@ export function DashboardPage() {
           variant="error"
         />
       ) : infoNotice ? (
-        <StatePanel compact description="Recent dashboard action feedback." title={infoNotice} variant="info" />
+        <StatePanel
+          compact
+          description="Recent dashboard action feedback."
+          title={infoNotice}
+          variant="info"
+        />
       ) : null}
 
       {isInitialLoad ? (

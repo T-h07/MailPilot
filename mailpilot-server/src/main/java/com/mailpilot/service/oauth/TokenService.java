@@ -195,7 +195,8 @@ public class TokenService {
     return tokenCrypto.decrypt(value);
   }
 
-  private UnauthorizedException handleCorruptStoredTokens(UUID accountId, IllegalStateException cause) {
+  private UnauthorizedException handleCorruptStoredTokens(
+      UUID accountId, IllegalStateException cause) {
     LOGGER.warn(
         "OAuth tokens for account {} are unreadable. Clearing stored tokens and requiring reconnect.",
         accountId,
@@ -203,9 +204,11 @@ public class TokenService {
     try {
       jdbcTemplate.update("DELETE FROM oauth_tokens WHERE account_id = ?", accountId);
     } catch (Exception clearFailure) {
-      LOGGER.warn("Failed to clear unreadable OAuth tokens for account {}", accountId, clearFailure);
+      LOGGER.warn(
+          "Failed to clear unreadable OAuth tokens for account {}", accountId, clearFailure);
     }
-    return new UnauthorizedException("Saved Gmail credentials are no longer valid. Reconnect Gmail account.");
+    return new UnauthorizedException(
+        "Saved Gmail credentials are no longer valid. Reconnect Gmail account.");
   }
 
   private AccessToken toAccessToken(TokenRow row) {

@@ -16,7 +16,7 @@ import { openGmailOAuthUrl, waitForGmailOAuthOutcome } from "@/lib/oauth/gmail-o
 import { repairMessageMetadata, runAccountSync, runAllAccountsSync } from "@/lib/api/sync";
 import { resetApp } from "@/lib/api/system";
 import { changeAppPassword, getAppState, setAppPassword } from "@/lib/api/app-state";
-import { useLiveEvents } from "@/lib/events/live-events-context";
+import { useLiveEvents } from "@/lib/events/use-live-events";
 import {
   createSenderRule,
   deleteSenderRule,

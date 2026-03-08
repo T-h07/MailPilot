@@ -601,7 +601,12 @@ export function ViewsHubPage() {
       </div>
 
       {banner && (
-        <StatePanel compact description="Recent saved-view action feedback." title={banner} variant="success" />
+        <StatePanel
+          compact
+          description="Recent saved-view action feedback."
+          title={banner}
+          variant="success"
+        />
       )}
 
       {actionError && (

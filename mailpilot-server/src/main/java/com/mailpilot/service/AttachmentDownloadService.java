@@ -162,7 +162,8 @@ public class AttachmentDownloadService {
     GmailMessageResponse messageResponse =
         gmailApiExecutor.execute(
             attachment.accountId(),
-            (accessToken) -> gmailClient.getMessageFull(accessToken, attachment.providerMessageId()));
+            (accessToken) ->
+                gmailClient.getMessageFull(accessToken, attachment.providerMessageId()));
     GmailPayload matchingPart =
         gmailMimeParser.findInlineAttachmentPayload(
             messageResponse.payload(),

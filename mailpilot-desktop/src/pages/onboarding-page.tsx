@@ -1230,8 +1230,7 @@ export function OnboardingPage({ appState, onEnterInbox }: OnboardingPageProps) 
                       compact
                       description="Run initial sync again after more mail history lands if you want stronger starter recommendations."
                       title={
-                        proposalMessage ??
-                        "Not enough mail history yet to recommend starter views."
+                        proposalMessage ?? "Not enough mail history yet to recommend starter views."
                       }
                       variant="empty"
                     />

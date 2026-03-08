@@ -86,7 +86,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\build-desktop.ps1
 
 Artifacts:
 
-- `mailpilot-desktop\src-tauri\target\release\bundle\nsis\MailPilot_0.1.0_x64-setup.exe`
-- `mailpilot-desktop\src-tauri\target\release\bundle\msi\MailPilot_0.1.0_x64_en-US.msi`
+- `mailpilot-desktop\src-tauri\target\release\bundle\nsis\MailPilot_0.3.0_x64-setup.exe`
+- `mailpilot-desktop\src-tauri\target\release\bundle\msi\MailPilot_0.3.0_x64_en-US.msi`
 
 After install/launch, run smoke again against `http://127.0.0.1:8082` and confirm no parity regressions for startup, mailbox detail/full body, attachments, and onboarding routes.

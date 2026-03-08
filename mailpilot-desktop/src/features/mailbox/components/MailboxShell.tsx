@@ -48,8 +48,8 @@ import {
 } from "@/lib/api/mailbox";
 import { runFollowupAction, updateFollowup } from "@/lib/api/followups";
 import { emitFollowupUpdated } from "@/lib/events/followups";
-import { useLiveEvents } from "@/lib/events/live-events-context";
 import { runAccountSync, runAllAccountsSync } from "@/lib/api/sync";
+import { useLiveEvents } from "@/lib/events/use-live-events";
 import {
   listMessageViewLabels,
   listViewLabels,
@@ -1135,21 +1135,18 @@ export function MailboxShell({
           defaultFileName,
           bytes: response.bytes,
         });
-      if (savedPath) {
-        showNotice(`Attachment saved: ${leafFilename(savedPath)}`);
-      } else {
-        showNotice("Download cancelled");
+        if (savedPath) {
+          showNotice(`Attachment saved: ${leafFilename(savedPath)}`);
+        } else {
+          showNotice("Download cancelled");
+        }
+      } catch (error) {
+        showNotice(
+          mailboxUiMessage(error, "Attachment download failed. Retry or open the message in Gmail.")
+        );
+      } finally {
+        setActiveAttachmentDownloadId((current) => (current === attachmentId ? null : current));
       }
-    } catch (error) {
-      showNotice(
-        mailboxUiMessage(
-          error,
-          "Attachment download failed. Retry or open the message in Gmail."
-        )
-      );
-    } finally {
-      setActiveAttachmentDownloadId((current) => (current === attachmentId ? null : current));
-    }
     },
     [showNotice]
   );

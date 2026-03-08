@@ -169,6 +169,7 @@ public class GmailMessageMapper {
     String trimmed = value.trim();
     return trimmed.isEmpty() ? null : trimmed;
   }
+
   public record Flags(boolean isRead, boolean isInbox, boolean isSent, boolean isDraft) {}
 
   public record Sender(String name, String email, String domain) {}

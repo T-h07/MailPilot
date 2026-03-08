@@ -5,10 +5,10 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.mailpilot.service.gmail.GmailMimeParser;
 import com.mailpilot.service.gmail.GmailClient.GmailHeader;
 import com.mailpilot.service.gmail.GmailClient.GmailMessageResponse;
 import com.mailpilot.service.gmail.GmailClient.GmailPayload;
+import com.mailpilot.service.gmail.GmailMimeParser;
 import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.Test;

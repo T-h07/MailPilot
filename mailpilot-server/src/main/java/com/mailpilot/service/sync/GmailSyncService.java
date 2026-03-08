@@ -527,7 +527,8 @@ public class GmailSyncService {
       throw new IllegalStateException("Failed to upsert message metadata");
     }
 
-    attachmentMetadataService.syncAttachments(upsertMessageResult.messageId(), metadata.attachments());
+    attachmentMetadataService.syncAttachments(
+        upsertMessageResult.messageId(), metadata.attachments());
     return upsertMessageResult;
   }
 

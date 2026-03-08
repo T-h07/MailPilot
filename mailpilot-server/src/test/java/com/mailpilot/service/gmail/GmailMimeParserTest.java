@@ -95,7 +95,13 @@ class GmailMimeParserTest {
             List.of(),
             null,
             List.of(
-                new GmailPayload("1", "text/plain", null, List.of(), new GmailBody(4L, encode("hi"), null), List.of()),
+                new GmailPayload(
+                    "1",
+                    "text/plain",
+                    null,
+                    List.of(),
+                    new GmailBody(4L, encode("hi"), null),
+                    List.of()),
                 attachmentPart,
                 inlinePart));
 
