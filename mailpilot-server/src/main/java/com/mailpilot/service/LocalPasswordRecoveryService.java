@@ -7,12 +7,15 @@ import com.mailpilot.api.errors.UnauthorizedException;
 import com.mailpilot.repository.AppStateRepository;
 import com.mailpilot.service.MailSendService.MailSendCommand;
 import com.mailpilot.service.oauth.GmailScopeService;
+import com.mailpilot.service.oauth.TokenService;
 import java.security.SecureRandom;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -21,6 +24,7 @@ import org.springframework.util.StringUtils;
 
 @Service
 public class LocalPasswordRecoveryService {
+  private static final Logger LOGGER = LoggerFactory.getLogger(LocalPasswordRecoveryService.class);
 
   private static final String CONTEXT = "LOCAL_APP_PASSWORD";
   private static final int CODE_LENGTH = 6;
@@ -39,6 +43,7 @@ public class LocalPasswordRecoveryService {
   private final LocalAuthService localAuthService;
   private final AppStateRepository appStateRepository;
   private final GmailScopeService gmailScopeService;
+  private final TokenService tokenService;
   private final PasswordEncoder codeHashEncoder = new BCryptPasswordEncoder();
   private final SecureRandom secureRandom = new SecureRandom();
 
@@ -47,12 +52,14 @@ public class LocalPasswordRecoveryService {
       MailSendService mailSendService,
       LocalAuthService localAuthService,
       AppStateRepository appStateRepository,
-      GmailScopeService gmailScopeService) {
+      GmailScopeService gmailScopeService,
+      TokenService tokenService) {
     this.jdbcTemplate = jdbcTemplate;
     this.mailSendService = mailSendService;
     this.localAuthService = localAuthService;
     this.appStateRepository = appStateRepository;
     this.gmailScopeService = gmailScopeService;
+    this.tokenService = tokenService;
   }
 
   public RecoveryAvailability getRecoveryAvailability() {
@@ -67,6 +74,10 @@ public class LocalPasswordRecoveryService {
           maskEmail(account.email()),
           normalizeNullable(account.email()),
           "PRIMARY_REAUTH_REQUIRED");
+    }
+    if (!hasUsablePrimaryToken(account.id())) {
+      return new RecoveryAvailability(
+          false, maskEmail(account.email()), normalizeNullable(account.email()), "SEND_DISABLED");
     }
 
     return new RecoveryAvailability(
@@ -112,6 +123,10 @@ public class LocalPasswordRecoveryService {
     try {
       sendRecoveryCodeEmail(account, rawCode);
     } catch (RuntimeException exception) {
+      LOGGER.warn(
+          "Failed to send password recovery email for primary account {}",
+          maskEmail(account.email()),
+          exception);
       jdbcTemplate.update(
           """
           UPDATE local_auth_recovery_codes
@@ -120,7 +135,8 @@ public class LocalPasswordRecoveryService {
           """,
           STATUS_CANCELLED,
           recoveryId);
-      throw new ApiConflictException("MailPilot can't send a recovery code right now.");
+      throw new ApiConflictException(
+          "Recovery email could not be sent. Reconnect your primary Gmail account and try again.");
     }
 
     return RESEND_COOLDOWN_SECONDS;
@@ -169,6 +185,10 @@ public class LocalPasswordRecoveryService {
     if (!canSend(account.scope())) {
       throw new ApiConflictException(
           "Your primary Gmail account needs to be reconnected to enable sending.");
+    }
+    if (!hasUsablePrimaryToken(account.id())) {
+      throw new ApiConflictException(
+          "Your primary Gmail account needs to be reconnected to enable recovery sending.");
     }
     return account;
   }
@@ -373,6 +393,17 @@ public class LocalPasswordRecoveryService {
 
   private boolean canSend(String scope) {
     return gmailScopeService.hasSendScope(scope);
+  }
+
+  private boolean hasUsablePrimaryToken(UUID accountId) {
+    try {
+      tokenService.getValidAccessToken(accountId);
+      return true;
+    } catch (RuntimeException exception) {
+      LOGGER.warn(
+          "Primary account token is not usable for password recovery (accountId={}).", accountId);
+      return false;
+    }
   }
 
   private String generateCode() {

@@ -1,1 +1,26 @@
-/* Modal-specific CSS hooks can be added here if needed. */
+@layer utilities {
+  .themed-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) hsl(var(--muted));
+  }
+
+  .themed-scrollbar::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  .themed-scrollbar::-webkit-scrollbar-track {
+    background: hsl(var(--muted));
+    border-radius: 9999px;
+  }
+
+  .themed-scrollbar::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 9999px;
+    border: 2px solid hsl(var(--muted));
+  }
+
+  .themed-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--accent));
+  }
+}
