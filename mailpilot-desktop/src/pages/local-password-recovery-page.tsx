@@ -103,6 +103,11 @@ export function LocalPasswordRecoveryPage() {
       setStage("CODE_SENT");
     } catch (requestError) {
       setError(toApiErrorMessage(requestError));
+      if (requestError instanceof ApiClientError && requestError.status === 409) {
+        setReason("PRIMARY_REAUTH_REQUIRED");
+        setStage("UNAVAILABLE");
+        return;
+      }
       setStage("INTRO");
     }
   };

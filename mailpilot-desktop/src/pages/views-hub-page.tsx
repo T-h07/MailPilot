@@ -69,6 +69,9 @@ const ICON_OPTIONS = ["briefcase", "network", "gamepad-2", "megaphone", "star", 
 
 function toErrorMessage(error: unknown): string {
   if (error instanceof ApiClientError) {
+    if (error.message === "Request cancelled") {
+      return "";
+    }
     return error.message;
   }
   if (error instanceof Error) {
@@ -245,17 +248,20 @@ function TagInput({
         </Button>
       </div>
       {values.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {values.map((value) => (
-            <button
-              className="rounded-full border border-border bg-muted px-2 py-0.5 text-xs"
-              key={value}
-              onClick={() => onChange(values.filter((candidate) => candidate !== value))}
-              type="button"
-            >
-              {value} ×
-            </button>
-          ))}
+        <div className="themed-scrollbar max-h-36 overflow-y-auto pr-1">
+          <div className="flex flex-wrap gap-1.5">
+            {values.map((value) => (
+              <button
+                className="inline-flex max-w-full items-center gap-1 rounded-full border border-border bg-muted px-2 py-0.5 text-xs"
+                key={value}
+                onClick={() => onChange(values.filter((candidate) => candidate !== value))}
+                type="button"
+              >
+                <span className="truncate">{value}</span>
+                <span aria-hidden>×</span>
+              </button>
+            ))}
+          </div>
         </div>
       )}
     </div>
@@ -292,6 +298,9 @@ export function ViewsHubPage() {
         setAccounts(response);
       })
       .catch((error) => {
+        if (controller.signal.aborted) {
+          return;
+        }
         setAccountsError(toErrorMessage(error));
       });
     return () => controller.abort();
@@ -666,6 +675,12 @@ export function ViewsHubPage() {
                     view.id === selectedViewId ? "bg-accent" : "bg-background"
                   }`}
                   key={view.id}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      setSelectedViewId(view.id);
+                    }
+                  }}
                   onClick={() => setSelectedViewId(view.id)}
                   role="button"
                   tabIndex={0}
@@ -824,8 +839,8 @@ export function ViewsHubPage() {
       <SenderHighlightsManager />
 
       <Dialog onOpenChange={setDialogOpen} open={dialogOpen}>
-        <DialogContent className="max-w-3xl">
-          <DialogHeader>
+        <DialogContent className="flex h-[min(92vh,920px)] min-h-0 w-[min(96vw,1120px)] max-w-none flex-col overflow-hidden p-0">
+          <DialogHeader className="shrink-0 border-b border-border px-6 pb-4 pt-6">
             <DialogTitle>
               {dialogMode === "create"
                 ? "Create View"
@@ -838,319 +853,327 @@ export function ViewsHubPage() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <p className="text-xs font-medium text-muted-foreground">Name</p>
-              <Input
-                onChange={(event) =>
-                  setForm((previous) => ({ ...previous, name: event.target.value }))
-                }
-                value={form.name}
-              />
-              {formErrors.name && <p className="text-xs text-destructive">{formErrors.name}</p>}
-            </div>
-
-            <div className="space-y-2">
-              <p className="text-xs font-medium text-muted-foreground">Icon</p>
-              <select
-                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                onChange={(event) =>
-                  setForm((previous) => ({ ...previous, icon: event.target.value }))
-                }
-                value={form.icon}
-              >
-                <option value="">None</option>
-                {ICON_OPTIONS.map((icon) => (
-                  <option key={icon} value={icon}>
-                    {icon}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="space-y-2">
-              <p className="text-xs font-medium text-muted-foreground">Priority</p>
-              <Input
-                max={5}
-                min={1}
-                onChange={(event) =>
-                  setForm((previous) => ({
-                    ...previous,
-                    priority: Math.min(5, Math.max(1, Number(event.target.value) || 1)),
-                  }))
-                }
-                type="number"
-                value={form.priority}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <p className="text-xs font-medium text-muted-foreground">Sort Order</p>
-              <Input
-                max={9999}
-                min={0}
-                onChange={(event) =>
-                  setForm((previous) => ({
-                    ...previous,
-                    sortOrder: Math.min(9999, Math.max(0, Number(event.target.value) || 0)),
-                  }))
-                }
-                type="number"
-                value={form.sortOrder}
-              />
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <p className="text-xs font-medium text-muted-foreground">Scope</p>
-            <div className="flex gap-3">
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  checked={form.scopeType === "ALL"}
-                  onChange={() => setForm((previous) => ({ ...previous, scopeType: "ALL" }))}
-                  type="radio"
+          <div className="themed-scrollbar min-h-0 flex-1 space-y-5 overflow-y-scroll px-6 py-5">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-muted-foreground">Name</p>
+                <Input
+                  onChange={(event) =>
+                    setForm((previous) => ({ ...previous, name: event.target.value }))
+                  }
+                  value={form.name}
                 />
-                ALL
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  checked={form.scopeType === "SELECTED"}
-                  onChange={() => setForm((previous) => ({ ...previous, scopeType: "SELECTED" }))}
-                  type="radio"
-                />
-                SELECTED
-              </label>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button onClick={applyScopeAll} size="sm" type="button" variant="outline">
-                Use all emails
-              </Button>
-              <Button onClick={applyScopePrimary} size="sm" type="button" variant="outline">
-                Use primary email
-              </Button>
-              <Button onClick={applyScopeSecondary} size="sm" type="button" variant="outline">
-                Use secondary email(s)
-              </Button>
-            </div>
-            {accounts.length > 0 && (
-              <div className="space-y-1">
-                <p className="text-xs text-muted-foreground">Or pick a single account email</p>
+                {formErrors.name && <p className="text-xs text-destructive">{formErrors.name}</p>}
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-muted-foreground">Icon</p>
                 <select
                   className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    if (value === "__ALL__") {
-                      applyScopeAll();
-                      return;
-                    }
-                    setActionError(null);
-                    setForm((previous) => ({
-                      ...previous,
-                      scopeType: "SELECTED",
-                      selectedAccountIds: [value],
-                    }));
-                  }}
-                  value={
-                    form.scopeType === "ALL" ? "__ALL__" : (form.selectedAccountIds[0] ?? "__ALL__")
+                  onChange={(event) =>
+                    setForm((previous) => ({ ...previous, icon: event.target.value }))
                   }
+                  value={form.icon}
                 >
-                  <option value="__ALL__">All accounts</option>
-                  {accounts.map((account) => (
-                    <option key={account.id} value={account.id}>
-                      {account.email} ({accountRoleBadge(account)})
+                  <option value="">None</option>
+                  {ICON_OPTIONS.map((icon) => (
+                    <option key={icon} value={icon}>
+                      {icon}
                     </option>
                   ))}
                 </select>
               </div>
-            )}
-            {form.scopeType === "SELECTED" && (
-              <div className="rounded-md border border-border p-2">
-                {accountsError && <p className="text-xs text-destructive">{accountsError}</p>}
-                {!accountsError && accounts.length === 0 && (
-                  <p className="text-xs text-muted-foreground">No accounts available.</p>
-                )}
-                {!accountsError && accounts.length > 0 && (
-                  <div className="space-y-1">
+
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-muted-foreground">Priority</p>
+                <Input
+                  max={5}
+                  min={1}
+                  onChange={(event) =>
+                    setForm((previous) => ({
+                      ...previous,
+                      priority: Math.min(5, Math.max(1, Number(event.target.value) || 1)),
+                    }))
+                  }
+                  type="number"
+                  value={form.priority}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-muted-foreground">Sort Order</p>
+                <Input
+                  max={9999}
+                  min={0}
+                  onChange={(event) =>
+                    setForm((previous) => ({
+                      ...previous,
+                      sortOrder: Math.min(9999, Math.max(0, Number(event.target.value) || 0)),
+                    }))
+                  }
+                  type="number"
+                  value={form.sortOrder}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-muted-foreground">Scope</p>
+              <div className="flex gap-3">
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    checked={form.scopeType === "ALL"}
+                    onChange={() => setForm((previous) => ({ ...previous, scopeType: "ALL" }))}
+                    type="radio"
+                  />
+                  ALL
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    checked={form.scopeType === "SELECTED"}
+                    onChange={() =>
+                      setForm((previous) => ({ ...previous, scopeType: "SELECTED" }))
+                    }
+                    type="radio"
+                  />
+                  SELECTED
+                </label>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button onClick={applyScopeAll} size="sm" type="button" variant="outline">
+                  Use all emails
+                </Button>
+                <Button onClick={applyScopePrimary} size="sm" type="button" variant="outline">
+                  Use primary email
+                </Button>
+                <Button onClick={applyScopeSecondary} size="sm" type="button" variant="outline">
+                  Use secondary email(s)
+                </Button>
+              </div>
+              {accounts.length > 0 && (
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">Or pick a single account email</p>
+                  <select
+                    className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      if (value === "__ALL__") {
+                        applyScopeAll();
+                        return;
+                      }
+                      setActionError(null);
+                      setForm((previous) => ({
+                        ...previous,
+                        scopeType: "SELECTED",
+                        selectedAccountIds: [value],
+                      }));
+                    }}
+                    value={
+                      form.scopeType === "ALL"
+                        ? "__ALL__"
+                        : (form.selectedAccountIds[0] ?? "__ALL__")
+                    }
+                  >
+                    <option value="__ALL__">All accounts</option>
                     {accounts.map((account) => (
-                      <label className="flex items-center gap-2 text-sm" key={account.id}>
-                        <input
-                          checked={form.selectedAccountIds.includes(account.id)}
-                          onChange={(event) => {
+                      <option key={account.id} value={account.id}>
+                        {account.email} ({accountRoleBadge(account)})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              {form.scopeType === "SELECTED" && (
+                <div className="rounded-md border border-border p-2">
+                  {accountsError && <p className="text-xs text-destructive">{accountsError}</p>}
+                  {!accountsError && accounts.length === 0 && (
+                    <p className="text-xs text-muted-foreground">No accounts available.</p>
+                  )}
+                  {!accountsError && accounts.length > 0 && (
+                    <div className="themed-scrollbar max-h-36 space-y-1 overflow-y-auto pr-1">
+                      {accounts.map((account) => (
+                        <label className="flex items-center gap-2 text-sm" key={account.id}>
+                          <input
+                            checked={form.selectedAccountIds.includes(account.id)}
+                            onChange={(event) => {
+                              setForm((previous) => ({
+                                ...previous,
+                                selectedAccountIds: event.target.checked
+                                  ? [...new Set([...previous.selectedAccountIds, account.id])]
+                                  : previous.selectedAccountIds.filter((id) => id !== account.id),
+                              }));
+                            }}
+                            type="checkbox"
+                          />
+                          {account.email}
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              {formErrors.scopeType && (
+                <p className="text-xs text-destructive">{formErrors.scopeType}</p>
+              )}
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-3">
+              <TagInput
+                label="Sender domains"
+                onChange={(values) =>
+                  setForm((previous) => ({ ...previous, senderDomains: values }))
+                }
+                placeholder="company.com"
+                values={form.senderDomains}
+              />
+              <TagInput
+                label="Sender emails"
+                onChange={(values) => setForm((previous) => ({ ...previous, senderEmails: values }))}
+                placeholder="boss@company.com"
+                values={form.senderEmails}
+              />
+              <TagInput
+                label="Keywords"
+                onChange={(values) => setForm((previous) => ({ ...previous, keywords: values }))}
+                placeholder="invoice"
+                values={form.keywords}
+              />
+            </div>
+
+            <div className="space-y-3 rounded-lg border border-border bg-background p-3">
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-muted-foreground">View Labels</p>
+                <p className="text-xs text-muted-foreground">
+                  Labels are scoped to this view and can be assigned per message.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <Input
+                  className="min-w-[200px] flex-1"
+                  maxLength={30}
+                  onChange={(event) => setLabelDraftName(event.target.value)}
+                  placeholder="Label name (e.g. Boss)"
+                  value={labelDraftName}
+                />
+                <select
+                  className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                  onChange={(event) => setLabelDraftColor(event.target.value as AccentToken)}
+                  value={labelDraftColor}
+                >
+                  {ACCENT_TOKENS.map((accentToken) => (
+                    <option key={accentToken} value={accentToken}>
+                      {accentToken}
+                    </option>
+                  ))}
+                </select>
+                <Button onClick={addLabelDraft} size="sm" type="button" variant="outline">
+                  Add label
+                </Button>
+              </div>
+
+              {form.labels.length > 0 ? (
+                <div className="themed-scrollbar max-h-56 space-y-2 overflow-y-auto pr-1">
+                  {form.labels.map((label, index) => {
+                    const accent = getAccentClasses(label.colorToken);
+                    return (
+                      <div
+                        className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-card px-2 py-2"
+                        key={`${label.id ?? "new"}-${index}`}
+                      >
+                        <Input
+                          className="min-w-[180px] flex-1"
+                          maxLength={30}
+                          onChange={(event) =>
                             setForm((previous) => ({
                               ...previous,
-                              selectedAccountIds: event.target.checked
-                                ? [...previous.selectedAccountIds, account.id]
-                                : previous.selectedAccountIds.filter((id) => id !== account.id),
-                            }));
-                          }}
-                          type="checkbox"
+                              labels: previous.labels.map((candidate, candidateIndex) =>
+                                candidateIndex === index
+                                  ? {
+                                      ...candidate,
+                                      name: event.target.value,
+                                    }
+                                  : candidate
+                              ),
+                            }))
+                          }
+                          value={label.name}
                         />
-                        {account.email}
-                      </label>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-            {formErrors.scopeType && (
-              <p className="text-xs text-destructive">{formErrors.scopeType}</p>
-            )}
-          </div>
+                        <select
+                          className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                          onChange={(event) =>
+                            setForm((previous) => ({
+                              ...previous,
+                              labels: previous.labels.map((candidate, candidateIndex) =>
+                                candidateIndex === index
+                                  ? {
+                                      ...candidate,
+                                      colorToken: event.target.value as AccentToken,
+                                    }
+                                  : candidate
+                              ),
+                            }))
+                          }
+                          value={label.colorToken}
+                        >
+                          {ACCENT_TOKENS.map((accentToken) => (
+                            <option key={accentToken} value={accentToken}>
+                              {accentToken}
+                            </option>
+                          ))}
+                        </select>
+                        <Badge className={cn("border text-[10px]", accent.badge)} variant="outline">
+                          Preview
+                        </Badge>
+                        <Button
+                          onClick={() =>
+                            setForm((previous) => ({
+                              ...previous,
+                              labels: previous.labels.filter(
+                                (_, candidateIndex) => candidateIndex !== index
+                              ),
+                            }))
+                          }
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">No labels configured yet.</p>
+              )}
+            </div>
 
-          <div className="grid gap-4 md:grid-cols-3">
-            <TagInput
-              label="Sender domains"
-              onChange={(values) => setForm((previous) => ({ ...previous, senderDomains: values }))}
-              placeholder="company.com"
-              values={form.senderDomains}
-            />
-            <TagInput
-              label="Sender emails"
-              onChange={(values) => setForm((previous) => ({ ...previous, senderEmails: values }))}
-              placeholder="boss@company.com"
-              values={form.senderEmails}
-            />
-            <TagInput
-              label="Keywords"
-              onChange={(values) => setForm((previous) => ({ ...previous, keywords: values }))}
-              placeholder="invoice"
-              values={form.keywords}
-            />
-          </div>
-
-          <div className="space-y-3 rounded-lg border border-border bg-background p-3">
-            <div className="space-y-1">
-              <p className="text-xs font-medium text-muted-foreground">View Labels</p>
-              <p className="text-xs text-muted-foreground">
-                Labels are scoped to this view and can be assigned per message.
+            {(formErrors.senderDomains || formErrors.senderEmails || formErrors.keywords) && (
+              <p className="text-xs text-destructive">
+                {formErrors.senderDomains ?? formErrors.senderEmails ?? formErrors.keywords}
               </p>
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              <Input
-                className="min-w-[200px] flex-1"
-                maxLength={30}
-                onChange={(event) => setLabelDraftName(event.target.value)}
-                placeholder="Label name (e.g. Boss)"
-                value={labelDraftName}
-              />
-              <select
-                className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-                onChange={(event) => setLabelDraftColor(event.target.value as AccentToken)}
-                value={labelDraftColor}
-              >
-                {ACCENT_TOKENS.map((accentToken) => (
-                  <option key={accentToken} value={accentToken}>
-                    {accentToken}
-                  </option>
-                ))}
-              </select>
-              <Button onClick={addLabelDraft} size="sm" type="button" variant="outline">
-                Add label
-              </Button>
-            </div>
-
-            {form.labels.length > 0 ? (
-              <div className="space-y-2">
-                {form.labels.map((label, index) => {
-                  const accent = getAccentClasses(label.colorToken);
-                  return (
-                    <div
-                      className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-card px-2 py-2"
-                      key={`${label.id ?? "new"}-${index}`}
-                    >
-                      <Input
-                        className="min-w-[180px] flex-1"
-                        maxLength={30}
-                        onChange={(event) =>
-                          setForm((previous) => ({
-                            ...previous,
-                            labels: previous.labels.map((candidate, candidateIndex) =>
-                              candidateIndex === index
-                                ? {
-                                    ...candidate,
-                                    name: event.target.value,
-                                  }
-                                : candidate
-                            ),
-                          }))
-                        }
-                        value={label.name}
-                      />
-                      <select
-                        className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-                        onChange={(event) =>
-                          setForm((previous) => ({
-                            ...previous,
-                            labels: previous.labels.map((candidate, candidateIndex) =>
-                              candidateIndex === index
-                                ? {
-                                    ...candidate,
-                                    colorToken: event.target.value as AccentToken,
-                                  }
-                                : candidate
-                            ),
-                          }))
-                        }
-                        value={label.colorToken}
-                      >
-                        {ACCENT_TOKENS.map((accentToken) => (
-                          <option key={accentToken} value={accentToken}>
-                            {accentToken}
-                          </option>
-                        ))}
-                      </select>
-                      <Badge className={cn("border text-[10px]", accent.badge)} variant="outline">
-                        Preview
-                      </Badge>
-                      <Button
-                        onClick={() =>
-                          setForm((previous) => ({
-                            ...previous,
-                            labels: previous.labels.filter(
-                              (_, candidateIndex) => candidateIndex !== index
-                            ),
-                          }))
-                        }
-                        size="sm"
-                        type="button"
-                        variant="outline"
-                      >
-                        Remove
-                      </Button>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <p className="text-xs text-muted-foreground">No labels configured yet.</p>
             )}
+            {formErrors.labels && <p className="text-xs text-destructive">{formErrors.labels}</p>}
+
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                checked={form.unreadOnly}
+                onChange={(event) =>
+                  setForm((previous) => ({
+                    ...previous,
+                    unreadOnly: event.target.checked,
+                  }))
+                }
+                type="checkbox"
+              />
+              Unread only
+            </label>
+
+            {actionError && <p className="text-sm text-destructive">{actionError}</p>}
           </div>
 
-          {(formErrors.senderDomains || formErrors.senderEmails || formErrors.keywords) && (
-            <p className="text-xs text-destructive">
-              {formErrors.senderDomains ?? formErrors.senderEmails ?? formErrors.keywords}
-            </p>
-          )}
-          {formErrors.labels && <p className="text-xs text-destructive">{formErrors.labels}</p>}
-
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              checked={form.unreadOnly}
-              onChange={(event) =>
-                setForm((previous) => ({
-                  ...previous,
-                  unreadOnly: event.target.checked,
-                }))
-              }
-              type="checkbox"
-            />
-            Unread only
-          </label>
-
-          {actionError && <p className="text-sm text-destructive">{actionError}</p>}
-
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t border-border bg-background px-6 py-4">
             <Button onClick={() => setDialogOpen(false)} type="button" variant="outline">
               Cancel
             </Button>
